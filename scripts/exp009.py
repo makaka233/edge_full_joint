@@ -1,5 +1,6 @@
 """EXP009 experiments: paired physical credit and conditioned spatial replica actions."""
 import argparse
+import base64
 from copy import deepcopy
 import gzip
 import json
@@ -131,7 +132,7 @@ def distribution(cfg, actor, arm, gs, out):
             emit(out/'probe.jsonl', dict(sample=sample, **row))
 
 
-def train_step(actor, cfg, arm, update):
+def train_step(actor, cfg, arm, update, *, trace_probabilities=False):
     context = make_world(cfg.seed, update-1, 'train')
     mean = actor(context)
     noise = np.random.default_rng(_identity(cfg, 'train', 'exploration', update-1)).standard_normal(8)
@@ -149,6 +150,16 @@ def train_step(actor, cfg, arm, update):
             decode_one = lambda env, latent, seed: placement
             metadata.update(spatial_log_prob=float(log_prob.detach()), eligible_bits=int(eligible.sum()),
                             bit_draw_seed=bit_seed)
+            if trace_probabilities:
+                with torch.no_grad():
+                    logits = actor.logits(context, vector.numpy())[eligible]
+                    selected = placement.matrix[eligible]
+                    metadata.update(
+                        eligible_mask=np.packbits(eligible).tobytes().hex(),
+                        eligible_logits_f32le=base64.b64encode(logits.numpy().astype('<f4').tobytes()).decode('ascii'),
+                        selected_log_prob=float(torch.nn.functional.logsigmoid(logits[selected]).sum()),
+                        rejected_log_prob=float(torch.nn.functional.logsigmoid(-logits[~selected]).sum()),
+                        selected_bits=int(selected.sum()))
         row = submit(cfg, actor, decode_one, LoadAwareHeuristic(), 'train', update-1, 2*update-1+index, vector)
         data.append(dict(update=update, branch='positive' if index == 0 else 'negative', **metadata, **row))
     if data[0]['nested_trace_hash'] != data[1]['nested_trace_hash']:

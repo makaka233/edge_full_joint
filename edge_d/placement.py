@@ -42,9 +42,10 @@ class Placement:
     coverage_fallback: bool
     global_cpu_lb: float
     transport_cpu_ceiling: float | None
+    inventory_reroutes: int = 0
 
 
-def decode(env, latent, seed):
+def decode(env, latent, seed, inventory_routing=False, residual=None, include_optional=True):
     """Map one latent sample to one matrix, without traffic simulation or retries."""
     rng = np.random.default_rng(seed)
     stages, nodes = env.K, env.N
@@ -64,11 +65,35 @@ def decode(env, latent, seed):
     priority = ((1. + latent[0]) * locality + (.5 + latent[1]) * speed
                 + latent[2] * node_load - (.25 + latent[3]) * footprint
                 + rng.standard_normal((stages, nodes)))
-    flow = linprog(-priority.ravel(), A_eq=stage_map, b_eq=work, A_ub=node_map,
-                   b_ub=cpu * ceiling, bounds=np.column_stack((np.zeros(stages * nodes),
-                   (eligible * work[:, None]).ravel())), method='highs')
-    if not flow.success and flow.status != 2:
-        raise RuntimeError(f'CPU transport solver: {flow.message}')
+    if residual is not None:
+        priority = priority + residual[0]
+    allowed = eligible.copy()
+
+    def transport():
+        fit = linprog(-priority.ravel(), A_eq=stage_map, b_eq=work, A_ub=node_map,
+                      b_ub=cpu*ceiling, bounds=np.column_stack((np.zeros(stages*nodes),
+                      (allowed*work[:, None]).ravel())), method='highs')
+        if not fit.success and fit.status != 2:
+            raise RuntimeError(f'CPU transport solver: {fit.message}')
+        return fit
+
+    flow = transport()
+    reroutes = 0
+    while inventory_routing and flow.success:
+        loads = flow.x.reshape(stages, nodes)
+        support = loads > 1e-9
+        excess = (support.T @ env.spec)/env.capacity - 1.
+        if excess.max() <= 1e-10:
+            break
+        node, resource = np.unravel_index(excess.argmax(), excess.shape)
+        choices = np.flatnonzero(support[:, node] & (allowed.sum(1) > 1))
+        if not choices.size:
+            break
+        score = loads[choices, node]/env.spec[choices, resource]
+        stage = choices[score.argmin()]
+        allowed[stage, node] = False
+        reroutes += 1
+        flow = transport()
     matrix = (flow.x.reshape(stages, nodes) > 1e-9) if flow.success else np.zeros_like(eligible)
     fallback = not (matrix.any(1).all() and np.all(matrix.T @ env.spec <= env.capacity + 1e-9))
     if fallback:
@@ -82,8 +107,12 @@ def decode(env, latent, seed):
         if not fit.success:
             raise RuntimeError(f'Structural coverage solver: {fit.message}')
         matrix = fit.x.reshape(stages, nodes) > .5
+    if not include_optional:
+        return Placement(matrix, fallback, global_lb, float(ceiling), reroutes)
     optional = (-3.5 + latent[4] + (.35 + latent[5]) * locality
                 + latent[6] * _standardize(work)[:, None] + rng.logistic(size=matrix.shape))
+    if residual is not None:
+        optional = optional + residual[1]
     free = env.capacity - matrix.T @ env.spec
     choices = np.flatnonzero(((optional > 0.) & eligible & ~matrix).ravel())
     for index in choices[np.argsort(-optional.ravel()[choices], kind='stable')]:
@@ -93,7 +122,7 @@ def decode(env, latent, seed):
             free[node] -= env.spec[stage]
     if not (matrix.any(1).all() and np.all(matrix.T @ env.spec <= env.capacity + 1e-7)):
         raise AssertionError('Decoder produced an illegal deployment')
-    return Placement(matrix, fallback, global_lb, float(ceiling))
+    return Placement(matrix, fallback, global_lb, float(ceiling), reroutes)
 
 
 def paired_loss(mean, positive, negative, reward_delta, sigma):

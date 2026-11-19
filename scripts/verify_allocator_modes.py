@@ -7,8 +7,8 @@ import argparse
 import json
 from pathlib import Path
 import numpy as np
-from edge_d.training import new_actor
-from edge_d.rollout import sample_layout
+from research.history.legacy_edit.training import new_actor
+from research.history.legacy_edit.rollout import sample_layout
 from edge_d.world import make_world
 from edge_d.physical import evaluate_layout
 

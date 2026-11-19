@@ -1,0 +1,2765 @@
+{
+  "20261113": {
+    "training": {
+      "n": 240,
+      "net_reward": -997.9246454671879,
+      "mean_reward": -4.158019356113283,
+      "min_reward": -5.030974926154409,
+      "worst5": -4.815952446963793,
+      "worst5_n": 12,
+      "threshold_spikes": 0,
+      "switch_cost": 10.447594742040659,
+      "holding_cost": 35.2171753154589,
+      "completed": 106370,
+      "completed_e2e": {
+        "mean": 0.40193410481004893,
+        "p95": 0.6099249669839573,
+        "p99": 0.7153737349864022
+      },
+      "penalized_e2e": {
+        "mean": 0.40193410481004893,
+        "p95": 0.6099249669839573,
+        "p99": 0.7153737349864022
+      },
+      "censored": 0,
+      "recovered": 0,
+      "unfinished_after_drain": 0,
+      "modeled_drops": 0,
+      "actions": {
+        "BUILD": 136,
+        "KEEP": 104
+      },
+      "build_fraction": 0.5666666666666667,
+      "peak_boundary_backlog": 19,
+      "max_cpu_outstanding": 3.700766613651552,
+      "max_link_outstanding": 5.200589486684122,
+      "max_old_cpu_lp": 0.4349988503393818
+    },
+    "holdout": {
+      "keep": {
+        "combined": {
+          "n": 24,
+          "net_reward": -106.5833807657419,
+          "mean_reward": -4.440974198572579,
+          "min_reward": -5.0176723575618745,
+          "worst5": -4.977869291286524,
+          "worst5_n": 2,
+          "threshold_spikes": 0,
+          "switch_cost": 0.2067493248839888,
+          "holding_cost": 3.3079891981438214,
+          "completed": 12489,
+          "completed_e2e": {
+            "mean": 0.43332585812101143,
+            "p95": 0.7053126700358227,
+            "p99": 0.8507202714604603
+          },
+          "penalized_e2e": {
+            "mean": 0.43332585812101143,
+            "p95": 0.7053126700358227,
+            "p99": 0.8507202714604603
+          },
+          "censored": 0,
+          "recovered": 0,
+          "unfinished_after_drain": 0,
+          "modeled_drops": 0,
+          "actions": {
+            "BUILD": 3,
+            "KEEP": 21
+          },
+          "build_fraction": 0.125,
+          "peak_boundary_backlog": 17,
+          "max_cpu_outstanding": 3.581752417679237,
+          "max_link_outstanding": 3.6506173473311807,
+          "max_old_cpu_lp": 0.5547032169948805
+        },
+        "per_demand": {
+          "20261211": {
+            "n": 8,
+            "net_reward": -36.512741672465495,
+            "mean_reward": -4.564092709058187,
+            "min_reward": -5.0176723575618745,
+            "worst5": -5.0176723575618745,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.06714991198132929,
+            "holding_cost": 1.0743985917012686,
+            "completed": 3530,
+            "completed_e2e": {
+              "mean": 0.4454773942123072,
+              "p95": 0.7152986271059714,
+              "p99": 0.8308695315814988
+            },
+            "penalized_e2e": {
+              "mean": 0.4454773942123072,
+              "p95": 0.7152986271059714,
+              "p99": 0.8308695315814988
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 1,
+              "KEEP": 7
+            },
+            "build_fraction": 0.125,
+            "peak_boundary_backlog": 12,
+            "max_cpu_outstanding": 3.581752417679237,
+            "max_link_outstanding": 2.868195216178298,
+            "max_old_cpu_lp": 0.4835005125800898
+          },
+          "20261212": {
+            "n": 8,
+            "net_reward": -36.06508432406514,
+            "mean_reward": -4.5081355405081425,
+            "min_reward": -4.815280970438863,
+            "worst5": -4.815280970438863,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.07068323815332038,
+            "holding_cost": 1.130931810453126,
+            "completed": 5819,
+            "completed_e2e": {
+              "mean": 0.43814681960774643,
+              "p95": 0.7369477787447849,
+              "p99": 0.883858835463787
+            },
+            "penalized_e2e": {
+              "mean": 0.43814681960774643,
+              "p95": 0.7369477787447849,
+              "p99": 0.883858835463787
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 1,
+              "KEEP": 7
+            },
+            "build_fraction": 0.125,
+            "peak_boundary_backlog": 17,
+            "max_cpu_outstanding": 2.923985124699141,
+            "max_link_outstanding": 3.6506173473311807,
+            "max_old_cpu_lp": 0.5547032169948805
+          },
+          "20261213": {
+            "n": 8,
+            "net_reward": -34.00555476921126,
+            "mean_reward": -4.250694346151407,
+            "min_reward": -4.410458268554856,
+            "worst5": -4.410458268554856,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.06891617474933914,
+            "holding_cost": 1.1026587959894263,
+            "completed": 3140,
+            "completed_e2e": {
+              "mean": 0.4107309226771946,
+              "p95": 0.5888760824756474,
+              "p99": 0.6893498467216872
+            },
+            "penalized_e2e": {
+              "mean": 0.4107309226771946,
+              "p95": 0.5888760824756474,
+              "p99": 0.6893498467216872
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 1,
+              "KEEP": 7
+            },
+            "build_fraction": 0.125,
+            "peak_boundary_backlog": 9,
+            "max_cpu_outstanding": 3.0840577382902126,
+            "max_link_outstanding": 2.5723173463530125,
+            "max_old_cpu_lp": 0.28377282577649143
+          }
+        },
+        "evaluation_wall_seconds": 19.50981519999914
+      },
+      "build": {
+        "combined": {
+          "n": 24,
+          "net_reward": -103.74709657373836,
+          "mean_reward": -4.322795690572431,
+          "min_reward": -4.641793326067952,
+          "worst5": -4.598132856456713,
+          "worst5_n": 2,
+          "threshold_spikes": 0,
+          "switch_cost": 1.9288435872168166,
+          "holding_cost": 3.645702550049837,
+          "completed": 12489,
+          "completed_e2e": {
+            "mean": 0.40946980534906763,
+            "p95": 0.6274056732744019,
+            "p99": 0.7401286352598185
+          },
+          "penalized_e2e": {
+            "mean": 0.40946980534906763,
+            "p95": 0.6274056732744019,
+            "p99": 0.7401286352598185
+          },
+          "censored": 0,
+          "recovered": 0,
+          "unfinished_after_drain": 0,
+          "modeled_drops": 0,
+          "actions": {
+            "BUILD": 24
+          },
+          "build_fraction": 1.0,
+          "peak_boundary_backlog": 17,
+          "max_cpu_outstanding": 2.250258536233779,
+          "max_link_outstanding": 3.3131829450868517,
+          "max_old_cpu_lp": 0.48330774202416177
+        },
+        "per_demand": {
+          "20261211": {
+            "n": 8,
+            "net_reward": -34.90094427955144,
+            "mean_reward": -4.36261803494393,
+            "min_reward": -4.641793326067952,
+            "worst5": -4.641793326067952,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.629111070995152,
+            "holding_cost": 1.1810980027466271,
+            "completed": 3530,
+            "completed_e2e": {
+              "mean": 0.41513596338120723,
+              "p95": 0.609186171715105,
+              "p99": 0.7030290661854837
+            },
+            "penalized_e2e": {
+              "mean": 0.41513596338120723,
+              "p95": 0.609186171715105,
+              "p99": 0.7030290661854837
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 8
+            },
+            "build_fraction": 1.0,
+            "peak_boundary_backlog": 13,
+            "max_cpu_outstanding": 2.206439655958283,
+            "max_link_outstanding": 2.4618191912424408,
+            "max_old_cpu_lp": 0.3726221644446025
+          },
+          "20261212": {
+            "n": 8,
+            "net_reward": -34.55487073130669,
+            "mean_reward": -4.319358841413337,
+            "min_reward": -4.536434518054442,
+            "worst5": -4.536434518054442,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.6765234194626623,
+            "holding_cost": 1.2884976268702792,
+            "completed": 5819,
+            "completed_e2e": {
+              "mean": 0.40760076333619555,
+              "p95": 0.6536318703154127,
+              "p99": 0.7798834106358079
+            },
+            "penalized_e2e": {
+              "mean": 0.40760076333619555,
+              "p95": 0.6536318703154127,
+              "p99": 0.7798834106358079
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 8
+            },
+            "build_fraction": 1.0,
+            "peak_boundary_backlog": 17,
+            "max_cpu_outstanding": 2.250258536233779,
+            "max_link_outstanding": 3.3131829450868517,
+            "max_old_cpu_lp": 0.48330774202416177
+          },
+          "20261213": {
+            "n": 8,
+            "net_reward": -34.29128156288023,
+            "mean_reward": -4.286410195360029,
+            "min_reward": -4.4256621416998865,
+            "worst5": -4.4256621416998865,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.623209096759002,
+            "holding_cost": 1.1761069204329306,
+            "completed": 3140,
+            "completed_e2e": {
+              "mean": 0.4065635689221409,
+              "p95": 0.6029487430071409,
+              "p99": 0.6875227126333319
+            },
+            "penalized_e2e": {
+              "mean": 0.4065635689221409,
+              "p95": 0.6029487430071409,
+              "p99": 0.6875227126333319
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 8
+            },
+            "build_fraction": 1.0,
+            "peak_boundary_backlog": 9,
+            "max_cpu_outstanding": 1.924782953069945,
+            "max_link_outstanding": 2.011512820144234,
+            "max_old_cpu_lp": 0.2165469562083998
+          }
+        },
+        "evaluation_wall_seconds": 19.69951599999331
+      },
+      "old_gate": {
+        "combined": {
+          "n": 24,
+          "net_reward": -106.5833807657419,
+          "mean_reward": -4.440974198572579,
+          "min_reward": -5.0176723575618745,
+          "worst5": -4.977869291286524,
+          "worst5_n": 2,
+          "threshold_spikes": 0,
+          "switch_cost": 0.2067493248839888,
+          "holding_cost": 3.3079891981438214,
+          "completed": 12489,
+          "completed_e2e": {
+            "mean": 0.43332585812101143,
+            "p95": 0.7053126700358227,
+            "p99": 0.8507202714604603
+          },
+          "penalized_e2e": {
+            "mean": 0.43332585812101143,
+            "p95": 0.7053126700358227,
+            "p99": 0.8507202714604603
+          },
+          "censored": 0,
+          "recovered": 0,
+          "unfinished_after_drain": 0,
+          "modeled_drops": 0,
+          "actions": {
+            "BUILD": 3,
+            "KEEP": 21
+          },
+          "build_fraction": 0.125,
+          "peak_boundary_backlog": 17,
+          "max_cpu_outstanding": 3.581752417679237,
+          "max_link_outstanding": 3.6506173473311807,
+          "max_old_cpu_lp": 0.5547032169948805
+        },
+        "per_demand": {
+          "20261211": {
+            "n": 8,
+            "net_reward": -36.512741672465495,
+            "mean_reward": -4.564092709058187,
+            "min_reward": -5.0176723575618745,
+            "worst5": -5.0176723575618745,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.06714991198132929,
+            "holding_cost": 1.0743985917012686,
+            "completed": 3530,
+            "completed_e2e": {
+              "mean": 0.4454773942123072,
+              "p95": 0.7152986271059714,
+              "p99": 0.8308695315814988
+            },
+            "penalized_e2e": {
+              "mean": 0.4454773942123072,
+              "p95": 0.7152986271059714,
+              "p99": 0.8308695315814988
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 1,
+              "KEEP": 7
+            },
+            "build_fraction": 0.125,
+            "peak_boundary_backlog": 12,
+            "max_cpu_outstanding": 3.581752417679237,
+            "max_link_outstanding": 2.868195216178298,
+            "max_old_cpu_lp": 0.4835005125800898
+          },
+          "20261212": {
+            "n": 8,
+            "net_reward": -36.06508432406514,
+            "mean_reward": -4.5081355405081425,
+            "min_reward": -4.815280970438863,
+            "worst5": -4.815280970438863,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.07068323815332038,
+            "holding_cost": 1.130931810453126,
+            "completed": 5819,
+            "completed_e2e": {
+              "mean": 0.43814681960774643,
+              "p95": 0.7369477787447849,
+              "p99": 0.883858835463787
+            },
+            "penalized_e2e": {
+              "mean": 0.43814681960774643,
+              "p95": 0.7369477787447849,
+              "p99": 0.883858835463787
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 1,
+              "KEEP": 7
+            },
+            "build_fraction": 0.125,
+            "peak_boundary_backlog": 17,
+            "max_cpu_outstanding": 2.923985124699141,
+            "max_link_outstanding": 3.6506173473311807,
+            "max_old_cpu_lp": 0.5547032169948805
+          },
+          "20261213": {
+            "n": 8,
+            "net_reward": -34.00555476921126,
+            "mean_reward": -4.250694346151407,
+            "min_reward": -4.410458268554856,
+            "worst5": -4.410458268554856,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.06891617474933914,
+            "holding_cost": 1.1026587959894263,
+            "completed": 3140,
+            "completed_e2e": {
+              "mean": 0.4107309226771946,
+              "p95": 0.5888760824756474,
+              "p99": 0.6893498467216872
+            },
+            "penalized_e2e": {
+              "mean": 0.4107309226771946,
+              "p95": 0.5888760824756474,
+              "p99": 0.6893498467216872
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 1,
+              "KEEP": 7
+            },
+            "build_fraction": 0.125,
+            "peak_boundary_backlog": 9,
+            "max_cpu_outstanding": 3.0840577382902126,
+            "max_link_outstanding": 2.5723173463530125,
+            "max_old_cpu_lp": 0.28377282577649143
+          }
+        },
+        "evaluation_wall_seconds": 20.144351700000698
+      },
+      "credit": {
+        "combined": {
+          "n": 24,
+          "net_reward": -104.12113750125584,
+          "mean_reward": -4.3383807292189935,
+          "min_reward": -4.750261212419578,
+          "worst5": -4.696269536406291,
+          "worst5_n": 2,
+          "threshold_spikes": 0,
+          "switch_cost": 1.047842778448817,
+          "holding_cost": 3.706346321480231,
+          "completed": 12489,
+          "completed_e2e": {
+            "mean": 0.41448562480905693,
+            "p95": 0.6355013448909811,
+            "p99": 0.7507515078007293
+          },
+          "penalized_e2e": {
+            "mean": 0.41448562480905693,
+            "p95": 0.6355013448909811,
+            "p99": 0.7507515078007293
+          },
+          "censored": 0,
+          "recovered": 0,
+          "unfinished_after_drain": 0,
+          "modeled_drops": 0,
+          "actions": {
+            "BUILD": 13,
+            "KEEP": 11
+          },
+          "build_fraction": 0.5416666666666666,
+          "peak_boundary_backlog": 17,
+          "max_cpu_outstanding": 2.6379684729144435,
+          "max_link_outstanding": 3.3131829450868517,
+          "max_old_cpu_lp": 0.5003489789607724
+        },
+        "per_demand": {
+          "20261211": {
+            "n": 8,
+            "net_reward": -35.56524964264114,
+            "mean_reward": -4.445656205330143,
+            "min_reward": -4.750261212419578,
+            "worst5": -4.750261212419578,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.31765153517976175,
+            "holding_cost": 1.2073539525732822,
+            "completed": 3530,
+            "completed_e2e": {
+              "mean": 0.4279486782854336,
+              "p95": 0.6279390723659866,
+              "p99": 0.7338147321478281
+            },
+            "penalized_e2e": {
+              "mean": 0.4279486782854336,
+              "p95": 0.6279390723659866,
+              "p99": 0.7338147321478281
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 4,
+              "KEEP": 4
+            },
+            "build_fraction": 0.5,
+            "peak_boundary_backlog": 15,
+            "max_cpu_outstanding": 2.6379684729144435,
+            "max_link_outstanding": 2.9630215129399793,
+            "max_old_cpu_lp": 0.5003489789607724
+          },
+          "20261212": {
+            "n": 8,
+            "net_reward": -34.20527033167293,
+            "mean_reward": -4.275658791459116,
+            "min_reward": -4.541094847279787,
+            "worst5": -4.541094847279787,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.2505444742458351,
+            "holding_cost": 1.32955591591249,
+            "completed": 5819,
+            "completed_e2e": {
+              "mean": 0.4092956434911815,
+              "p95": 0.6555263828469022,
+              "p99": 0.7838789203818131
+            },
+            "penalized_e2e": {
+              "mean": 0.4092956434911815,
+              "p95": 0.6555263828469022,
+              "p99": 0.7838789203818131
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 3,
+              "KEEP": 5
+            },
+            "build_fraction": 0.375,
+            "peak_boundary_backlog": 17,
+            "max_cpu_outstanding": 1.7279275060427,
+            "max_link_outstanding": 3.3131829450868517,
+            "max_old_cpu_lp": 0.48330774202416177
+          },
+          "20261213": {
+            "n": 8,
+            "net_reward": -34.350617526941775,
+            "mean_reward": -4.293827190867722,
+            "min_reward": -4.427000378378487,
+            "worst5": -4.427000378378487,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.47964676902322007,
+            "holding_cost": 1.1694364529944585,
+            "completed": 3140,
+            "completed_e2e": {
+              "mean": 0.4089684026807473,
+              "p95": 0.6043619522089506,
+              "p99": 0.6907404000215087
+            },
+            "penalized_e2e": {
+              "mean": 0.4089684026807473,
+              "p95": 0.6043619522089506,
+              "p99": 0.6907404000215087
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 6,
+              "KEEP": 2
+            },
+            "build_fraction": 0.75,
+            "peak_boundary_backlog": 9,
+            "max_cpu_outstanding": 1.924782953069945,
+            "max_link_outstanding": 1.2979608511560068,
+            "max_old_cpu_lp": 0.2165469562083998
+          }
+        },
+        "evaluation_wall_seconds": 19.74061370002164
+      }
+    },
+    "scheduler_only_sensitivity": {
+      "keep": {
+        "combined": {
+          "n": 24,
+          "net_reward": -121.08153664222174,
+          "mean_reward": -5.045064026759239,
+          "min_reward": -6.772447645073592,
+          "worst5": -6.596432052496303,
+          "worst5_n": 2,
+          "threshold_spikes": 0,
+          "switch_cost": 0.15980798638726024,
+          "holding_cost": 2.5569277821961642,
+          "completed": 12489,
+          "completed_e2e": {
+            "mean": 0.5178664171882462,
+            "p95": 0.9698391182643717,
+            "p99": 1.3225377210716958
+          },
+          "penalized_e2e": {
+            "mean": 0.5178664171882462,
+            "p95": 0.9698391182643717,
+            "p99": 1.3225377210716958
+          },
+          "censored": 0,
+          "recovered": 0,
+          "unfinished_after_drain": 0,
+          "modeled_drops": 0,
+          "actions": {
+            "BUILD": 3,
+            "KEEP": 21
+          },
+          "build_fraction": 0.125,
+          "peak_boundary_backlog": 25,
+          "max_cpu_outstanding": 11.032325166166025,
+          "max_link_outstanding": 3.3131829450868517,
+          "max_old_cpu_lp": 0.7649409889940463
+        },
+        "per_demand": {
+          "20261211": {
+            "n": 8,
+            "net_reward": -37.820072114455876,
+            "mean_reward": -4.7275090143069844,
+            "min_reward": -5.200988844001475,
+            "worst5": -5.200988844001475,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.05487245049436857,
+            "holding_cost": 0.8779592079098971,
+            "completed": 3530,
+            "completed_e2e": {
+              "mean": 0.4645827982221231,
+              "p95": 0.7532250261462614,
+              "p99": 0.9943068043695059
+            },
+            "penalized_e2e": {
+              "mean": 0.4645827982221231,
+              "p95": 0.7532250261462614,
+              "p99": 0.9943068043695059
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 1,
+              "KEEP": 7
+            },
+            "build_fraction": 0.125,
+            "peak_boundary_backlog": 13,
+            "max_cpu_outstanding": 3.502456062908105,
+            "max_link_outstanding": 2.110535159232515,
+            "max_old_cpu_lp": 0.6054484867447563
+          },
+          "20261212": {
+            "n": 8,
+            "net_reward": -47.58134149852776,
+            "mean_reward": -5.94766768731597,
+            "min_reward": -6.772447645073592,
+            "worst5": -6.772447645073592,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.05013602917426334,
+            "holding_cost": 0.8021764667882135,
+            "completed": 5819,
+            "completed_e2e": {
+              "mean": 0.5947309589356831,
+              "p95": 1.110143487961418,
+              "p99": 1.5014735534562609
+            },
+            "penalized_e2e": {
+              "mean": 0.5947309589356831,
+              "p95": 1.110143487961418,
+              "p99": 1.5014735534562609
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 1,
+              "KEEP": 7
+            },
+            "build_fraction": 0.125,
+            "peak_boundary_backlog": 25,
+            "max_cpu_outstanding": 11.032325166166025,
+            "max_link_outstanding": 3.3131829450868517,
+            "max_old_cpu_lp": 0.7649409889940463
+          },
+          "20261213": {
+            "n": 8,
+            "net_reward": -35.68012302923809,
+            "mean_reward": -4.460015378654761,
+            "min_reward": -4.7642214952937785,
+            "worst5": -4.7642214952937785,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.05479950671862833,
+            "holding_cost": 0.8767921074980533,
+            "completed": 3140,
+            "completed_e2e": {
+              "mean": 0.4353238714946411,
+              "p95": 0.6433130126576504,
+              "p99": 0.8037387659899365
+            },
+            "penalized_e2e": {
+              "mean": 0.4353238714946411,
+              "p95": 0.6433130126576504,
+              "p99": 0.8037387659899365
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 1,
+              "KEEP": 7
+            },
+            "build_fraction": 0.125,
+            "peak_boundary_backlog": 11,
+            "max_cpu_outstanding": 1.9446615135351406,
+            "max_link_outstanding": 2.5723173463530125,
+            "max_old_cpu_lp": 0.32595707072933844
+          }
+        },
+        "evaluation_wall_seconds": 20.893794699994032
+      },
+      "build": {
+        "combined": {
+          "n": 24,
+          "net_reward": -110.80088721572639,
+          "mean_reward": -4.6167036339886,
+          "min_reward": -5.722750091381613,
+          "worst5": -5.348001176634272,
+          "worst5_n": 2,
+          "threshold_spikes": 0,
+          "switch_cost": 1.4880152970428273,
+          "holding_cost": 2.77648104063263,
+          "completed": 12489,
+          "completed_e2e": {
+            "mean": 0.4458017428396678,
+            "p95": 0.7104953479507228,
+            "p99": 0.9146195606142374
+          },
+          "penalized_e2e": {
+            "mean": 0.4458017428396678,
+            "p95": 0.7104953479507228,
+            "p99": 0.9146195606142374
+          },
+          "censored": 0,
+          "recovered": 0,
+          "unfinished_after_drain": 0,
+          "modeled_drops": 0,
+          "actions": {
+            "BUILD": 24
+          },
+          "build_fraction": 1.0,
+          "peak_boundary_backlog": 20,
+          "max_cpu_outstanding": 2.8828559841951016,
+          "max_link_outstanding": 5.856971364019013,
+          "max_old_cpu_lp": 0.7032286665854239
+        },
+        "per_demand": {
+          "20261211": {
+            "n": 8,
+            "net_reward": -36.6637741270397,
+            "mean_reward": -4.582971765879963,
+            "min_reward": -4.9732522618869295,
+            "worst5": -4.9732522618869295,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.48816283845123914,
+            "holding_cost": 0.8883778029882027,
+            "completed": 3530,
+            "completed_e2e": {
+              "mean": 0.4434076529041244,
+              "p95": 0.6632827159115235,
+              "p99": 0.8034942731425466
+            },
+            "penalized_e2e": {
+              "mean": 0.4434076529041244,
+              "p95": 0.6632827159115235,
+              "p99": 0.8034942731425466
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 8
+            },
+            "build_fraction": 1.0,
+            "peak_boundary_backlog": 14,
+            "max_cpu_outstanding": 2.8828559841951016,
+            "max_link_outstanding": 2.9630215129399793,
+            "max_old_cpu_lp": 0.4731929634576572
+          },
+          "20261212": {
+            "n": 8,
+            "net_reward": -38.0804335451207,
+            "mean_reward": -4.760054193140087,
+            "min_reward": -5.722750091381613,
+            "worst5": -5.722750091381613,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.5241453665345251,
+            "holding_cost": 0.995356186987555,
+            "completed": 5819,
+            "completed_e2e": {
+              "mean": 0.4540020811534809,
+              "p95": 0.7652018156830237,
+              "p99": 1.0407173495945927
+            },
+            "penalized_e2e": {
+              "mean": 0.4540020811534809,
+              "p95": 0.7652018156830237,
+              "p99": 1.0407173495945927
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 8
+            },
+            "build_fraction": 1.0,
+            "peak_boundary_backlog": 20,
+            "max_cpu_outstanding": 1.7760525788745256,
+            "max_link_outstanding": 5.856971364019013,
+            "max_old_cpu_lp": 0.7032286665854239
+          },
+          "20261213": {
+            "n": 8,
+            "net_reward": -36.05667954356599,
+            "mean_reward": -4.507084942945749,
+            "min_reward": -4.659014212067471,
+            "worst5": -4.659014212067471,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.47570709205706274,
+            "holding_cost": 0.8927470506568724,
+            "completed": 3140,
+            "completed_e2e": {
+              "mean": 0.4332964462869252,
+              "p95": 0.6526996537922848,
+              "p99": 0.7698787246458199
+            },
+            "penalized_e2e": {
+              "mean": 0.4332964462869252,
+              "p95": 0.6526996537922848,
+              "p99": 0.7698787246458199
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 8
+            },
+            "build_fraction": 1.0,
+            "peak_boundary_backlog": 9,
+            "max_cpu_outstanding": 1.8024993299914753,
+            "max_link_outstanding": 1.354015201898399,
+            "max_old_cpu_lp": 0.2845363171146993
+          }
+        },
+        "evaluation_wall_seconds": 20.69999409999582
+      },
+      "old_gate": {
+        "combined": {
+          "n": 24,
+          "net_reward": -121.08153664222174,
+          "mean_reward": -5.045064026759239,
+          "min_reward": -6.772447645073592,
+          "worst5": -6.596432052496303,
+          "worst5_n": 2,
+          "threshold_spikes": 0,
+          "switch_cost": 0.15980798638726024,
+          "holding_cost": 2.5569277821961642,
+          "completed": 12489,
+          "completed_e2e": {
+            "mean": 0.5178664171882462,
+            "p95": 0.9698391182643717,
+            "p99": 1.3225377210716958
+          },
+          "penalized_e2e": {
+            "mean": 0.5178664171882462,
+            "p95": 0.9698391182643717,
+            "p99": 1.3225377210716958
+          },
+          "censored": 0,
+          "recovered": 0,
+          "unfinished_after_drain": 0,
+          "modeled_drops": 0,
+          "actions": {
+            "BUILD": 3,
+            "KEEP": 21
+          },
+          "build_fraction": 0.125,
+          "peak_boundary_backlog": 25,
+          "max_cpu_outstanding": 11.032325166166025,
+          "max_link_outstanding": 3.3131829450868517,
+          "max_old_cpu_lp": 0.7649409889940463
+        },
+        "per_demand": {
+          "20261211": {
+            "n": 8,
+            "net_reward": -37.820072114455876,
+            "mean_reward": -4.7275090143069844,
+            "min_reward": -5.200988844001475,
+            "worst5": -5.200988844001475,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.05487245049436857,
+            "holding_cost": 0.8779592079098971,
+            "completed": 3530,
+            "completed_e2e": {
+              "mean": 0.4645827982221231,
+              "p95": 0.7532250261462614,
+              "p99": 0.9943068043695059
+            },
+            "penalized_e2e": {
+              "mean": 0.4645827982221231,
+              "p95": 0.7532250261462614,
+              "p99": 0.9943068043695059
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 1,
+              "KEEP": 7
+            },
+            "build_fraction": 0.125,
+            "peak_boundary_backlog": 13,
+            "max_cpu_outstanding": 3.502456062908105,
+            "max_link_outstanding": 2.110535159232515,
+            "max_old_cpu_lp": 0.6054484867447563
+          },
+          "20261212": {
+            "n": 8,
+            "net_reward": -47.58134149852776,
+            "mean_reward": -5.94766768731597,
+            "min_reward": -6.772447645073592,
+            "worst5": -6.772447645073592,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.05013602917426334,
+            "holding_cost": 0.8021764667882135,
+            "completed": 5819,
+            "completed_e2e": {
+              "mean": 0.5947309589356831,
+              "p95": 1.110143487961418,
+              "p99": 1.5014735534562609
+            },
+            "penalized_e2e": {
+              "mean": 0.5947309589356831,
+              "p95": 1.110143487961418,
+              "p99": 1.5014735534562609
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 1,
+              "KEEP": 7
+            },
+            "build_fraction": 0.125,
+            "peak_boundary_backlog": 25,
+            "max_cpu_outstanding": 11.032325166166025,
+            "max_link_outstanding": 3.3131829450868517,
+            "max_old_cpu_lp": 0.7649409889940463
+          },
+          "20261213": {
+            "n": 8,
+            "net_reward": -35.68012302923809,
+            "mean_reward": -4.460015378654761,
+            "min_reward": -4.7642214952937785,
+            "worst5": -4.7642214952937785,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.05479950671862833,
+            "holding_cost": 0.8767921074980533,
+            "completed": 3140,
+            "completed_e2e": {
+              "mean": 0.4353238714946411,
+              "p95": 0.6433130126576504,
+              "p99": 0.8037387659899365
+            },
+            "penalized_e2e": {
+              "mean": 0.4353238714946411,
+              "p95": 0.6433130126576504,
+              "p99": 0.8037387659899365
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 1,
+              "KEEP": 7
+            },
+            "build_fraction": 0.125,
+            "peak_boundary_backlog": 11,
+            "max_cpu_outstanding": 1.9446615135351406,
+            "max_link_outstanding": 2.5723173463530125,
+            "max_old_cpu_lp": 0.32595707072933844
+          }
+        },
+        "evaluation_wall_seconds": 20.78889449998678
+      },
+      "credit": {
+        "combined": {
+          "n": 24,
+          "net_reward": -119.93133489101265,
+          "mean_reward": -4.997138953792194,
+          "min_reward": -6.772447645073592,
+          "worst5": -6.596432052496303,
+          "worst5_n": 2,
+          "threshold_spikes": 0,
+          "switch_cost": 0.23079208963519676,
+          "holding_cost": 2.6621495068438206,
+          "completed": 12489,
+          "completed_e2e": {
+            "mean": 0.5129741719563607,
+            "p95": 0.9583983101243376,
+            "p99": 1.3199295054307878
+          },
+          "penalized_e2e": {
+            "mean": 0.5129741719563607,
+            "p95": 0.9583983101243376,
+            "p99": 1.3199295054307878
+          },
+          "censored": 0,
+          "recovered": 0,
+          "unfinished_after_drain": 0,
+          "modeled_drops": 0,
+          "actions": {
+            "BUILD": 4,
+            "KEEP": 20
+          },
+          "build_fraction": 0.16666666666666666,
+          "peak_boundary_backlog": 25,
+          "max_cpu_outstanding": 11.032325166166025,
+          "max_link_outstanding": 3.3131829450868517,
+          "max_old_cpu_lp": 0.7649409889940463
+        },
+        "per_demand": {
+          "20261211": {
+            "n": 8,
+            "net_reward": -36.66987036324679,
+            "mean_reward": -4.583733795405848,
+            "min_reward": -4.909805740400106,
+            "worst5": -4.909805740400106,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.1258565537423051,
+            "holding_cost": 0.9831809325575531,
+            "completed": 3530,
+            "completed_e2e": {
+              "mean": 0.44727422861843547,
+              "p95": 0.6671338593914324,
+              "p99": 0.7713287680829226
+            },
+            "penalized_e2e": {
+              "mean": 0.44727422861843547,
+              "p95": 0.6671338593914324,
+              "p99": 0.7713287680829226
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 2,
+              "KEEP": 6
+            },
+            "build_fraction": 0.25,
+            "peak_boundary_backlog": 15,
+            "max_cpu_outstanding": 2.8098932451170646,
+            "max_link_outstanding": 2.9630215129399793,
+            "max_old_cpu_lp": 0.3194483411526728
+          },
+          "20261212": {
+            "n": 8,
+            "net_reward": -47.58134149852776,
+            "mean_reward": -5.94766768731597,
+            "min_reward": -6.772447645073592,
+            "worst5": -6.772447645073592,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.05013602917426334,
+            "holding_cost": 0.8021764667882135,
+            "completed": 5819,
+            "completed_e2e": {
+              "mean": 0.5947309589356831,
+              "p95": 1.110143487961418,
+              "p99": 1.5014735534562609
+            },
+            "penalized_e2e": {
+              "mean": 0.5947309589356831,
+              "p95": 1.110143487961418,
+              "p99": 1.5014735534562609
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 1,
+              "KEEP": 7
+            },
+            "build_fraction": 0.125,
+            "peak_boundary_backlog": 25,
+            "max_cpu_outstanding": 11.032325166166025,
+            "max_link_outstanding": 3.3131829450868517,
+            "max_old_cpu_lp": 0.7649409889940463
+          },
+          "20261213": {
+            "n": 8,
+            "net_reward": -35.68012302923809,
+            "mean_reward": -4.460015378654761,
+            "min_reward": -4.7642214952937785,
+            "worst5": -4.7642214952937785,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.05479950671862833,
+            "holding_cost": 0.8767921074980533,
+            "completed": 3140,
+            "completed_e2e": {
+              "mean": 0.4353238714946411,
+              "p95": 0.6433130126576504,
+              "p99": 0.8037387659899365
+            },
+            "penalized_e2e": {
+              "mean": 0.4353238714946411,
+              "p95": 0.6433130126576504,
+              "p99": 0.8037387659899365
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 1,
+              "KEEP": 7
+            },
+            "build_fraction": 0.125,
+            "peak_boundary_backlog": 11,
+            "max_cpu_outstanding": 1.9446615135351406,
+            "max_link_outstanding": 2.5723173463530125,
+            "max_old_cpu_lp": 0.32595707072933844
+          }
+        },
+        "evaluation_wall_seconds": 20.653012599999784
+      }
+    },
+    "wrong_actions": {
+      "KEEP": 2,
+      "BUILD": 2
+    },
+    "diagnostic_cases": 6,
+    "diagnostic_sum_positive_regret": 1.387287042168688,
+    "train_credit_min": -0.43179568437325444,
+    "train_credit_max": 0.4502182328811639,
+    "train_positive_credit": 10,
+    "train_negative_credit": 8,
+    "pair_wall_seconds": 157.70928700003424,
+    "total_wall_seconds": 391.6033480999904,
+    "fixed": {
+      "0": {
+        "n": 16,
+        "net_reward": -71.17619097972587,
+        "mean_reward": -4.448511936232867,
+        "min_reward": -4.999954176242284,
+        "worst5": -4.999954176242284,
+        "worst5_n": 1,
+        "threshold_spikes": 0,
+        "switch_cost": 0.174283195753072,
+        "holding_cost": 2.7885311320491515,
+        "completed": 11279,
+        "completed_e2e": {
+          "mean": 0.4370301008988383,
+          "p95": 0.6868048165308793,
+          "p99": 0.8266806267647886
+        },
+        "penalized_e2e": {
+          "mean": 0.4370301008988383,
+          "p95": 0.6868048165308793,
+          "p99": 0.8266806267647886
+        },
+        "censored": 0,
+        "recovered": 0,
+        "unfinished_after_drain": 0,
+        "modeled_drops": 0,
+        "actions": {
+          "BUILD": 2,
+          "KEEP": 14
+        },
+        "build_fraction": 0.125,
+        "peak_boundary_backlog": 29,
+        "max_cpu_outstanding": 2.4535911708967673,
+        "max_link_outstanding": 3.9645192983364335,
+        "max_old_cpu_lp": 0.5311478904592799
+      },
+      "5": {
+        "n": 16,
+        "net_reward": -71.17619097972587,
+        "mean_reward": -4.448511936232867,
+        "min_reward": -4.999954176242284,
+        "worst5": -4.999954176242284,
+        "worst5_n": 1,
+        "threshold_spikes": 0,
+        "switch_cost": 0.174283195753072,
+        "holding_cost": 2.7885311320491515,
+        "completed": 11279,
+        "completed_e2e": {
+          "mean": 0.4370301008988383,
+          "p95": 0.6868048165308793,
+          "p99": 0.8266806267647886
+        },
+        "penalized_e2e": {
+          "mean": 0.4370301008988383,
+          "p95": 0.6868048165308793,
+          "p99": 0.8266806267647886
+        },
+        "censored": 0,
+        "recovered": 0,
+        "unfinished_after_drain": 0,
+        "modeled_drops": 0,
+        "actions": {
+          "BUILD": 2,
+          "KEEP": 14
+        },
+        "build_fraction": 0.125,
+        "peak_boundary_backlog": 29,
+        "max_cpu_outstanding": 2.4535911708967673,
+        "max_link_outstanding": 3.9645192983364335,
+        "max_old_cpu_lp": 0.5311478904592799
+      },
+      "10": {
+        "n": 16,
+        "net_reward": -71.28730567042646,
+        "mean_reward": -4.455456604401654,
+        "min_reward": -5.083927417751587,
+        "worst5": -5.083927417751587,
+        "worst5_n": 1,
+        "threshold_spikes": 0,
+        "switch_cost": 1.3626480160795138,
+        "holding_cost": 2.63267242220176,
+        "completed": 11279,
+        "completed_e2e": {
+          "mean": 0.4320787655732877,
+          "p95": 0.6621274666187204,
+          "p99": 0.7991254050688597
+        },
+        "penalized_e2e": {
+          "mean": 0.4320787655732877,
+          "p95": 0.6621274666187204,
+          "p99": 0.7991254050688597
+        },
+        "censored": 0,
+        "recovered": 0,
+        "unfinished_after_drain": 0,
+        "modeled_drops": 0,
+        "actions": {
+          "BUILD": 16
+        },
+        "build_fraction": 1.0,
+        "peak_boundary_backlog": 29,
+        "max_cpu_outstanding": 2.0019301452510887,
+        "max_link_outstanding": 4.488950045784112,
+        "max_old_cpu_lp": 0.5939811251708808
+      },
+      "15": {
+        "n": 16,
+        "net_reward": -71.2203271573608,
+        "mean_reward": -4.45127044733505,
+        "min_reward": -5.083927417751587,
+        "worst5": -5.083927417751587,
+        "worst5_n": 1,
+        "threshold_spikes": 0,
+        "switch_cost": 1.2774010523190662,
+        "holding_cost": 2.6539323260635013,
+        "completed": 11279,
+        "completed_e2e": {
+          "mean": 0.4320687550191738,
+          "p95": 0.6626068269273102,
+          "p99": 0.7991254050688597
+        },
+        "penalized_e2e": {
+          "mean": 0.4320687550191738,
+          "p95": 0.6626068269273102,
+          "p99": 0.7991254050688597
+        },
+        "censored": 0,
+        "recovered": 0,
+        "unfinished_after_drain": 0,
+        "modeled_drops": 0,
+        "actions": {
+          "BUILD": 15,
+          "KEEP": 1
+        },
+        "build_fraction": 0.9375,
+        "peak_boundary_backlog": 29,
+        "max_cpu_outstanding": 2.0019301452510887,
+        "max_link_outstanding": 4.488950045784112,
+        "max_old_cpu_lp": 0.5939811251708808
+      },
+      "20": {
+        "n": 16,
+        "net_reward": -71.00096264584158,
+        "mean_reward": -4.437560165365099,
+        "min_reward": -4.999954176242284,
+        "worst5": -4.999954176242284,
+        "worst5_n": 1,
+        "threshold_spikes": 0,
+        "switch_cost": 0.8703427237994125,
+        "holding_cost": 2.636386553720365,
+        "completed": 11279,
+        "completed_e2e": {
+          "mean": 0.4329017504824196,
+          "p95": 0.6635015252573199,
+          "p99": 0.8178978880376099
+        },
+        "penalized_e2e": {
+          "mean": 0.4329017504824196,
+          "p95": 0.6635015252573199,
+          "p99": 0.8178978880376099
+        },
+        "censored": 0,
+        "recovered": 0,
+        "unfinished_after_drain": 0,
+        "modeled_drops": 0,
+        "actions": {
+          "BUILD": 10,
+          "KEEP": 6
+        },
+        "build_fraction": 0.625,
+        "peak_boundary_backlog": 29,
+        "max_cpu_outstanding": 2.9809299217109646,
+        "max_link_outstanding": 3.9645192983364335,
+        "max_old_cpu_lp": 0.5939811251708808
+      }
+    }
+  },
+  "20261114": {
+    "training": {
+      "n": 240,
+      "net_reward": -979.9123231717699,
+      "mean_reward": -4.082968013215708,
+      "min_reward": -4.561255579059829,
+      "worst5": -4.5015065761026065,
+      "worst5_n": 12,
+      "threshold_spikes": 0,
+      "switch_cost": 8.958104756234107,
+      "holding_cost": 31.99760424805224,
+      "completed": 110316,
+      "completed_e2e": {
+        "mean": 0.39345304394696623,
+        "p95": 0.604789346413483,
+        "p99": 0.7058904104541444
+      },
+      "penalized_e2e": {
+        "mean": 0.39345304394696623,
+        "p95": 0.604789346413483,
+        "p99": 0.7058904104541444
+      },
+      "censored": 0,
+      "recovered": 0,
+      "unfinished_after_drain": 0,
+      "modeled_drops": 0,
+      "actions": {
+        "BUILD": 132,
+        "KEEP": 108
+      },
+      "build_fraction": 0.55,
+      "peak_boundary_backlog": 20,
+      "max_cpu_outstanding": 2.7111439462310134,
+      "max_link_outstanding": 4.866637249548593,
+      "max_old_cpu_lp": 0.37012143477169024
+    },
+    "holdout": {
+      "keep": {
+        "combined": {
+          "n": 24,
+          "net_reward": -103.16858410425144,
+          "mean_reward": -4.29869100434381,
+          "min_reward": -4.6372732440112765,
+          "worst5": -4.6333550977815445,
+          "worst5_n": 2,
+          "threshold_spikes": 0,
+          "switch_cost": 0.1909816852913936,
+          "holding_cost": 3.0557069646622983,
+          "completed": 12489,
+          "completed_e2e": {
+            "mean": 0.42171285663669766,
+            "p95": 0.6716773777503106,
+            "p99": 0.8212194221149058
+          },
+          "penalized_e2e": {
+            "mean": 0.42171285663669766,
+            "p95": 0.6716773777503106,
+            "p99": 0.8212194221149058
+          },
+          "censored": 0,
+          "recovered": 0,
+          "unfinished_after_drain": 0,
+          "modeled_drops": 0,
+          "actions": {
+            "BUILD": 3,
+            "KEEP": 21
+          },
+          "build_fraction": 0.125,
+          "peak_boundary_backlog": 20,
+          "max_cpu_outstanding": 2.1640310251253796,
+          "max_link_outstanding": 5.0627610895758295,
+          "max_old_cpu_lp": 0.48224295596704997
+        },
+        "per_demand": {
+          "20261211": {
+            "n": 8,
+            "net_reward": -34.76388109693692,
+            "mean_reward": -4.345485137117115,
+            "min_reward": -4.629436951551813,
+            "worst5": -4.629436951551813,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.061597866890464044,
+            "holding_cost": 0.9855658702474247,
+            "completed": 3530,
+            "completed_e2e": {
+              "mean": 0.4239633044561673,
+              "p95": 0.6368783185155784,
+              "p99": 0.7285621113845651
+            },
+            "penalized_e2e": {
+              "mean": 0.4239633044561673,
+              "p95": 0.6368783185155784,
+              "p99": 0.7285621113845651
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 1,
+              "KEEP": 7
+            },
+            "build_fraction": 0.125,
+            "peak_boundary_backlog": 12,
+            "max_cpu_outstanding": 1.6185783253419799,
+            "max_link_outstanding": 1.9317624020158624,
+            "max_old_cpu_lp": 0.4228364316559163
+          },
+          "20261212": {
+            "n": 8,
+            "net_reward": -35.660633585755974,
+            "mean_reward": -4.457579198219497,
+            "min_reward": -4.6372732440112765,
+            "worst5": -4.6372732440112765,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.06146712084625683,
+            "holding_cost": 0.9834739335401093,
+            "completed": 5819,
+            "completed_e2e": {
+              "mean": 0.4348280202381777,
+              "p95": 0.727235685540009,
+              "p99": 0.8893186977394711
+            },
+            "penalized_e2e": {
+              "mean": 0.4348280202381777,
+              "p95": 0.727235685540009,
+              "p99": 0.8893186977394711
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 1,
+              "KEEP": 7
+            },
+            "build_fraction": 0.125,
+            "peak_boundary_backlog": 20,
+            "max_cpu_outstanding": 2.1640310251253796,
+            "max_link_outstanding": 5.0627610895758295,
+            "max_old_cpu_lp": 0.48224295596704997
+          },
+          "20261213": {
+            "n": 8,
+            "net_reward": -32.74406942155855,
+            "mean_reward": -4.093008677694819,
+            "min_reward": -4.254678831591245,
+            "worst5": -4.254678831591245,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.06791669755467274,
+            "holding_cost": 1.0866671608747638,
+            "completed": 3140,
+            "completed_e2e": {
+              "mean": 0.39487807389792706,
+              "p95": 0.5722937658391073,
+              "p99": 0.6634929893816327
+            },
+            "penalized_e2e": {
+              "mean": 0.39487807389792706,
+              "p95": 0.5722937658391073,
+              "p99": 0.6634929893816327
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 1,
+              "KEEP": 7
+            },
+            "build_fraction": 0.125,
+            "peak_boundary_backlog": 9,
+            "max_cpu_outstanding": 1.7429667428050548,
+            "max_link_outstanding": 0.9827846035056327,
+            "max_old_cpu_lp": 0.20993443602133544
+          }
+        },
+        "evaluation_wall_seconds": 19.252649500005646
+      },
+      "build": {
+        "combined": {
+          "n": 24,
+          "net_reward": -101.4888415857414,
+          "mean_reward": -4.228701732739225,
+          "min_reward": -4.535811058493391,
+          "worst5": -4.504318274424554,
+          "worst5_n": 2,
+          "threshold_spikes": 0,
+          "switch_cost": 1.6326379006301215,
+          "holding_cost": 3.235762076338792,
+          "completed": 12489,
+          "completed_e2e": {
+            "mean": 0.402448174767085,
+            "p95": 0.615196299733185,
+            "p99": 0.7301994758502275
+          },
+          "penalized_e2e": {
+            "mean": 0.402448174767085,
+            "p95": 0.615196299733185,
+            "p99": 0.7301994758502275
+          },
+          "censored": 0,
+          "recovered": 0,
+          "unfinished_after_drain": 0,
+          "modeled_drops": 0,
+          "actions": {
+            "BUILD": 24
+          },
+          "build_fraction": 1.0,
+          "peak_boundary_backlog": 17,
+          "max_cpu_outstanding": 2.759848320010854,
+          "max_link_outstanding": 3.813889079852265,
+          "max_old_cpu_lp": 0.3664109831470197
+        },
+        "per_demand": {
+          "20261211": {
+            "n": 8,
+            "net_reward": -33.680571073162746,
+            "mean_reward": -4.210071384145343,
+            "min_reward": -4.412782768992103,
+            "worst5": -4.412782768992103,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.5381488443985474,
+            "holding_cost": 1.0751466604697428,
+            "completed": 3530,
+            "completed_e2e": {
+              "mean": 0.40171494902120586,
+              "p95": 0.5882119798682579,
+              "p99": 0.6775829255328369
+            },
+            "penalized_e2e": {
+              "mean": 0.40171494902120586,
+              "p95": 0.5882119798682579,
+              "p99": 0.6775829255328369
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 8
+            },
+            "build_fraction": 1.0,
+            "peak_boundary_backlog": 13,
+            "max_cpu_outstanding": 2.759848320010854,
+            "max_link_outstanding": 2.9630215129399793,
+            "max_old_cpu_lp": 0.2845263128000159
+          },
+          "20261212": {
+            "n": 8,
+            "net_reward": -33.81427306180849,
+            "mean_reward": -4.226784132726062,
+            "min_reward": -4.535811058493391,
+            "worst5": -4.535811058493391,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.5655251396829057,
+            "holding_cost": 1.1355233299063299,
+            "completed": 5819,
+            "completed_e2e": {
+              "mean": 0.40149490426236306,
+              "p95": 0.6440719223580414,
+              "p99": 0.7604607838130671
+            },
+            "penalized_e2e": {
+              "mean": 0.40149490426236306,
+              "p95": 0.6440719223580414,
+              "p99": 0.7604607838130671
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 8
+            },
+            "build_fraction": 1.0,
+            "peak_boundary_backlog": 17,
+            "max_cpu_outstanding": 2.3841377072961047,
+            "max_link_outstanding": 3.813889079852265,
+            "max_old_cpu_lp": 0.3664109831470197
+          },
+          "20261213": {
+            "n": 8,
+            "net_reward": -33.993997450770166,
+            "mean_reward": -4.249249681346271,
+            "min_reward": -4.472825490355716,
+            "worst5": -4.472825490355716,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.5289639165486684,
+            "holding_cost": 1.0250920859627188,
+            "completed": 3140,
+            "completed_e2e": {
+              "mean": 0.40503905627980175,
+              "p95": 0.5995639371498312,
+              "p99": 0.7148615566869101
+            },
+            "penalized_e2e": {
+              "mean": 0.40503905627980175,
+              "p95": 0.5995639371498312,
+              "p99": 0.7148615566869101
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 8
+            },
+            "build_fraction": 1.0,
+            "peak_boundary_backlog": 9,
+            "max_cpu_outstanding": 1.2881372921231975,
+            "max_link_outstanding": 0.9827846035056327,
+            "max_old_cpu_lp": 0.21521334250597324
+          }
+        },
+        "evaluation_wall_seconds": 19.20317470000009
+      },
+      "old_gate": {
+        "combined": {
+          "n": 24,
+          "net_reward": -103.16858410425144,
+          "mean_reward": -4.29869100434381,
+          "min_reward": -4.6372732440112765,
+          "worst5": -4.6333550977815445,
+          "worst5_n": 2,
+          "threshold_spikes": 0,
+          "switch_cost": 0.1909816852913936,
+          "holding_cost": 3.0557069646622983,
+          "completed": 12489,
+          "completed_e2e": {
+            "mean": 0.42171285663669766,
+            "p95": 0.6716773777503106,
+            "p99": 0.8212194221149058
+          },
+          "penalized_e2e": {
+            "mean": 0.42171285663669766,
+            "p95": 0.6716773777503106,
+            "p99": 0.8212194221149058
+          },
+          "censored": 0,
+          "recovered": 0,
+          "unfinished_after_drain": 0,
+          "modeled_drops": 0,
+          "actions": {
+            "BUILD": 3,
+            "KEEP": 21
+          },
+          "build_fraction": 0.125,
+          "peak_boundary_backlog": 20,
+          "max_cpu_outstanding": 2.1640310251253796,
+          "max_link_outstanding": 5.0627610895758295,
+          "max_old_cpu_lp": 0.48224295596704997
+        },
+        "per_demand": {
+          "20261211": {
+            "n": 8,
+            "net_reward": -34.76388109693692,
+            "mean_reward": -4.345485137117115,
+            "min_reward": -4.629436951551813,
+            "worst5": -4.629436951551813,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.061597866890464044,
+            "holding_cost": 0.9855658702474247,
+            "completed": 3530,
+            "completed_e2e": {
+              "mean": 0.4239633044561673,
+              "p95": 0.6368783185155784,
+              "p99": 0.7285621113845651
+            },
+            "penalized_e2e": {
+              "mean": 0.4239633044561673,
+              "p95": 0.6368783185155784,
+              "p99": 0.7285621113845651
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 1,
+              "KEEP": 7
+            },
+            "build_fraction": 0.125,
+            "peak_boundary_backlog": 12,
+            "max_cpu_outstanding": 1.6185783253419799,
+            "max_link_outstanding": 1.9317624020158624,
+            "max_old_cpu_lp": 0.4228364316559163
+          },
+          "20261212": {
+            "n": 8,
+            "net_reward": -35.660633585755974,
+            "mean_reward": -4.457579198219497,
+            "min_reward": -4.6372732440112765,
+            "worst5": -4.6372732440112765,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.06146712084625683,
+            "holding_cost": 0.9834739335401093,
+            "completed": 5819,
+            "completed_e2e": {
+              "mean": 0.4348280202381777,
+              "p95": 0.727235685540009,
+              "p99": 0.8893186977394711
+            },
+            "penalized_e2e": {
+              "mean": 0.4348280202381777,
+              "p95": 0.727235685540009,
+              "p99": 0.8893186977394711
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 1,
+              "KEEP": 7
+            },
+            "build_fraction": 0.125,
+            "peak_boundary_backlog": 20,
+            "max_cpu_outstanding": 2.1640310251253796,
+            "max_link_outstanding": 5.0627610895758295,
+            "max_old_cpu_lp": 0.48224295596704997
+          },
+          "20261213": {
+            "n": 8,
+            "net_reward": -32.74406942155855,
+            "mean_reward": -4.093008677694819,
+            "min_reward": -4.254678831591245,
+            "worst5": -4.254678831591245,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.06791669755467274,
+            "holding_cost": 1.0866671608747638,
+            "completed": 3140,
+            "completed_e2e": {
+              "mean": 0.39487807389792706,
+              "p95": 0.5722937658391073,
+              "p99": 0.6634929893816327
+            },
+            "penalized_e2e": {
+              "mean": 0.39487807389792706,
+              "p95": 0.5722937658391073,
+              "p99": 0.6634929893816327
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 1,
+              "KEEP": 7
+            },
+            "build_fraction": 0.125,
+            "peak_boundary_backlog": 9,
+            "max_cpu_outstanding": 1.7429667428050548,
+            "max_link_outstanding": 0.9827846035056327,
+            "max_old_cpu_lp": 0.20993443602133544
+          }
+        },
+        "evaluation_wall_seconds": 19.927836300019408
+      },
+      "credit": {
+        "combined": {
+          "n": 24,
+          "net_reward": -101.22728238560441,
+          "mean_reward": -4.217803432733517,
+          "min_reward": -4.612980232452408,
+          "worst5": -4.574395645472899,
+          "worst5_n": 2,
+          "threshold_spikes": 0,
+          "switch_cost": 0.5503216391598811,
+          "holding_cost": 3.2908613108553832,
+          "completed": 12489,
+          "completed_e2e": {
+            "mean": 0.40701557274291744,
+            "p95": 0.6342314149490959,
+            "p99": 0.7371737287973942
+          },
+          "penalized_e2e": {
+            "mean": 0.40701557274291744,
+            "p95": 0.6342314149490959,
+            "p99": 0.7371737287973942
+          },
+          "censored": 0,
+          "recovered": 0,
+          "unfinished_after_drain": 0,
+          "modeled_drops": 0,
+          "actions": {
+            "BUILD": 8,
+            "KEEP": 16
+          },
+          "build_fraction": 0.3333333333333333,
+          "peak_boundary_backlog": 17,
+          "max_cpu_outstanding": 2.759848320010854,
+          "max_link_outstanding": 3.813889079852265,
+          "max_old_cpu_lp": 0.4338015467091148
+        },
+        "per_demand": {
+          "20261211": {
+            "n": 8,
+            "net_reward": -33.95590534934746,
+            "mean_reward": -4.244488168668433,
+            "min_reward": -4.612980232452408,
+            "worst5": -4.612980232452408,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.21064738897837482,
+            "holding_cost": 1.0872328009346401,
+            "completed": 3530,
+            "completed_e2e": {
+              "mean": 0.4098008175164773,
+              "p95": 0.6008799478689433,
+              "p99": 0.695333150432173
+            },
+            "penalized_e2e": {
+              "mean": 0.4098008175164773,
+              "p95": 0.6008799478689433,
+              "p99": 0.695333150432173
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 3,
+              "KEEP": 5
+            },
+            "build_fraction": 0.375,
+            "peak_boundary_backlog": 13,
+            "max_cpu_outstanding": 2.759848320010854,
+            "max_link_outstanding": 2.1563961610864344,
+            "max_old_cpu_lp": 0.4338015467091148
+          },
+          "20261212": {
+            "n": 8,
+            "net_reward": -34.159682875005075,
+            "mean_reward": -4.269960359375634,
+            "min_reward": -4.535811058493391,
+            "worst5": -4.535811058493391,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.21461653863180746,
+            "holding_cost": 1.174987914182819,
+            "completed": 5819,
+            "completed_e2e": {
+              "mean": 0.4095231065225819,
+              "p95": 0.6674381366208249,
+              "p99": 0.7764078717686325
+            },
+            "penalized_e2e": {
+              "mean": 0.4095231065225819,
+              "p95": 0.6674381366208249,
+              "p99": 0.7764078717686325
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 3,
+              "KEEP": 5
+            },
+            "build_fraction": 0.375,
+            "peak_boundary_backlog": 17,
+            "max_cpu_outstanding": 1.8070661590175823,
+            "max_link_outstanding": 3.813889079852265,
+            "max_old_cpu_lp": 0.3664109831470197
+          },
+          "20261213": {
+            "n": 8,
+            "net_reward": -33.11169416125189,
+            "mean_reward": -4.138961770156486,
+            "min_reward": -4.365837878773609,
+            "worst5": -4.365837878773609,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.1250577115496988,
+            "holding_cost": 1.0286405957379239,
+            "completed": 3140,
+            "completed_e2e": {
+              "mean": 0.3992374666554866,
+              "p95": 0.5786070280434099,
+              "p99": 0.6730937008821624
+            },
+            "penalized_e2e": {
+              "mean": 0.3992374666554866,
+              "p95": 0.5786070280434099,
+              "p99": 0.6730937008821624
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 2,
+              "KEEP": 6
+            },
+            "build_fraction": 0.25,
+            "peak_boundary_backlog": 9,
+            "max_cpu_outstanding": 1.7429667428050548,
+            "max_link_outstanding": 1.4572826445698985,
+            "max_old_cpu_lp": 0.20993443602133544
+          }
+        },
+        "evaluation_wall_seconds": 19.4033458000049
+      }
+    },
+    "scheduler_only_sensitivity": {
+      "keep": {
+        "combined": {
+          "n": 24,
+          "net_reward": -100.8059006441469,
+          "mean_reward": -4.200245860172788,
+          "min_reward": -4.492945631769841,
+          "worst5": -4.470358671547004,
+          "worst5_n": 2,
+          "threshold_spikes": 0,
+          "switch_cost": 0.22804751809431728,
+          "holding_cost": 3.648760289509075,
+          "completed": 12489,
+          "completed_e2e": {
+            "mean": 0.4070567074001535,
+            "p95": 0.6250743795194736,
+            "p99": 0.7468160051134514
+          },
+          "penalized_e2e": {
+            "mean": 0.4070567074001535,
+            "p95": 0.6250743795194736,
+            "p99": 0.7468160051134514
+          },
+          "censored": 0,
+          "recovered": 0,
+          "unfinished_after_drain": 0,
+          "modeled_drops": 0,
+          "actions": {
+            "BUILD": 3,
+            "KEEP": 21
+          },
+          "build_fraction": 0.125,
+          "peak_boundary_backlog": 17,
+          "max_cpu_outstanding": 3.204558770499812,
+          "max_link_outstanding": 4.202862990861149,
+          "max_old_cpu_lp": 0.3589372541093491
+        },
+        "per_demand": {
+          "20261211": {
+            "n": 8,
+            "net_reward": -33.70536703621246,
+            "mean_reward": -4.213170879526557,
+            "min_reward": -4.492945631769841,
+            "worst5": -4.492945631769841,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.06602953639339361,
+            "holding_cost": 1.0564725822942977,
+            "completed": 3530,
+            "completed_e2e": {
+              "mean": 0.4095224129841536,
+              "p95": 0.6008196825703754,
+              "p99": 0.6941316293957607
+            },
+            "penalized_e2e": {
+              "mean": 0.4095224129841536,
+              "p95": 0.6008196825703754,
+              "p99": 0.6941316293957607
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 1,
+              "KEEP": 7
+            },
+            "build_fraction": 0.125,
+            "peak_boundary_backlog": 11,
+            "max_cpu_outstanding": 1.803296980672831,
+            "max_link_outstanding": 2.3239319168195967,
+            "max_old_cpu_lp": 0.28375334931590723
+          },
+          "20261212": {
+            "n": 8,
+            "net_reward": -34.339309295655426,
+            "mean_reward": -4.292413661956928,
+            "min_reward": -4.416624661802373,
+            "worst5": -4.416624661802373,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.08311286422727214,
+            "holding_cost": 1.3298058276363542,
+            "completed": 5819,
+            "completed_e2e": {
+              "mean": 0.4134112159745202,
+              "p95": 0.6652549045742198,
+              "p99": 0.787163324718081
+            },
+            "penalized_e2e": {
+              "mean": 0.4134112159745202,
+              "p95": 0.6652549045742198,
+              "p99": 0.787163324718081
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 1,
+              "KEEP": 7
+            },
+            "build_fraction": 0.125,
+            "peak_boundary_backlog": 17,
+            "max_cpu_outstanding": 3.204558770499812,
+            "max_link_outstanding": 4.202862990861149,
+            "max_old_cpu_lp": 0.3589372541093491
+          },
+          "20261213": {
+            "n": 8,
+            "net_reward": -32.761224312279026,
+            "mean_reward": -4.095153039034878,
+            "min_reward": -4.2062017080412435,
+            "worst5": -4.2062017080412435,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.07890511747365155,
+            "holding_cost": 1.2624818795784247,
+            "completed": 3140,
+            "completed_e2e": {
+              "mean": 0.39250867360851005,
+              "p95": 0.5629734853841954,
+              "p99": 0.6494941298323105
+            },
+            "penalized_e2e": {
+              "mean": 0.39250867360851005,
+              "p95": 0.5629734853841954,
+              "p99": 0.6494941298323105
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 1,
+              "KEEP": 7
+            },
+            "build_fraction": 0.125,
+            "peak_boundary_backlog": 9,
+            "max_cpu_outstanding": 1.742966742805055,
+            "max_link_outstanding": 2.5723173463530125,
+            "max_old_cpu_lp": 0.20993443602133544
+          }
+        },
+        "evaluation_wall_seconds": 20.529435700009344
+      },
+      "build": {
+        "combined": {
+          "n": 24,
+          "net_reward": -100.19109921985861,
+          "mean_reward": -4.174629134160775,
+          "min_reward": -4.4056677753351785,
+          "worst5": -4.402511773059631,
+          "worst5_n": 2,
+          "threshold_spikes": 0,
+          "switch_cost": 1.8594908726200203,
+          "holding_cost": 3.846502279450354,
+          "completed": 12489,
+          "completed_e2e": {
+            "mean": 0.3935116506373383,
+            "p95": 0.5935736170612755,
+            "p99": 0.692015193962327
+          },
+          "penalized_e2e": {
+            "mean": 0.3935116506373383,
+            "p95": 0.5935736170612755,
+            "p99": 0.692015193962327
+          },
+          "censored": 0,
+          "recovered": 0,
+          "unfinished_after_drain": 0,
+          "modeled_drops": 0,
+          "actions": {
+            "BUILD": 24
+          },
+          "build_fraction": 1.0,
+          "peak_boundary_backlog": 17,
+          "max_cpu_outstanding": 2.3841377072961047,
+          "max_link_outstanding": 3.3131829450868517,
+          "max_old_cpu_lp": 0.37515252222817597
+        },
+        "per_demand": {
+          "20261211": {
+            "n": 8,
+            "net_reward": -33.424114623514384,
+            "mean_reward": -4.178014327939298,
+            "min_reward": -4.4056677753351785,
+            "worst5": -4.4056677753351785,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.6100629437842375,
+            "holding_cost": 1.2744908231061296,
+            "completed": 3530,
+            "completed_e2e": {
+              "mean": 0.39566005052945036,
+              "p95": 0.5805244591748481,
+              "p99": 0.6586044998266037
+            },
+            "penalized_e2e": {
+              "mean": 0.39566005052945036,
+              "p95": 0.5805244591748481,
+              "p99": 0.6586044998266037
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 8
+            },
+            "build_fraction": 1.0,
+            "peak_boundary_backlog": 13,
+            "max_cpu_outstanding": 1.6819748770413203,
+            "max_link_outstanding": 2.9630215129399793,
+            "max_old_cpu_lp": 0.3406105310865597
+          },
+          "20261212": {
+            "n": 8,
+            "net_reward": -33.274265932916805,
+            "mean_reward": -4.159283241614601,
+            "min_reward": -4.399355770784083,
+            "worst5": -4.399355770784083,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.6435699053825319,
+            "holding_cost": 1.3460573129993412,
+            "completed": 5819,
+            "completed_e2e": {
+              "mean": 0.3909980063095876,
+              "p95": 0.6201747431516572,
+              "p99": 0.7371374354415001
+            },
+            "penalized_e2e": {
+              "mean": 0.3909980063095876,
+              "p95": 0.6201747431516572,
+              "p99": 0.7371374354415001
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 8
+            },
+            "build_fraction": 1.0,
+            "peak_boundary_backlog": 17,
+            "max_cpu_outstanding": 2.3841377072961047,
+            "max_link_outstanding": 3.3131829450868517,
+            "max_old_cpu_lp": 0.37515252222817597
+          },
+          "20261213": {
+            "n": 8,
+            "net_reward": -33.49271866342742,
+            "mean_reward": -4.186589832928427,
+            "min_reward": -4.325918296343785,
+            "worst5": -4.325918296343785,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.6058580234532508,
+            "holding_cost": 1.2259541433448824,
+            "completed": 3140,
+            "completed_e2e": {
+              "mean": 0.3957546585112322,
+              "p95": 0.561954854064293,
+              "p99": 0.6267147154906954
+            },
+            "penalized_e2e": {
+              "mean": 0.3957546585112322,
+              "p95": 0.561954854064293,
+              "p99": 0.6267147154906954
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 8
+            },
+            "build_fraction": 1.0,
+            "peak_boundary_backlog": 9,
+            "max_cpu_outstanding": 1.2271832652949728,
+            "max_link_outstanding": 0.9827846035056327,
+            "max_old_cpu_lp": 0.22763703228536283
+          }
+        },
+        "evaluation_wall_seconds": 20.225868200010154
+      },
+      "old_gate": {
+        "combined": {
+          "n": 24,
+          "net_reward": -100.8059006441469,
+          "mean_reward": -4.200245860172788,
+          "min_reward": -4.492945631769841,
+          "worst5": -4.470358671547004,
+          "worst5_n": 2,
+          "threshold_spikes": 0,
+          "switch_cost": 0.22804751809431728,
+          "holding_cost": 3.648760289509075,
+          "completed": 12489,
+          "completed_e2e": {
+            "mean": 0.4070567074001535,
+            "p95": 0.6250743795194736,
+            "p99": 0.7468160051134514
+          },
+          "penalized_e2e": {
+            "mean": 0.4070567074001535,
+            "p95": 0.6250743795194736,
+            "p99": 0.7468160051134514
+          },
+          "censored": 0,
+          "recovered": 0,
+          "unfinished_after_drain": 0,
+          "modeled_drops": 0,
+          "actions": {
+            "BUILD": 3,
+            "KEEP": 21
+          },
+          "build_fraction": 0.125,
+          "peak_boundary_backlog": 17,
+          "max_cpu_outstanding": 3.204558770499812,
+          "max_link_outstanding": 4.202862990861149,
+          "max_old_cpu_lp": 0.3589372541093491
+        },
+        "per_demand": {
+          "20261211": {
+            "n": 8,
+            "net_reward": -33.70536703621246,
+            "mean_reward": -4.213170879526557,
+            "min_reward": -4.492945631769841,
+            "worst5": -4.492945631769841,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.06602953639339361,
+            "holding_cost": 1.0564725822942977,
+            "completed": 3530,
+            "completed_e2e": {
+              "mean": 0.4095224129841536,
+              "p95": 0.6008196825703754,
+              "p99": 0.6941316293957607
+            },
+            "penalized_e2e": {
+              "mean": 0.4095224129841536,
+              "p95": 0.6008196825703754,
+              "p99": 0.6941316293957607
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 1,
+              "KEEP": 7
+            },
+            "build_fraction": 0.125,
+            "peak_boundary_backlog": 11,
+            "max_cpu_outstanding": 1.803296980672831,
+            "max_link_outstanding": 2.3239319168195967,
+            "max_old_cpu_lp": 0.28375334931590723
+          },
+          "20261212": {
+            "n": 8,
+            "net_reward": -34.339309295655426,
+            "mean_reward": -4.292413661956928,
+            "min_reward": -4.416624661802373,
+            "worst5": -4.416624661802373,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.08311286422727214,
+            "holding_cost": 1.3298058276363542,
+            "completed": 5819,
+            "completed_e2e": {
+              "mean": 0.4134112159745202,
+              "p95": 0.6652549045742198,
+              "p99": 0.787163324718081
+            },
+            "penalized_e2e": {
+              "mean": 0.4134112159745202,
+              "p95": 0.6652549045742198,
+              "p99": 0.787163324718081
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 1,
+              "KEEP": 7
+            },
+            "build_fraction": 0.125,
+            "peak_boundary_backlog": 17,
+            "max_cpu_outstanding": 3.204558770499812,
+            "max_link_outstanding": 4.202862990861149,
+            "max_old_cpu_lp": 0.3589372541093491
+          },
+          "20261213": {
+            "n": 8,
+            "net_reward": -32.761224312279026,
+            "mean_reward": -4.095153039034878,
+            "min_reward": -4.2062017080412435,
+            "worst5": -4.2062017080412435,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.07890511747365155,
+            "holding_cost": 1.2624818795784247,
+            "completed": 3140,
+            "completed_e2e": {
+              "mean": 0.39250867360851005,
+              "p95": 0.5629734853841954,
+              "p99": 0.6494941298323105
+            },
+            "penalized_e2e": {
+              "mean": 0.39250867360851005,
+              "p95": 0.5629734853841954,
+              "p99": 0.6494941298323105
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 1,
+              "KEEP": 7
+            },
+            "build_fraction": 0.125,
+            "peak_boundary_backlog": 9,
+            "max_cpu_outstanding": 1.742966742805055,
+            "max_link_outstanding": 2.5723173463530125,
+            "max_old_cpu_lp": 0.20993443602133544
+          }
+        },
+        "evaluation_wall_seconds": 20.332494700007373
+      },
+      "credit": {
+        "combined": {
+          "n": 24,
+          "net_reward": -99.10358672463789,
+          "mean_reward": -4.129316113526579,
+          "min_reward": -4.4056677753351785,
+          "worst5": -4.402511773059631,
+          "worst5_n": 2,
+          "threshold_spikes": 0,
+          "switch_cost": 0.8006283090137458,
+          "holding_cost": 3.880806772632008,
+          "completed": 12489,
+          "completed_e2e": {
+            "mean": 0.3949874724808699,
+            "p95": 0.6074614052811736,
+            "p99": 0.7091364792643369
+          },
+          "penalized_e2e": {
+            "mean": 0.3949874724808699,
+            "p95": 0.6074614052811736,
+            "p99": 0.7091364792643369
+          },
+          "censored": 0,
+          "recovered": 0,
+          "unfinished_after_drain": 0,
+          "modeled_drops": 0,
+          "actions": {
+            "BUILD": 10,
+            "KEEP": 14
+          },
+          "build_fraction": 0.4166666666666667,
+          "peak_boundary_backlog": 17,
+          "max_cpu_outstanding": 1.803296980672831,
+          "max_link_outstanding": 3.3131829450868517,
+          "max_old_cpu_lp": 0.37515252222817597
+        },
+        "per_demand": {
+          "20261211": {
+            "n": 8,
+            "net_reward": -33.35862579250565,
+            "mean_reward": -4.169828224063206,
+            "min_reward": -4.4056677753351785,
+            "worst5": -4.4056677753351785,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.30352268045330916,
+            "holding_cost": 1.1844637310522341,
+            "completed": 3530,
+            "completed_e2e": {
+              "mean": 0.3996089677282536,
+              "p95": 0.5851018801659428,
+              "p99": 0.6577329005066171
+            },
+            "penalized_e2e": {
+              "mean": 0.3996089677282536,
+              "p95": 0.5851018801659428,
+              "p99": 0.6577329005066171
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 4,
+              "KEEP": 4
+            },
+            "build_fraction": 0.5,
+            "peak_boundary_backlog": 13,
+            "max_cpu_outstanding": 1.803296980672831,
+            "max_link_outstanding": 2.3239319168195967,
+            "max_old_cpu_lp": 0.3406105310865597
+          },
+          "20261212": {
+            "n": 8,
+            "net_reward": -33.515039803376,
+            "mean_reward": -4.189379975422,
+            "min_reward": -4.399355770784083,
+            "worst5": -4.399355770784083,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.33966386871216114,
+            "holding_cost": 1.3895487422711663,
+            "completed": 5819,
+            "completed_e2e": {
+              "mean": 0.3975800767422457,
+              "p95": 0.6422892395459845,
+              "p99": 0.7401461008021155
+            },
+            "penalized_e2e": {
+              "mean": 0.3975800767422457,
+              "p95": 0.6422892395459845,
+              "p99": 0.7401461008021155
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 4,
+              "KEEP": 4
+            },
+            "build_fraction": 0.5,
+            "peak_boundary_backlog": 17,
+            "max_cpu_outstanding": 1.7137005270611283,
+            "max_link_outstanding": 3.3131829450868517,
+            "max_old_cpu_lp": 0.37515252222817597
+          },
+          "20261213": {
+            "n": 8,
+            "net_reward": -32.229921128756246,
+            "mean_reward": -4.028740141094531,
+            "min_reward": -4.202561444506799,
+            "worst5": -4.202561444506799,
+            "worst5_n": 1,
+            "threshold_spikes": 0,
+            "switch_cost": 0.15744175984827546,
+            "holding_cost": 1.3067942993086081,
+            "completed": 3140,
+            "completed_e2e": {
+              "mean": 0.38498739527698134,
+              "p95": 0.5435334653946287,
+              "p99": 0.6142695797962408
+            },
+            "penalized_e2e": {
+              "mean": 0.38498739527698134,
+              "p95": 0.5435334653946287,
+              "p99": 0.6142695797962408
+            },
+            "censored": 0,
+            "recovered": 0,
+            "unfinished_after_drain": 0,
+            "modeled_drops": 0,
+            "actions": {
+              "BUILD": 2,
+              "KEEP": 6
+            },
+            "build_fraction": 0.25,
+            "peak_boundary_backlog": 9,
+            "max_cpu_outstanding": 1.742966742805055,
+            "max_link_outstanding": 1.4498033035210842,
+            "max_old_cpu_lp": 0.209151763723141
+          }
+        },
+        "evaluation_wall_seconds": 20.172225499991328
+      }
+    },
+    "wrong_actions": {
+      "KEEP": 4,
+      "BUILD": 0
+    },
+    "diagnostic_cases": 6,
+    "diagnostic_sum_positive_regret": 1.6302696183692147,
+    "train_credit_min": -0.5764450173968905,
+    "train_credit_max": 0.34967282879134004,
+    "train_positive_credit": 7,
+    "train_negative_credit": 12,
+    "pair_wall_seconds": 159.79681870003697,
+    "total_wall_seconds": 389.48204559998703,
+    "fixed": {
+      "0": {
+        "n": 16,
+        "net_reward": -69.63961234103913,
+        "mean_reward": -4.352475771314945,
+        "min_reward": -5.000230490860119,
+        "worst5": -5.000230490860119,
+        "worst5_n": 1,
+        "threshold_spikes": 0,
+        "switch_cost": 0.14734478922618163,
+        "holding_cost": 2.3575166276189057,
+        "completed": 11279,
+        "completed_e2e": {
+          "mean": 0.43000118218064387,
+          "p95": 0.6603611289708855,
+          "p99": 0.767847156686415
+        },
+        "penalized_e2e": {
+          "mean": 0.43000118218064387,
+          "p95": 0.6603611289708855,
+          "p99": 0.767847156686415
+        },
+        "censored": 0,
+        "recovered": 0,
+        "unfinished_after_drain": 0,
+        "modeled_drops": 0,
+        "actions": {
+          "BUILD": 2,
+          "KEEP": 14
+        },
+        "build_fraction": 0.125,
+        "peak_boundary_backlog": 27,
+        "max_cpu_outstanding": 2.250995950830351,
+        "max_link_outstanding": 3.6840722445448164,
+        "max_old_cpu_lp": 0.42257824005623584
+      },
+      "5": {
+        "n": 16,
+        "net_reward": -69.69991639828508,
+        "mean_reward": -4.356244774892818,
+        "min_reward": -4.999995972252371,
+        "worst5": -4.999995972252371,
+        "worst5_n": 1,
+        "threshold_spikes": 0,
+        "switch_cost": 1.0027156157378538,
+        "holding_cost": 2.35545654231312,
+        "completed": 11279,
+        "completed_e2e": {
+          "mean": 0.42681720158526315,
+          "p95": 0.6668444794628808,
+          "p99": 0.806738773637178
+        },
+        "penalized_e2e": {
+          "mean": 0.42681720158526315,
+          "p95": 0.6668444794628808,
+          "p99": 0.806738773637178
+        },
+        "censored": 0,
+        "recovered": 0,
+        "unfinished_after_drain": 0,
+        "modeled_drops": 0,
+        "actions": {
+          "BUILD": 14,
+          "KEEP": 2
+        },
+        "build_fraction": 0.875,
+        "peak_boundary_backlog": 27,
+        "max_cpu_outstanding": 2.49385699890036,
+        "max_link_outstanding": 3.7325776210916843,
+        "max_old_cpu_lp": 0.4269886551267499
+      },
+      "10": {
+        "n": 16,
+        "net_reward": -69.23867360342955,
+        "mean_reward": -4.327417100214347,
+        "min_reward": -4.999995972252371,
+        "worst5": -4.999995972252371,
+        "worst5_n": 1,
+        "threshold_spikes": 0,
+        "switch_cost": 0.790221645372378,
+        "holding_cost": 2.3424647598570516,
+        "completed": 11279,
+        "completed_e2e": {
+          "mean": 0.4247877215397735,
+          "p95": 0.6604471931133403,
+          "p99": 0.7966053900338175
+        },
+        "penalized_e2e": {
+          "mean": 0.4247877215397735,
+          "p95": 0.6604471931133403,
+          "p99": 0.7966053900338175
+        },
+        "censored": 0,
+        "recovered": 0,
+        "unfinished_after_drain": 0,
+        "modeled_drops": 0,
+        "actions": {
+          "BUILD": 11,
+          "KEEP": 5
+        },
+        "build_fraction": 0.6875,
+        "peak_boundary_backlog": 27,
+        "max_cpu_outstanding": 2.49385699890036,
+        "max_link_outstanding": 3.7325776210916843,
+        "max_old_cpu_lp": 0.5601807382148805
+      },
+      "15": {
+        "n": 16,
+        "net_reward": -69.49867752225559,
+        "mean_reward": -4.343667345140974,
+        "min_reward": -5.000230490860119,
+        "worst5": -5.000230490860119,
+        "worst5_n": 1,
+        "threshold_spikes": 0,
+        "switch_cost": 0.5921647291052272,
+        "holding_cost": 2.3546244875926563,
+        "completed": 11279,
+        "completed_e2e": {
+          "mean": 0.4278944643934585,
+          "p95": 0.6622832991823848,
+          "p99": 0.7865219968634444
+        },
+        "penalized_e2e": {
+          "mean": 0.4278944643934585,
+          "p95": 0.6622832991823848,
+          "p99": 0.7865219968634444
+        },
+        "censored": 0,
+        "recovered": 0,
+        "unfinished_after_drain": 0,
+        "modeled_drops": 0,
+        "actions": {
+          "BUILD": 8,
+          "KEEP": 8
+        },
+        "build_fraction": 0.5,
+        "peak_boundary_backlog": 27,
+        "max_cpu_outstanding": 2.122925145035172,
+        "max_link_outstanding": 3.6840722445448164,
+        "max_old_cpu_lp": 0.5601807382148805
+      },
+      "20": {
+        "n": 16,
+        "net_reward": -69.50389685755826,
+        "mean_reward": -4.343993553597391,
+        "min_reward": -5.000230490860119,
+        "worst5": -5.000230490860119,
+        "worst5_n": 1,
+        "threshold_spikes": 0,
+        "switch_cost": 0.4435360379964073,
+        "holding_cost": 2.3311505423692394,
+        "completed": 11279,
+        "completed_e2e": {
+          "mean": 0.42852428120199615,
+          "p95": 0.6596413159251526,
+          "p99": 0.7699094711606087
+        },
+        "penalized_e2e": {
+          "mean": 0.42852428120199615,
+          "p95": 0.6596413159251526,
+          "p99": 0.7699094711606087
+        },
+        "censored": 0,
+        "recovered": 0,
+        "unfinished_after_drain": 0,
+        "modeled_drops": 0,
+        "actions": {
+          "BUILD": 6,
+          "KEEP": 10
+        },
+        "build_fraction": 0.375,
+        "peak_boundary_backlog": 27,
+        "max_cpu_outstanding": 2.122925145035172,
+        "max_link_outstanding": 3.6840722445448164,
+        "max_old_cpu_lp": 0.5601807382148805
+      }
+    }
+  }
+}

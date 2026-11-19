@@ -7,10 +7,10 @@ import numpy as np
 import torch
 
 from edge_d.world import make_world, observe, cpu_lower_bound
-from edge_d.actions import NativeLegalEdits
-from edge_d.policy import EditActor, lightweight_state, choose_action
-from edge_d.rollout import sample_layout
-from edge_d.training import TrainConfig, new_actor
+from research.history.legacy_edit.actions import NativeLegalEdits
+from research.history.legacy_edit.policy import EditActor, lightweight_state, choose_action
+from research.history.legacy_edit.rollout import sample_layout
+from research.history.legacy_edit.training import TrainConfig, new_actor
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -74,7 +74,7 @@ class TestCore(unittest.TestCase):
         self.assertLess(abs(float(model.stop_bias.grad)),1e-6)
 
     def test_physical_legacy_parity_snapshot(self):
-        snap=json.loads((ROOT/"evidence/physical_parity_snapshot.json").read_text())
+        snap=json.loads((ROOT/"research/history/physical_environment/physical_parity_snapshot.json").read_text())
         model=new_actor(snap["seed"])
         row,_=sample_layout(seed=snap["seed"],scene=snap["scene"],
                  split=snap["split"],actor=model,

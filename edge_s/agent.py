@@ -16,6 +16,17 @@ from edge_d._engine.edge_rl.config import Config
 from edge_d.world import CONFIG_DIR
 
 
+def _queue_residual(_network, inputs, values):
+    observation, = inputs
+    cpu_rate = (20.*observation[...,0]).clamp_min(1e-6)
+    work_seconds = 2.*observation[...,8]/cpu_rate
+    contention = torch.expm1(observation[...,16:19])
+    cost = work_seconds + observation[...,5] + contention.sum(dim=-1)
+    legal = observation[...,7]
+    center = (cost*legal).sum(-1, keepdim=True)/legal.sum(-1, keepdim=True).clamp_min(1.)
+    return values-(cost-center)
+
+
 def original_s_config(seed, hidden=64, lr=.0003, gamma=.99, tau=.01):
     c=Config.load(CONFIG_DIR/'world.json')
     settings=json.loads((CONFIG_DIR/'experiment.json').read_text(encoding='utf8'))
@@ -42,7 +53,7 @@ class SchedulingAgent(OriginalSchedulingAgent):
 
     Only constructor and optional action accounting are adapted to clean CLI.
     """
-    def __init__(self,seed=0,features=None,hidden=64,lr=.0003,gamma=.99,tau=.01):
+    def __init__(self,seed=0,features=None,hidden=64,lr=.0003,gamma=.99,tau=.01,queue_residual=False):
         self.config=original_s_config(seed,hidden,lr,gamma,tau)
         self.features=observation_dim(self.config)
         if features is not None and int(features)!=self.features:
@@ -50,6 +61,11 @@ class SchedulingAgent(OriginalSchedulingAgent):
         torch.manual_seed(int(seed)+941)
         super().__init__(self.config)
         self.actions=0
+        if queue_residual:
+            if self.features != 24 or self.local_auxiliary:
+                raise ValueError('Queue residual requires the original 24-column competition observation')
+            self.online.register_forward_hook(_queue_residual)
+            self.target.register_forward_hook(_queue_residual)
 
     def act(self,obs,mask,rng,epsilon=0.):
         return self.scheduler(rng,epsilon)(obs,mask)

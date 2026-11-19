@@ -11,7 +11,7 @@ from torch import nn
 
 from edge_d.physical import commit_warm
 from edge_d.placement import Placement, PlacementPolicy, PeriodicPlacementPolicy, decode, paired_loss
-from edge_d.training import _emit
+from edge_joint.logging import emit as _emit
 from edge_d.world import CONFIG_DIR, LoadAwareHeuristic, cpu_lower_bound, make_world, stable_seed
 from edge_s.agent import SchedulingAgent, SReplay
 
@@ -32,6 +32,8 @@ class PlacementConfig:
     s_batch: int = 64
     periods: int = 1
     discount: float = .99
+    inventory_routing: bool = False
+    queue_residual: bool = False
 
 
 def _identity(config, split, purpose, index):
@@ -57,12 +59,14 @@ def measure(env, placement, scheduler, warm, request_seed, gs, collect=False, ep
             'cpu_rho_lower_bound': rho, 'coverage_fallback': placement.coverage_fallback,
             'global_cpu_lb': placement.global_cpu_lb,
             'transport_cpu_ceiling': placement.transport_cpu_ceiling,
+            'inventory_reroutes': placement.inventory_reroutes,
             'replicas_by_stage': matrix.sum(1).tolist(), 'replicas_by_node': matrix.sum(0).tolist(),
             'matrix_packed_hex': np.packbits(matrix).tobytes().hex(),
             'matrix_sha256': hashlib.sha256(matrix.tobytes()).hexdigest()}, transitions
 
 
-def _physical(config, policy, scheduler, env, split, index, gs, latent=None, epsilon=0., keep=False):
+def _physical(config, policy, scheduler, env, split, index, gs, latent=None, epsilon=0., keep=False, observer=None,
+              decoder=None):
     tick = time.perf_counter()
     layout_seed = _identity(config, split, 'decoder', index)
     request_seed = _identity(config, split, 'request', index)
@@ -72,13 +76,44 @@ def _physical(config, policy, scheduler, env, split, index, gs, latent=None, eps
         work = env.w.node_demand()[:, env.w.stage_service].sum(0) * env.w.stages[:, 0]
         placement = Placement(env.old.copy(), False, float(work.sum()/env.w.nodes[:, 0].sum()), None)
     else:
-        placement = decode(env, latent[:PlacementPolicy.dimensions], layout_seed)
+        placement = (decode(env, latent[:PlacementPolicy.dimensions], layout_seed, config.inventory_routing)
+                     if decoder is None else decoder(env, latent, layout_seed))
+    delays, penalties = [], []
+
+    def cohort(window, start, end, result):
+        for request in window.requests:
+            if start <= request.arrival.time < end:
+                if request.finish is not None:
+                    delays.append(request.finish-request.arrival.time)
+                    penalties.append(delays[-1])
+                else:
+                    penalties.append(window.now-request.arrival.time+env.failure_penalty)
+
+    env.window_observer = cohort
+    if observer is not None and split == 'train':
+        before = deepcopy(env)
+        before.window_observer = None
     row, transitions = measure(env, placement, scheduler,
                                config.warmup_seconds, request_seed, gs,
                                split == 'train' and config.mode != 'd-only', epsilon)
-    return {**row, 'gs': gs, 'split': split, 'scene': index, 'layout_seed': layout_seed,
+    del env.window_observer
+    row = {**row, 'gs': gs, 'split': split, 'scene': index, 'layout_seed': layout_seed,
             'request_seed': request_seed, 'latent': latent.tolist(), 'macro_action': 'KEEP' if keep else 'BUILD',
-            'wall_seconds': time.perf_counter()-tick}, transitions
+            'completed_delays_seconds': delays, 'penalty_adjusted_delays_seconds': penalties,
+            'wall_seconds': time.perf_counter()-tick}
+    if observer is not None and split == 'train':
+        observer(row, before, placement, scheduler, epsilon)
+    return row, transitions
+
+
+def _training_physical(raw_log, config, policy, scheduler, env, index, gs, latent, epsilon, keep=False, observer=None):
+    try:
+        return _physical(config, policy, scheduler, env, 'train', index, gs, latent, epsilon, keep, observer)
+    except (Exception, KeyboardInterrupt) as exc:
+        _emit(raw_log.with_name('submission_errors.jsonl'), {
+            'seed': config.seed, 'mode': config.mode, 'gs': gs, 'scene': index,
+            'reward_raw': None, 'status': 'evaluation_error', 'reason': repr(exc)})
+        raise
 
 
 def _summary(rows, split, gs, label):
@@ -126,7 +161,7 @@ def _save(path, config, policy, scheduler, optimizer, gs):
     tmp.replace(path)
 
 
-def _periodic_pair(config, policy, scheduler, pair, first_gs, noise, epsilon, baseline, raw_log):
+def _periodic_pair(config, policy, scheduler, pair, first_gs, noise, epsilon, baseline, raw_log, observer=None):
     rows, samples, terms, observed_returns = [], [], [], []
     for branch, sign in enumerate((1., -1.)):
         env = make_world(config.seed, pair)
@@ -136,8 +171,8 @@ def _periodic_pair(config, policy, scheduler, pair, first_gs, noise, epsilon, ba
             latent = mean.detach()+sign*config.sigma*noise[period]
             keep = period > 0 and bool(latent[-1] < 0.)
             commit = first_gs+branch*config.periods+period
-            row, transitions = _physical(config, policy, scheduler, env, 'train',
-                                         pair*config.periods+period, commit, latent, epsilon, keep)
+            row, transitions = _training_physical(raw_log, config, policy, scheduler, env,
+                                         pair*config.periods+period, commit, latent, epsilon, keep, observer)
             component_log_prob = -(latent-mean).square()/(2*config.sigma**2)
             log_prob = component_log_prob[-1] if period else mean.new_zeros(())
             if not keep:
@@ -158,7 +193,7 @@ def _periodic_pair(config, policy, scheduler, pair, first_gs, noise, epsilon, ba
     return rows, samples, -.5*torch.stack(terms).sum()
 
 
-def train(config, out):
+def train(config, out, observer=None):
     stride = 2*config.periods
     if (stride < 2 or config.gs < stride or config.gs % stride or config.eval_every % stride
             or config.eval_every < stride or not 0. <= config.discount <= 1.
@@ -172,7 +207,8 @@ def train(config, out):
     torch.set_num_threads(1)
     torch.manual_seed(_identity(config, 'train', 'initial', 0))
     policy = PeriodicPlacementPolicy() if config.mode == 'periodic' else PlacementPolicy()
-    scheduler = LoadAwareHeuristic() if config.mode == 'd-only' else SchedulingAgent(config.seed)
+    scheduler = LoadAwareHeuristic() if config.mode == 'd-only' else SchedulingAgent(
+        config.seed, queue_residual=config.queue_residual)
     initial_policy, initial_scheduler = deepcopy(policy), deepcopy(scheduler)
     optimizer = torch.optim.Adam(policy.parameters(), lr=config.learning_rate)
     replay = SReplay(25000, 128)
@@ -185,6 +221,8 @@ def train(config, out):
                 'windows': nominal.windows, 'tail_seconds': nominal.tail,
                 'failure_penalty_seconds': nominal.failure_penalty,
                 'configured_period_seconds_not_simulated': nominal.c.period_seconds,
+                'config_sha256': {name: hashlib.sha256((CONFIG_DIR/name).read_bytes()).hexdigest()
+                                  for name in ('world.json', 'experiment.json')},
                 'physical_cost': nominal.cost, 'source_experiment_config': json.loads(
                     (CONFIG_DIR/'experiment.json').read_text(encoding='utf8'))}
     (out/'run_config.json').write_text(json.dumps(settings, indent=2), encoding='utf8')
@@ -204,15 +242,15 @@ def train(config, out):
         delta = loss = None
         if config.mode == 'periodic':
             rows, samples, loss = _periodic_pair(config, policy, scheduler, pair, gs-stride+1,
-                                                  noise, epsilon, baseline, out/'train.jsonl')
+                                                  noise, epsilon, baseline, out/'train.jsonl', observer)
         else:
             plus, minus = mean.detach()+config.sigma*noise, mean.detach()-config.sigma*noise
             rows, samples = [], []
             for commit, latent in enumerate((plus, minus), start=gs-1):
                 index = commit-1 if config.mode == 's-only' else pair
                 trial_env = env if commit == gs-1 and index == pair else make_world(config.seed, index)
-                row, transitions = _physical(config, policy, scheduler, trial_env, 'train', index,
-                                             commit, None if config.mode == 's-only' else latent, epsilon)
+                row, transitions = _training_physical(out/'train.jsonl', config, policy, scheduler, trial_env, index,
+                                             commit, None if config.mode == 's-only' else latent, epsilon, observer=observer)
                 _emit(out/'train.jsonl', row)
                 rows.append(row)
                 samples.extend(transitions)

@@ -128,6 +128,8 @@ class Env:
             if getattr(self, 'record_resource_telemetry', False):
                 windows[-1].update(resources=sim.telemetry(), s_decisions=r['s_decisions'],
                                    active_jobs=r['active_jobs'], completed_delay_sum=r['completed_delay_sum'])
+            observer=getattr(self,'window_observer',None)
+            if observer is not None:observer(sim,b,e,r)
         local_alignment={}
         if getattr(self.c,'s_local_period_mean',False) and collect:
             controlled=-sum(t.reward for t in trans)*self.c.latency_ref_seconds

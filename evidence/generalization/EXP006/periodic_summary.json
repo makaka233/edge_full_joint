@@ -1,0 +1,971 @@
+[
+  {
+    "run": "placement_periodic_13",
+    "gs": 1,
+    "action": "BUILD",
+    "demand_change": null,
+    "previous_rho": null,
+    "arms": {
+      "BUILD": {
+        "rho": 0.6720130994968481,
+        "original": -22.95281077835747,
+        "heuristic": -8.115766540685978,
+        "switching": 0.03918481492183792,
+        "censor": 19,
+        "busiest_stage_capacity_ratios": [
+          {
+            "stage": 18,
+            "service": 6,
+            "replicas": 1,
+            "offered": 5.229398020058334,
+            "isolated_ratio": 0.6293787102245595,
+            "prior_isolated_ratio": null
+          },
+          {
+            "stage": 25,
+            "service": 8,
+            "replicas": 1,
+            "offered": 5.2304214386182055,
+            "isolated_ratio": 0.5774089463223883,
+            "prior_isolated_ratio": null
+          },
+          {
+            "stage": 4,
+            "service": 1,
+            "replicas": 2,
+            "offered": 11.000627407732498,
+            "isolated_ratio": 0.5749436047132839,
+            "prior_isolated_ratio": null
+          }
+        ]
+      }
+    }
+  },
+  {
+    "run": "placement_periodic_13",
+    "gs": 21,
+    "action": "BUILD",
+    "demand_change": null,
+    "previous_rho": null,
+    "arms": {
+      "BUILD": {
+        "rho": 2.5662378722318318,
+        "original": -135.56488652746748,
+        "heuristic": -126.98057133085256,
+        "switching": 0.0445103135118864,
+        "censor": 152,
+        "busiest_stage_capacity_ratios": [
+          {
+            "stage": 16,
+            "service": 5,
+            "replicas": 1,
+            "offered": 8.608591895887013,
+            "isolated_ratio": 1.3391993067823658,
+            "prior_isolated_ratio": null
+          },
+          {
+            "stage": 5,
+            "service": 1,
+            "replicas": 1,
+            "offered": 4.225137817330116,
+            "isolated_ratio": 0.6572853847017485,
+            "prior_isolated_ratio": null
+          },
+          {
+            "stage": 17,
+            "service": 5,
+            "replicas": 1,
+            "offered": 7.524036838602084,
+            "isolated_ratio": 0.6209237237613662,
+            "prior_isolated_ratio": null
+          }
+        ]
+      }
+    }
+  },
+  {
+    "run": "placement_periodic_13",
+    "gs": 40,
+    "action": "KEEP",
+    "demand_change": 0.1896157316320863,
+    "previous_rho": 0.9719754712244378,
+    "arms": {
+      "KEEP": {
+        "rho": 1.0194057645412045,
+        "original": -32.62165117417192,
+        "heuristic": -30.442030304962305,
+        "switching": 0.0,
+        "censor": 21,
+        "busiest_stage_capacity_ratios": [
+          {
+            "stage": 19,
+            "service": 6,
+            "replicas": 1,
+            "offered": 2.458441075728445,
+            "isolated_ratio": 0.38244844501849745,
+            "prior_isolated_ratio": 0.3899275120351529
+          },
+          {
+            "stage": 17,
+            "service": 5,
+            "replicas": 1,
+            "offered": 2.0971887226257735,
+            "isolated_ratio": 0.32625006708403653,
+            "prior_isolated_ratio": 0.3221214402660959
+          },
+          {
+            "stage": 25,
+            "service": 8,
+            "replicas": 1,
+            "offered": 3.2816310800769153,
+            "isolated_ratio": 0.3145001000403102,
+            "prior_isolated_ratio": 0.3411310901793192
+          }
+        ]
+      },
+      "BUILD": {
+        "rho": 0.30811341050817365,
+        "original": -5.137991185912839,
+        "heuristic": -4.454172413082203,
+        "switching": 0.05217812873598967,
+        "censor": 0,
+        "busiest_stage_capacity_ratios": [
+          {
+            "stage": 20,
+            "service": 6,
+            "replicas": 1,
+            "offered": 1.9821308239007132,
+            "isolated_ratio": 0.252387152480479,
+            "prior_isolated_ratio": 0.2573227730906061
+          },
+          {
+            "stage": 25,
+            "service": 8,
+            "replicas": 1,
+            "offered": 3.2816310800769153,
+            "isolated_ratio": 0.1975852711111576,
+            "prior_isolated_ratio": 0.21431624005488836
+          },
+          {
+            "stage": 1,
+            "service": 0,
+            "replicas": 1,
+            "offered": 2.3451851736960054,
+            "isolated_ratio": 0.1865459445756261,
+            "prior_isolated_ratio": 0.1744933680729245
+          }
+        ]
+      }
+    }
+  },
+  {
+    "run": "placement_periodic_13",
+    "gs": 49,
+    "action": "BUILD",
+    "demand_change": null,
+    "previous_rho": null,
+    "arms": {
+      "BUILD": {
+        "rho": 1.296840188353701,
+        "original": -68.94797258249841,
+        "heuristic": -68.11805845613289,
+        "switching": 0.03523587284666322,
+        "censor": 63,
+        "busiest_stage_capacity_ratios": [
+          {
+            "stage": 19,
+            "service": 6,
+            "replicas": 1,
+            "offered": 4.758746959432503,
+            "isolated_ratio": 0.6093570178598794,
+            "prior_isolated_ratio": null
+          },
+          {
+            "stage": 7,
+            "service": 2,
+            "replicas": 1,
+            "offered": 4.605979171320173,
+            "isolated_ratio": 0.4663604461152157,
+            "prior_isolated_ratio": null
+          },
+          {
+            "stage": 18,
+            "service": 6,
+            "replicas": 1,
+            "offered": 4.573947041440715,
+            "isolated_ratio": 0.46311715780995777,
+            "prior_isolated_ratio": null
+          }
+        ]
+      }
+    }
+  },
+  {
+    "run": "placement_periodic_13",
+    "gs": 50,
+    "action": "KEEP",
+    "demand_change": 0.13915800015304952,
+    "previous_rho": 1.296840188353701,
+    "arms": {
+      "KEEP": {
+        "rho": 1.4384049080953565,
+        "original": -76.00225899027434,
+        "heuristic": -74.59992116803161,
+        "switching": 0.0,
+        "censor": 85,
+        "busiest_stage_capacity_ratios": [
+          {
+            "stage": 19,
+            "service": 6,
+            "replicas": 1,
+            "offered": 5.823305688695047,
+            "isolated_ratio": 0.7456736445118429,
+            "prior_isolated_ratio": 0.6093570178598794
+          },
+          {
+            "stage": 18,
+            "service": 6,
+            "replicas": 1,
+            "offered": 5.597164979200317,
+            "isolated_ratio": 0.5667190969802312,
+            "prior_isolated_ratio": 0.46311715780995777
+          },
+          {
+            "stage": 7,
+            "service": 2,
+            "replicas": 1,
+            "offered": 4.683880010849143,
+            "isolated_ratio": 0.47424799161296655,
+            "prior_isolated_ratio": 0.4663604461152157
+          }
+        ]
+      },
+      "BUILD": {
+        "rho": 0.4358967640187705,
+        "original": -6.443189254371426,
+        "heuristic": -5.621384757400799,
+        "switching": 0.047339405654905596,
+        "censor": 0,
+        "busiest_stage_capacity_ratios": [
+          {
+            "stage": 10,
+            "service": 3,
+            "replicas": 1,
+            "offered": 4.057442753629785,
+            "isolated_ratio": 0.3355125466746611,
+            "prior_isolated_ratio": 0.24808826843811838
+          },
+          {
+            "stage": 18,
+            "service": 6,
+            "replicas": 2,
+            "offered": 5.597164979200317,
+            "isolated_ratio": 0.304809824380083,
+            "prior_isolated_ratio": 0.2490875290627106
+          },
+          {
+            "stage": 20,
+            "service": 6,
+            "replicas": 2,
+            "offered": 4.695070309602081,
+            "isolated_ratio": 0.24037263620184704,
+            "prior_isolated_ratio": 0.19643010564891825
+          }
+        ]
+      }
+    }
+  },
+  {
+    "run": "placement_periodic_13",
+    "gs": 51,
+    "action": "KEEP",
+    "demand_change": 0.2780454181457849,
+    "previous_rho": 1.4384049080953565,
+    "arms": {
+      "KEEP": {
+        "rho": 1.0895662001677027,
+        "original": -35.049970151009205,
+        "heuristic": -34.74157356165343,
+        "switching": 0.0,
+        "censor": 10,
+        "busiest_stage_capacity_ratios": [
+          {
+            "stage": 19,
+            "service": 6,
+            "replicas": 1,
+            "offered": 4.766026129229368,
+            "isolated_ratio": 0.6102891147412068,
+            "prior_isolated_ratio": 0.7456736445118429
+          },
+          {
+            "stage": 18,
+            "service": 6,
+            "replicas": 1,
+            "offered": 4.580943533887224,
+            "isolated_ratio": 0.4638255603487518,
+            "prior_isolated_ratio": 0.5667190969802312
+          },
+          {
+            "stage": 7,
+            "service": 2,
+            "replicas": 1,
+            "offered": 4.4947246338502715,
+            "isolated_ratio": 0.4550958020955742,
+            "prior_isolated_ratio": 0.47424799161296655
+          }
+        ]
+      },
+      "BUILD": {
+        "rho": 0.4741837780462314,
+        "original": -6.287607403803598,
+        "heuristic": -5.959196868849046,
+        "switching": 0.04268183531858747,
+        "censor": 0,
+        "busiest_stage_capacity_ratios": [
+          {
+            "stage": 10,
+            "service": 3,
+            "replicas": 1,
+            "offered": 3.048130780964668,
+            "isolated_ratio": 0.4741837780462315,
+            "prior_isolated_ratio": 0.6311978298757838
+          },
+          {
+            "stage": 7,
+            "service": 2,
+            "replicas": 1,
+            "offered": 4.4947246338502715,
+            "isolated_ratio": 0.4550958020955742,
+            "prior_isolated_ratio": 0.47424799161296655
+          },
+          {
+            "stage": 6,
+            "service": 2,
+            "replicas": 1,
+            "offered": 3.9177951360184564,
+            "isolated_ratio": 0.37123696544838525,
+            "prior_isolated_ratio": 0.3868600511489999
+          }
+        ]
+      }
+    }
+  },
+  {
+    "run": "placement_periodic_13",
+    "gs": 52,
+    "action": "KEEP",
+    "demand_change": 0.2456797697708947,
+    "previous_rho": 1.0895662001677027,
+    "arms": {
+      "KEEP": {
+        "rho": 1.246281823721228,
+        "original": -58.4559056275223,
+        "heuristic": -58.20909631502199,
+        "switching": 0.0,
+        "censor": 61,
+        "busiest_stage_capacity_ratios": [
+          {
+            "stage": 7,
+            "service": 2,
+            "replicas": 1,
+            "offered": 6.351636724181435,
+            "isolated_ratio": 0.6431101891852509,
+            "prior_isolated_ratio": 0.4550958020955742
+          },
+          {
+            "stage": 8,
+            "service": 2,
+            "replicas": 1,
+            "offered": 6.364088105369079,
+            "isolated_ratio": 0.5876362055879688,
+            "prior_isolated_ratio": 0.4158397344959834
+          },
+          {
+            "stage": 19,
+            "service": 6,
+            "replicas": 1,
+            "offered": 4.103127658396172,
+            "isolated_ratio": 0.525405039421732,
+            "prior_isolated_ratio": 0.6102891147412068
+          }
+        ]
+      },
+      "BUILD": {
+        "rho": 0.9728179818682068,
+        "original": -8.58440145237827,
+        "heuristic": -8.30130879350865,
+        "switching": 0.04491493034860376,
+        "censor": 0,
+        "busiest_stage_capacity_ratios": [
+          {
+            "stage": 8,
+            "service": 2,
+            "replicas": 1,
+            "offered": 6.364088105369079,
+            "isolated_ratio": 0.6443709051957742,
+            "prior_isolated_ratio": 0.4559879455784052
+          },
+          {
+            "stage": 5,
+            "service": 1,
+            "replicas": 1,
+            "offered": 2.294657382951357,
+            "isolated_ratio": 0.35696936429518805,
+            "prior_isolated_ratio": 0.3537059275644119
+          },
+          {
+            "stage": 14,
+            "service": 4,
+            "replicas": 1,
+            "offered": 2.227163416676658,
+            "isolated_ratio": 0.34646963635591216,
+            "prior_isolated_ratio": 0.3135891023139783
+          }
+        ]
+      }
+    }
+  },
+  {
+    "run": "placement_periodic_13",
+    "gs": 61,
+    "action": "BUILD",
+    "demand_change": null,
+    "previous_rho": null,
+    "arms": {
+      "BUILD": {
+        "rho": 1.257475445480461,
+        "original": -92.95679733112492,
+        "heuristic": -91.38484870538007,
+        "switching": 0.03741678271609993,
+        "censor": 79,
+        "busiest_stage_capacity_ratios": [
+          {
+            "stage": 7,
+            "service": 2,
+            "replicas": 1,
+            "offered": 7.9683323226333584,
+            "isolated_ratio": 1.020344065954579,
+            "prior_isolated_ratio": null
+          },
+          {
+            "stage": 8,
+            "service": 2,
+            "replicas": 1,
+            "offered": 7.983952980345284,
+            "isolated_ratio": 0.9305253960371951,
+            "prior_isolated_ratio": null
+          },
+          {
+            "stage": 17,
+            "service": 5,
+            "replicas": 1,
+            "offered": 5.457855630051184,
+            "isolated_ratio": 0.5526138724881742,
+            "prior_isolated_ratio": null
+          }
+        ]
+      }
+    }
+  },
+  {
+    "run": "placement_periodic_13",
+    "gs": 62,
+    "action": "KEEP",
+    "demand_change": 0.3208568070525493,
+    "previous_rho": 1.257475445480461,
+    "arms": {
+      "KEEP": {
+        "rho": 1.0206449242271882,
+        "original": -20.101412788119074,
+        "heuristic": -19.270674446493132,
+        "switching": 0.0,
+        "censor": 0,
+        "busiest_stage_capacity_ratios": [
+          {
+            "stage": 7,
+            "service": 2,
+            "replicas": 1,
+            "offered": 6.009908285445474,
+            "isolated_ratio": 0.7695680862314987,
+            "prior_isolated_ratio": 1.020344065954579
+          },
+          {
+            "stage": 8,
+            "service": 2,
+            "replicas": 1,
+            "offered": 6.0216897619710394,
+            "isolated_ratio": 0.7018246806269262,
+            "prior_isolated_ratio": 0.9305253960371951
+          },
+          {
+            "stage": 6,
+            "service": 2,
+            "replicas": 1,
+            "offered": 5.238494316495129,
+            "isolated_ratio": 0.39503979234388936,
+            "prior_isolated_ratio": 0.523769780927174
+          }
+        ]
+      },
+      "BUILD": {
+        "rho": 1.3123683562341462,
+        "original": -65.71791971253921,
+        "heuristic": -65.1079754027245,
+        "switching": 0.04967432151730454,
+        "censor": 45,
+        "busiest_stage_capacity_ratios": [
+          {
+            "stage": 7,
+            "service": 2,
+            "replicas": 1,
+            "offered": 6.009908285445474,
+            "isolated_ratio": 0.7652490040225519,
+            "prior_isolated_ratio": 1.0146175422315782
+          },
+          {
+            "stage": 8,
+            "service": 2,
+            "replicas": 1,
+            "offered": 6.0216897619710394,
+            "isolated_ratio": 0.7018246806269262,
+            "prior_isolated_ratio": 0.9305253960371951
+          },
+          {
+            "stage": 6,
+            "service": 2,
+            "replicas": 1,
+            "offered": 5.238494316495129,
+            "isolated_ratio": 0.6105436756072197,
+            "prior_isolated_ratio": 0.8094990262167993
+          }
+        ]
+      }
+    }
+  },
+  {
+    "run": "placement_periodic_13",
+    "gs": 63,
+    "action": "BUILD",
+    "demand_change": 0.33779784291913445,
+    "previous_rho": 1.0206449242271882,
+    "arms": {
+      "BUILD": {
+        "rho": 1.2460200079128188,
+        "original": -38.865236178709814,
+        "heuristic": -38.24792952159354,
+        "switching": 0.03850718083947191,
+        "censor": 22,
+        "busiest_stage_capacity_ratios": [
+          {
+            "stage": 4,
+            "service": 1,
+            "replicas": 1,
+            "offered": 3.45675495337259,
+            "isolated_ratio": 0.5377515734582385,
+            "prior_isolated_ratio": 0.42554816818507174
+          },
+          {
+            "stage": 8,
+            "service": 2,
+            "replicas": 1,
+            "offered": 4.9255755932119065,
+            "isolated_ratio": 0.4987199345858367,
+            "prior_isolated_ratio": 0.6097026971477442
+          },
+          {
+            "stage": 7,
+            "service": 2,
+            "replicas": 1,
+            "offered": 4.91593867143078,
+            "isolated_ratio": 0.49774418567906614,
+            "prior_isolated_ratio": 0.6085098097194704
+          }
+        ]
+      },
+      "KEEP": {
+        "rho": 0.9769560856354003,
+        "original": -13.753416697093716,
+        "heuristic": -13.165217631252037,
+        "switching": 0.0,
+        "censor": 0,
+        "busiest_stage_capacity_ratios": [
+          {
+            "stage": 7,
+            "service": 2,
+            "replicas": 1,
+            "offered": 4.91593867143078,
+            "isolated_ratio": 0.6294853990644522,
+            "prior_isolated_ratio": 0.7695680862314987
+          },
+          {
+            "stage": 8,
+            "service": 2,
+            "replicas": 1,
+            "offered": 4.9255755932119065,
+            "isolated_ratio": 0.5740731678740966,
+            "prior_isolated_ratio": 0.7018246806269262
+          },
+          {
+            "stage": 10,
+            "service": 3,
+            "replicas": 1,
+            "offered": 2.648386052695733,
+            "isolated_ratio": 0.41199731718688526,
+            "prior_isolated_ratio": 0.36852516937948604
+          }
+        ]
+      }
+    }
+  },
+  {
+    "run": "placement_periodic_14",
+    "gs": 5,
+    "action": "BUILD",
+    "demand_change": null,
+    "previous_rho": null,
+    "arms": {
+      "BUILD": {
+        "rho": 0.4705680835691531,
+        "original": -61.140001011509405,
+        "heuristic": -5.732985378853942,
+        "switching": 0.028820220936588595,
+        "censor": 50,
+        "busiest_stage_capacity_ratios": [
+          {
+            "stage": 13,
+            "service": 4,
+            "replicas": 2,
+            "offered": 6.72648935144956,
+            "isolated_ratio": 0.3029454545122441,
+            "prior_isolated_ratio": null
+          },
+          {
+            "stage": 1,
+            "service": 0,
+            "replicas": 1,
+            "offered": 3.2574846214168263,
+            "isolated_ratio": 0.27230844172066937,
+            "prior_isolated_ratio": null
+          },
+          {
+            "stage": 7,
+            "service": 2,
+            "replicas": 1,
+            "offered": 3.451179588721966,
+            "isolated_ratio": 0.26025670463690814,
+            "prior_isolated_ratio": null
+          }
+        ]
+      }
+    }
+  },
+  {
+    "run": "placement_periodic_14",
+    "gs": 17,
+    "action": "BUILD",
+    "demand_change": null,
+    "previous_rho": null,
+    "arms": {
+      "BUILD": {
+        "rho": 1.0003909378243385,
+        "original": -25.226413534560944,
+        "heuristic": -14.92072531142818,
+        "switching": 0.028642578315532408,
+        "censor": 6,
+        "busiest_stage_capacity_ratios": [
+          {
+            "stage": 16,
+            "service": 5,
+            "replicas": 1,
+            "offered": 4.7671624552493315,
+            "isolated_ratio": 0.7416056809986591,
+            "prior_isolated_ratio": null
+          },
+          {
+            "stage": 8,
+            "service": 2,
+            "replicas": 1,
+            "offered": 4.429429624032185,
+            "isolated_ratio": 0.516247623861029,
+            "prior_isolated_ratio": null
+          },
+          {
+            "stage": 22,
+            "service": 7,
+            "replicas": 1,
+            "offered": 4.39067443866541,
+            "isolated_ratio": 0.5045310383094762,
+            "prior_isolated_ratio": null
+          }
+        ]
+      }
+    }
+  },
+  {
+    "run": "placement_periodic_14",
+    "gs": 25,
+    "action": "BUILD",
+    "demand_change": null,
+    "previous_rho": null,
+    "arms": {
+      "BUILD": {
+        "rho": 1.0422531501245624,
+        "original": -25.732189271596773,
+        "heuristic": -25.722216624231546,
+        "switching": 0.029576766045220665,
+        "censor": 0,
+        "busiest_stage_capacity_ratios": [
+          {
+            "stage": 18,
+            "service": 6,
+            "replicas": 1,
+            "offered": 7.203347318416829,
+            "isolated_ratio": 0.5466105010319163,
+            "prior_isolated_ratio": null
+          },
+          {
+            "stage": 19,
+            "service": 6,
+            "replicas": 1,
+            "offered": 7.4943821689844246,
+            "isolated_ratio": 0.4643102895677206,
+            "prior_isolated_ratio": null
+          },
+          {
+            "stage": 5,
+            "service": 1,
+            "replicas": 1,
+            "offered": 5.529432267720429,
+            "isolated_ratio": 0.41958906167875715,
+            "prior_isolated_ratio": null
+          }
+        ]
+      }
+    }
+  },
+  {
+    "run": "placement_periodic_14",
+    "gs": 26,
+    "action": "KEEP",
+    "demand_change": 0.21683308695053702,
+    "previous_rho": 1.0422531501245624,
+    "arms": {
+      "KEEP": {
+        "rho": 1.3097591763186438,
+        "original": -92.44383126771922,
+        "heuristic": -87.84753330180004,
+        "switching": 0.0,
+        "censor": 98,
+        "busiest_stage_capacity_ratios": [
+          {
+            "stage": 18,
+            "service": 6,
+            "replicas": 1,
+            "offered": 9.260977011686188,
+            "isolated_ratio": 0.7027492998234908,
+            "prior_isolated_ratio": 0.5466105010319163
+          },
+          {
+            "stage": 19,
+            "service": 6,
+            "replicas": 1,
+            "offered": 9.63514570598405,
+            "isolated_ratio": 0.596940106855916,
+            "prior_isolated_ratio": 0.4643102895677206
+          },
+          {
+            "stage": 5,
+            "service": 1,
+            "replicas": 1,
+            "offered": 6.769973255523427,
+            "isolated_ratio": 0.5137248434090012,
+            "prior_isolated_ratio": 0.41958906167875715
+          }
+        ]
+      },
+      "BUILD": {
+        "rho": 1.233779333949715,
+        "original": -37.30342247464344,
+        "heuristic": -35.593488410457425,
+        "switching": 0.04171383659929759,
+        "censor": 31,
+        "busiest_stage_capacity_ratios": [
+          {
+            "stage": 19,
+            "service": 6,
+            "replicas": 1,
+            "offered": 9.63514570598405,
+            "isolated_ratio": 1.2337793339497147,
+            "prior_isolated_ratio": 0.9596548015949151
+          },
+          {
+            "stage": 5,
+            "service": 1,
+            "replicas": 1,
+            "offered": 6.769973255523427,
+            "isolated_ratio": 0.625114129462087,
+            "prior_isolated_ratio": 0.5105671925122524
+          },
+          {
+            "stage": 18,
+            "service": 6,
+            "replicas": 2,
+            "offered": 9.260977011686188,
+            "isolated_ratio": 0.596900025531556,
+            "prior_isolated_ratio": 0.4642791136237588
+          }
+        ]
+      }
+    }
+  },
+  {
+    "run": "placement_periodic_14",
+    "gs": 27,
+    "action": "KEEP",
+    "demand_change": 0.12377843691091155,
+    "previous_rho": 1.3097591763186438,
+    "arms": {
+      "KEEP": {
+        "rho": 1.4439631977002245,
+        "original": -120.00456113720804,
+        "heuristic": -119.35334375087561,
+        "switching": 0.0,
+        "censor": 158,
+        "busiest_stage_capacity_ratios": [
+          {
+            "stage": 18,
+            "service": 6,
+            "replicas": 1,
+            "offered": 10.257981138957,
+            "isolated_ratio": 0.7784048112750978,
+            "prior_isolated_ratio": 0.7027492998234908
+          },
+          {
+            "stage": 19,
+            "service": 6,
+            "replicas": 1,
+            "offered": 10.672431515418607,
+            "isolated_ratio": 0.6612045737170065,
+            "prior_isolated_ratio": 0.596940106855916
+          },
+          {
+            "stage": 5,
+            "service": 1,
+            "replicas": 1,
+            "offered": 7.221787513969466,
+            "isolated_ratio": 0.5480097955660537,
+            "prior_isolated_ratio": 0.5137248434090012
+          }
+        ]
+      },
+      "BUILD": {
+        "rho": 0.7092932493681104,
+        "original": -6.6862092896211545,
+        "heuristic": -6.214062034065435,
+        "switching": 0.04422792922137621,
+        "censor": 0,
+        "busiest_stage_capacity_ratios": [
+          {
+            "stage": 4,
+            "service": 1,
+            "replicas": 1,
+            "offered": 7.478173894391762,
+            "isolated_ratio": 0.6171388685416749,
+            "prior_isolated_ratio": 0.5785290174890061
+          },
+          {
+            "stage": 3,
+            "service": 1,
+            "replicas": 1,
+            "offered": 2.9805428891247394,
+            "isolated_ratio": 0.4636694385359384,
+            "prior_isolated_ratio": 0.4346610437124997
+          },
+          {
+            "stage": 13,
+            "service": 4,
+            "replicas": 1,
+            "offered": 4.931005774518878,
+            "isolated_ratio": 0.39005048002011244,
+            "prior_isolated_ratio": 0.32976741444823754
+          }
+        ]
+      }
+    }
+  },
+  {
+    "run": "placement_periodic_14",
+    "gs": 28,
+    "action": "KEEP",
+    "demand_change": 0.3928686066795891,
+    "previous_rho": 1.4439631977002245,
+    "arms": {
+      "KEEP": {
+        "rho": 1.5122219687641956,
+        "original": -134.1837167858235,
+        "heuristic": -131.08082423537263,
+        "switching": 0.0,
+        "censor": 183,
+        "busiest_stage_capacity_ratios": [
+          {
+            "stage": 18,
+            "service": 6,
+            "replicas": 1,
+            "offered": 11.203910934867034,
+            "isolated_ratio": 0.8501846570644914,
+            "prior_isolated_ratio": 0.7784048112750978
+          },
+          {
+            "stage": 19,
+            "service": 6,
+            "replicas": 1,
+            "offered": 11.656579451400308,
+            "isolated_ratio": 0.7221769131080013,
+            "prior_isolated_ratio": 0.6612045737170065
+          },
+          {
+            "stage": 20,
+            "service": 6,
+            "replicas": 1,
+            "offered": 9.398177430395462,
+            "isolated_ratio": 0.569969104808934,
+            "prior_isolated_ratio": 0.5218474478160102
+          }
+        ]
+      },
+      "BUILD": {
+        "rho": 1.5594792847027747,
+        "original": -60.122922989438536,
+        "heuristic": -59.89391665894457,
+        "switching": 0.05214322903866783,
+        "censor": 82,
+        "busiest_stage_capacity_ratios": [
+          {
+            "stage": 18,
+            "service": 6,
+            "replicas": 1,
+            "offered": 11.203910934867034,
+            "isolated_ratio": 1.0737438255173462,
+            "prior_isolated_ratio": 0.9830892064619211
+          },
+          {
+            "stage": 19,
+            "service": 6,
+            "replicas": 1,
+            "offered": 11.656579451400308,
+            "isolated_ratio": 0.8633770642428045,
+            "prior_isolated_ratio": 0.7904834028311437
+          },
+          {
+            "stage": 20,
+            "service": 6,
+            "replicas": 1,
+            "offered": 9.398177430395462,
+            "isolated_ratio": 0.6961022204599704,
+            "prior_isolated_ratio": 0.637331329191721
+          }
+        ]
+      }
+    }
+  }
+]

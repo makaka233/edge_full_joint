@@ -1,0 +1,8 @@
+{
+  "wall_seconds": 383.48761399999785,
+  "best_fixed_gs": 112,
+  "gs": 128,
+  "updates": 64,
+  "additional_probe_evaluations": 88,
+  "holdout_evaluations": 72
+}

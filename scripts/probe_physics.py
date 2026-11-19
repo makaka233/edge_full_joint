@@ -7,7 +7,7 @@ import numpy as np
 
 from edge_d._engine.edge_rl.physics import Simulator
 from edge_d.physical import hasharr, nested
-from edge_d.training import _emit
+from edge_joint.logging import emit as _emit
 from edge_d.world import LoadAwareHeuristic, make_world
 
 

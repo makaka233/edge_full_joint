@@ -1,0 +1,12 @@
+{
+  "seed": 20261114,
+  "arm": "residual",
+  "seconds_per_epoch": 24.0,
+  "freeze": {
+    "gs": 64,
+    "hashes": {
+      "residual_placement_joint_14": "04ee17a13fe2d3af27df98d1290cf9db04d9ba9930c706f38a5bec3fd2ccbb78",
+      "baseline_placement_periodic_14": "76ff6bb9860fd98ea3c39e81dde37e66627157dd7bfcd8dc4a1a78e9cf7d5d8f"
+    }
+  }
+}

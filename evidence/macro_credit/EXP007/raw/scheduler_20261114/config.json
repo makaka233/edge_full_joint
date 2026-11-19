@@ -1,0 +1,12 @@
+{
+  "seed": 20261114,
+  "arm": "scheduler",
+  "seconds_per_epoch": 24.0,
+  "freeze": {
+    "gs": 56,
+    "hashes": {
+      "scheduler_placement_joint_14": "48d903d99875ab8d000ec4f3d5f84eaafb13749a76d8706898d3036e40b60eea",
+      "baseline_placement_periodic_14": "76ff6bb9860fd98ea3c39e81dde37e66627157dd7bfcd8dc4a1a78e9cf7d5d8f"
+    }
+  }
+}

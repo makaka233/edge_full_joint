@@ -7,8 +7,8 @@ from types import SimpleNamespace
 import numpy as np
 import torch
 from edge_s.agent import DuelingQ,SchedulingAgent,SReplay
-from edge_joint.training import JointConfig,create_agents
-from edge_joint.periodic import PeriodicConfig,MacroGate,macro_state
+from research.history.legacy_edit.joint import JointConfig,create_agents
+from research.history.legacy_edit.periodic import PeriodicConfig,MacroGate,macro_state
 from edge_d.world import make_world
 
 class TestScheduling(unittest.TestCase):

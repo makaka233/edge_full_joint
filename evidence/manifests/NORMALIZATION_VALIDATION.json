@@ -1,0 +1,17 @@
+{
+  "scope": "Independently extracted release candidate immediately before embedding this receipt; the delivered ZIP has its own adjacent receipt",
+  "archive_sha256": "d793f650f6b890c20e957fffe4ca0576efb4ab2f0bdbf09370f28388aa546496",
+  "status": "passed",
+  "tests_passed": 19,
+  "candidate_package_files_verified": 427,
+  "historical_documents_and_evidence_preserved": 261,
+  "original_training_submissions_reconciled": 512,
+  "identical_regenerated_pngs": 76,
+  "original_allocator_probe": "passed",
+  "training_smokes": {
+    "d-only": {"training_gs": 2, "d_updates": 1, "s_updates": 0},
+    "s-only": {"training_gs": 2, "d_updates": 0, "s_updates": 4},
+    "joint": {"training_gs": 2, "d_updates": 1, "s_updates": 4},
+    "periodic": {"training_gs": 4, "d_updates": 1, "s_updates": 8}
+  }
+}

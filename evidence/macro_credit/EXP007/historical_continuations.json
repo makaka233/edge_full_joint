@@ -1,0 +1,255 @@
+[
+  {
+    "seed": 20261113,
+    "gs": 1,
+    "action": "BUILD",
+    "fork_period": 1,
+    "comparisons": {
+      "BUILD": {
+        "at_fork": -7.159685112835924,
+        "subsequent": -15.81514116547468,
+        "all_periods": -22.9748262783106
+      }
+    }
+  },
+  {
+    "seed": 20261113,
+    "gs": 21,
+    "action": "BUILD",
+    "fork_period": 1,
+    "comparisons": {
+      "BUILD": {
+        "at_fork": -101.41124803298305,
+        "subsequent": -15.181537218972629,
+        "all_periods": -116.59278525195568
+      }
+    }
+  },
+  {
+    "seed": 20261113,
+    "gs": 40,
+    "action": "KEEP",
+    "fork_period": 4,
+    "comparisons": {
+      "KEEP": {
+        "at_fork": -14.534185382689074,
+        "subsequent": null,
+        "all_periods": -45.51927817802515
+      },
+      "BUILD": {
+        "at_fork": -4.433246345354386,
+        "subsequent": null,
+        "all_periods": -35.409807850064745
+      }
+    }
+  },
+  {
+    "seed": 20261113,
+    "gs": 49,
+    "action": "BUILD",
+    "fork_period": 1,
+    "comparisons": {
+      "BUILD": {
+        "at_fork": -31.415896900262606,
+        "subsequent": -264.72490486908026,
+        "all_periods": -296.14080176934283
+      }
+    }
+  },
+  {
+    "seed": 20261113,
+    "gs": 50,
+    "action": "KEEP",
+    "fork_period": 2,
+    "comparisons": {
+      "KEEP": {
+        "at_fork": -76.17817667007485,
+        "subsequent": -188.54672819900543,
+        "all_periods": -296.14080176934283
+      },
+      "BUILD": {
+        "at_fork": -5.730817132682114,
+        "subsequent": -65.87705686453221,
+        "all_periods": -95.85787805380514
+      }
+    }
+  },
+  {
+    "seed": 20261113,
+    "gs": 51,
+    "action": "KEEP",
+    "fork_period": 3,
+    "comparisons": {
+      "KEEP": {
+        "at_fork": -91.04403610240384,
+        "subsequent": -97.50269209660158,
+        "all_periods": -296.14080176934283
+      },
+      "BUILD": {
+        "at_fork": -19.986616728060685,
+        "subsequent": -42.703728949444766,
+        "all_periods": -165.31997564957965
+      }
+    }
+  },
+  {
+    "seed": 20261113,
+    "gs": 52,
+    "action": "KEEP",
+    "fork_period": 4,
+    "comparisons": {
+      "KEEP": {
+        "at_fork": -97.50269209660158,
+        "subsequent": null,
+        "all_periods": -296.14080176934283
+      },
+      "BUILD": {
+        "at_fork": -64.29730716662462,
+        "subsequent": null,
+        "all_periods": -262.0767787656007
+      }
+    }
+  },
+  {
+    "seed": 20261113,
+    "gs": 61,
+    "action": "BUILD",
+    "fork_period": 1,
+    "comparisons": {
+      "BUILD": {
+        "at_fork": -52.35951697052341,
+        "subsequent": -73.01143200773842,
+        "all_periods": -125.37094897826184
+      }
+    }
+  },
+  {
+    "seed": 20261113,
+    "gs": 62,
+    "action": "KEEP",
+    "fork_period": 2,
+    "comparisons": {
+      "KEEP": {
+        "at_fork": -50.86924893925245,
+        "subsequent": -22.142183068485974,
+        "all_periods": -125.37094897826184
+      },
+      "BUILD": {
+        "at_fork": -47.35105004506555,
+        "subsequent": -45.921580314788166,
+        "all_periods": -144.21340229897538
+      }
+    }
+  },
+  {
+    "seed": 20261113,
+    "gs": 63,
+    "action": "BUILD",
+    "fork_period": 3,
+    "comparisons": {
+      "BUILD": {
+        "at_fork": -16.27385675202264,
+        "subsequent": -5.868326316463336,
+        "all_periods": -125.37094897826184
+      },
+      "KEEP": {
+        "at_fork": -29.613487920425207,
+        "subsequent": -6.4508482134335985,
+        "all_periods": -146.57638786054548
+      }
+    }
+  },
+  {
+    "seed": 20261114,
+    "gs": 5,
+    "action": "BUILD",
+    "fork_period": 1,
+    "comparisons": {
+      "BUILD": {
+        "at_fork": -5.573644330365114,
+        "subsequent": -15.525687413620554,
+        "all_periods": -21.099331743985672
+      }
+    }
+  },
+  {
+    "seed": 20261114,
+    "gs": 17,
+    "action": "BUILD",
+    "fork_period": 1,
+    "comparisons": {
+      "BUILD": {
+        "at_fork": -13.591388316333168,
+        "subsequent": -20.577045945486425,
+        "all_periods": -34.16843426181959
+      }
+    }
+  },
+  {
+    "seed": 20261114,
+    "gs": 25,
+    "action": "BUILD",
+    "fork_period": 1,
+    "comparisons": {
+      "BUILD": {
+        "at_fork": -16.042231980301306,
+        "subsequent": -401.81728567236416,
+        "all_periods": -417.85951765266543
+      }
+    }
+  },
+  {
+    "seed": 20261114,
+    "gs": 26,
+    "action": "KEEP",
+    "fork_period": 2,
+    "comparisons": {
+      "KEEP": {
+        "at_fork": -73.502348781906,
+        "subsequent": -328.31493689045817,
+        "all_periods": -417.85951765266543
+      },
+      "BUILD": {
+        "at_fork": -14.687901993359834,
+        "subsequent": -248.17946615753726,
+        "all_periods": -277.53264793665454
+      }
+    }
+  },
+  {
+    "seed": 20261114,
+    "gs": 27,
+    "action": "KEEP",
+    "fork_period": 3,
+    "comparisons": {
+      "KEEP": {
+        "at_fork": -149.43147322967,
+        "subsequent": -178.88346366078815,
+        "all_periods": -417.85951765266543
+      },
+      "BUILD": {
+        "at_fork": -12.123499103197355,
+        "subsequent": -79.58429066693327,
+        "all_periods": -175.41736912337325
+      }
+    }
+  },
+  {
+    "seed": 20261114,
+    "gs": 28,
+    "action": "KEEP",
+    "fork_period": 4,
+    "comparisons": {
+      "KEEP": {
+        "at_fork": -178.88346366078815,
+        "subsequent": null,
+        "all_periods": -417.85951765266543
+      },
+      "BUILD": {
+        "at_fork": -93.29450399065482,
+        "subsequent": null,
+        "all_periods": -326.3735083734815
+      }
+    }
+  }
+]

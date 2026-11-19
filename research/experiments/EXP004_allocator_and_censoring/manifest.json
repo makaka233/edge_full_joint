@@ -1,0 +1,9 @@
+{
+  "experiment_id": "EXP004",
+  "source_snapshot": "beb31df4a26b28e8b5cc8ba23400ced08184208b",
+  "runs": {},
+  "additional_evidence_sha256": {
+    "evidence/raw/EXP004/allocator_continuous.jsonl.gz": "389d7e1e324904e12e42367ec2cd2972c546ab3bb7a755ea6ff921af0c19d7d3",
+    "evidence/raw/EXP004/allocator_stress.jsonl.gz": "4b1e04b01dffb320869b52502c1892bbd3c47856b1ea7d87013febf8e4a41ca6"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "sha256": {
+    "raw/followup_20261113/followup.jsonl.gz": "1571df3999414425a3f5b607a7868d97f6458d4ecff7a7ab24bff3b57593fe43",
+    "raw/followup_20261114/followup.jsonl.gz": "f1ff6a93616e77f4906ecb4ae0c771a740e9f2113f51b17e9c49a975d25200ae",
+    "raw/residual_20261113/config.json": "13bd17cb32570981d07da46dcb2c3c67b9b855bc4166e7a02c7ea998cca93fc5",
+    "raw/residual_20261113/diagnostic.jsonl.gz": "3598b9972a13d5b94e3771fa914bfe563ed02d358bc22014b198b039002a24a7",
+    "raw/residual_20261113/fixed.jsonl.gz": "92bf008d060978d9f625582b9159a600872a0d5d63f0b9aa58e79ca938af3ef5",
+    "raw/residual_20261113/holdout.jsonl.gz": "60729df8c424757c680292ca49626675058da063adbd6997f15f240e4ea4191b",
+    "raw/residual_20261113/manifest.json": "2e79d5a438240dfd5d9c50a1e6aa4c2e3ea853fb253c6e261339e5f71110b770",
+    "raw/residual_20261113/train.jsonl.gz": "acf944958fb34e56c338a8e7f16c7edb6403d2ec9109d54ccfd1d8684f2ba5d0",
+    "raw/residual_20261114/config.json": "502880f9cda50c99e063d870469531b1dca1af99de5451522f8767b27017694e",
+    "raw/residual_20261114/diagnostic.jsonl.gz": "7cd16a16881a1d28a285d612e677eeb5db427f9c602ffa1bfcc3b04ee86ba2c6",
+    "raw/residual_20261114/fixed.jsonl.gz": "9dedfc953e298710246fc023e1972f106467e7b10e04be0244dd58e40a35ab7b",
+    "raw/residual_20261114/holdout.jsonl.gz": "646ea268a1c5bd8bbc858e8a4eda177d3e7ce84ccd34d9cf8d582cb5da5448e3",
+    "raw/residual_20261114/manifest.json": "1bb77a0a0831337abf33e56d62681006f9f2432d77400ed0620a1832cadb2b0b",
+    "raw/residual_20261114/train.jsonl.gz": "75f41cedfd98b47b35882f3ff6d5003afabf9abcd1bb2889420866797c6ffe88",
+    "raw/scheduler_20261113/config.json": "33e75b881990e6da303180afdf5e74eb25e4c8f44344b25b2002fe859843bf9a",
+    "raw/scheduler_20261113/holdout.jsonl.gz": "ce313bfadd47d157645cd9f075b51af1379ec9b52dd42c397e71440aedbca671",
+    "raw/scheduler_20261113/manifest.json": "f3ce3580b71fe1cef57908642249dc023c92161e10c4ce3e10be9ecc24258dcd",
+    "raw/scheduler_20261114/config.json": "2a28d63c62e9e957f58ddcbb81dc53b410c0ebfbddcf1b14936669652a516883",
+    "raw/scheduler_20261114/holdout.jsonl.gz": "e6a81926ba2c1ee4c0a018ed95bf76448deac2a6c4cc5a1a96102e0321dcca42",
+    "raw/scheduler_20261114/manifest.json": "9bc016538ae1035e532271283e929946ab3ad7fb192bd4a4122953d0badce3ea"
+  }
+}

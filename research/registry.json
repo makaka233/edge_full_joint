@@ -1,0 +1,21 @@
+{
+  "source_snapshot": "beb31df4a26b28e8b5cc8ba23400ced08184208b",
+  "experiments": {
+    "EXP001": {
+      "slug": "EXP001_direct_placement_64gs",
+      "runs": ["placement_d_13", "placement_d_14"]
+    },
+    "EXP002": {
+      "slug": "EXP002_scheduler_comparison",
+      "runs": ["placement_s_13", "placement_s_14", "placement_joint_13", "placement_joint_14"]
+    },
+    "EXP003": {
+      "slug": "EXP003_periodic_keep_build",
+      "runs": ["placement_periodic_13", "placement_periodic_14"]
+    },
+    "EXP004": {
+      "slug": "EXP004_allocator_and_censoring",
+      "runs": []
+    }
+  }
+}

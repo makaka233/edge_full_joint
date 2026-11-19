@@ -36,9 +36,9 @@ def write_json(path, value):
     path.write_text(json.dumps(value, indent=2, allow_nan=False)+'\n', encoding='utf8')
 
 
-def submit(config, actor, decode_action, scheduler, split, scene, gs, latent=None):
+def submit(config, actor, decode_action, scheduler, split, scene, gs, latent=None, *, environment=None):
     start_time = time.perf_counter()
-    env = make_world(config.seed, scene, split)
+    env = make_world(config.seed, scene, split) if environment is None else environment
     placement_seed = _identity(config, split, 'decoder', scene)
     request_seed = _identity(config, split, 'request', scene)
     if latent is None:

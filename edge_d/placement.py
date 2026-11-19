@@ -45,7 +45,7 @@ class Placement:
     inventory_reroutes: int = 0
 
 
-def decode(env, latent, seed, inventory_routing=False, *, include_optional=True):
+def decode(env, latent, seed, inventory_routing=False, *, include_optional=True, ranking_bias=None):
     """Map one latent sample to one matrix, without traffic simulation or retries."""
     rng = np.random.default_rng(seed)
     stages, nodes = env.K, env.N
@@ -111,7 +111,8 @@ def decode(env, latent, seed, inventory_routing=False, *, include_optional=True)
                 + latent[6] * _standardize(work)[:, None] + rng.logistic(size=matrix.shape))
     free = env.capacity - matrix.T @ env.spec
     choices = np.flatnonzero(((optional > 0.) & eligible & ~matrix).ravel())
-    for index in choices[np.argsort(-optional.ravel()[choices], kind='stable')]:
+    priority = optional if ranking_bias is None else optional + ranking_bias(env, matrix)
+    for index in choices[np.argsort(-priority.ravel()[choices], kind='stable')]:
         stage, node = divmod(index, nodes)
         if np.all(env.spec[stage] <= free[node] + 1e-9):
             matrix[stage, node] = True

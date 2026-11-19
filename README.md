@@ -1,5 +1,18 @@
 # 协同边缘计算：原始物理系统 + 原始 Agent-S + 改进 Agent-D 的完整研究工程
 
+## 2026-11-19 研究交接：有界整矩阵策略
+
+本轮新增 `placement-train`：随机初始化的条件部署策略直接生成完整合法矩阵，继续使用原始事件引擎、Reward 与 Masked Dueling DDQN。原 EDIT、原 S 独立入口和两个历史联合入口仍可运行。参见 [本轮实验报告](docs/PLACEMENT_RESEARCH.md)、[算法与训练协议](docs/PLACEMENT_METHOD.md)、[物理与 R12 审计](docs/TAKEOVER_AUDIT.md) 和 `evidence/research_20261119/`。下文的旧命令及非声明是交接基线说明。
+
+```powershell
+python -m edge_d.cli placement-train --seed 20261113 --gs 64 --mode d-only --out runs/placement_d_13
+python -m edge_d.cli placement-train --seed 20261113 --gs 64 --mode s-only --out runs/placement_s_13
+python -m edge_d.cli placement-train --seed 20261113 --gs 64 --mode joint --out runs/placement_joint_13
+python -m edge_d.cli placement-train --seed 20261113 --gs 64 --mode periodic --periods 4 --fixed-scenes 2 --holdout-scenes 4 --out runs/placement_periodic_13
+```
+
+对种子 `20261114` 重复，输出路径后缀改为 `_14`。新实验的 `--gs` 是真实训练矩阵提交数（周期模式含 KEEP），不是参数更新数、连续物理周期或天。全部算法对照使用默认 CPU `finish_pf`。
+
 **本工程完整保留原始资源仿真和原始 Agent-S 算法，实现后来研究的 ADD/REMOVE/RELOCATE/FINISH Agent-D 与同一仿真器上的 D/S 联合训练。**
 它是能够运行的研究工程，**不是**已经证明收敛的最终算法，也不是原始 R12 联合训练在信用设计上的完全等价实现。
 

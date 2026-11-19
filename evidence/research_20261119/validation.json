@@ -1,0 +1,31 @@
+{
+  "date": "2026-11-19",
+  "environment": "Windows PowerShell; CPU; Python 3.11; PyTorch 2.11.0; OMP, MKL and OPENBLAS threads set to 1 for training",
+  "input_manifest_verified_before_modification": 216,
+  "phase_ab_snapshot": {
+    "commit": "aa43f3e",
+    "archive_sha256": "981102c9e3fe53483fe6a96b89386f8e0900c171e8e2c9944777b1f3a6221d80",
+    "independently_extracted_payload_sha256_verified": 219,
+    "tests_passed": 12
+  },
+  "phase_cd_snapshot": {
+    "commit": "9e6a812",
+    "archive_sha256": "a9932369c8d8ba41f3d6b7e842fab9e85fd1caf19f8065ff2dea9040b0bd0fa9",
+    "independently_extracted_payload_sha256_verified": 246,
+    "tests_passed": 17
+  },
+  "full_candidate_independent_extraction": {
+    "archive_sha256_before_adding_this_validation_record": "4ef1db060c8b41920d986862dda99ab706368576a6c205d409f4ee5b4e0ade7b",
+    "payload_sha256_verified_before_and_after_smoke": 308,
+    "tests_passed": 17,
+    "original_allocator_mode_probe": "passed",
+    "original_build_smoke": "passed",
+    "original_joint_smoke": {"legal_s_actions": true, "s_transitions": 1286},
+    "new_periodic_smoke": {"training_gs": 8, "total_physical_evaluations": 28, "d_updates": 1, "s_updates": 16}
+  },
+  "archival_r12_stability_tests_passed_with_original_paths_and_workdir": 7,
+  "d_only_seed_20261113_retrained": {
+    "identical_gs_matrix_request_hash_and_reward_rows": 64,
+    "purpose": "Implementation parity after exposing the original effective gradient scale; not another independent sample"
+  }
+}

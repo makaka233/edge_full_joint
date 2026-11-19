@@ -17,3 +17,5 @@
 | 历史学习曲线与失败样本 | `evidence/` | 保留关键原始日志与负结果，不混合为新训练数据 |
 
 文件 SHA256 见 `SOURCE_PROVENANCE.json` 与 `ORIGINAL_PHYSICS_AND_S_SHA256.json`。`reference/original_project` 的原始代码依赖原本脚本的路径/配置，作为研究溯源而不是当前主运行路径，未承诺所有历史实验命令都可以无需历史模型运行。
+
+2026-11-19：`edge_d/placement.py` 与 `edge_joint/placement_training.py` 是新增路径。`_engine/environment.py` 增加默认关闭的观测遥测，接管前后的物理输出有直接相等测试；原 `physics.py`、CPU 分配器、S、回放与参考目录内容均保持原始哈希。完整状态、协议和 R12 差分见 `docs/TAKEOVER_AUDIT.md`。

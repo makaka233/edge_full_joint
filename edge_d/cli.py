@@ -11,6 +11,16 @@ def cli():
     p=argparse.ArgumentParser(description="Edge Agent-D clean BUILD-only research baseline")
     sub=p.add_subparsers(dest="command",required=True)
 
+    placement = sub.add_parser('placement-train', help='Bounded latent deployment and original-S training')
+    placement.add_argument('--seed', type=int, default=20261113)
+    placement.add_argument('--gs', type=int, default=64)
+    placement.add_argument('--eval-every', type=int, default=8)
+    placement.add_argument('--fixed-scenes', type=int, default=4)
+    placement.add_argument('--holdout-scenes', type=int, default=8)
+    placement.add_argument('--mode', choices=('d-only', 's-only', 'joint', 'periodic'), default='d-only')
+    placement.add_argument('--periods', type=int, default=1, help='Use >1 only for periodic KEEP/BUILD')
+    placement.add_argument('--out', type=Path, required=True)
+
     smoke=sub.add_parser("smoke",help="One actual policy build + physical evaluation")
     smoke.add_argument("--seed",type=int,default=20261113)
     smoke.add_argument("--scene",type=int,default=0)
@@ -80,7 +90,13 @@ def cli():
     os.environ.setdefault("OMP_NUM_THREADS","1")
     os.environ.setdefault("OPENBLAS_NUM_THREADS","1")
     os.environ.setdefault("MKL_NUM_THREADS","1")
-    if args.command=="smoke":
+    if args.command=='placement-train':
+        from edge_joint.placement_training import PlacementConfig, train as train_placement
+        settings = vars(args).copy()
+        out = settings.pop('out')
+        settings.pop('command')
+        print(json.dumps(train_placement(PlacementConfig(**settings), out), indent=2))
+    elif args.command=="smoke":
         seed=args.seed
         actor=new_actor(seed)
         record,_=sample_layout(seed=seed,scene=args.scene,split="train",actor=actor,

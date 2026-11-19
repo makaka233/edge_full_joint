@@ -125,6 +125,9 @@ class Env:
                 assert abs(residence-sim.attributed_cost)<1e-6, (residence,sim.attributed_cost)
                 attributed+=sim.attributed_cost;physical_residence+=residence
             count+=r['arrivals'];completed+=r['completed'];fail+=r['censored'];total+=r['delay_lower_bound_sum']+self.failure_penalty*r['censored'];windows.append(dict(start=b,arrivals=r['arrivals'],completed=r['completed'],failed=r['censored'],end=sim.now,background=sum(a.time>=e for a in arr),conservation=r['max_work_conservation_error']))
+            if getattr(self, 'record_resource_telemetry', False):
+                windows[-1].update(resources=sim.telemetry(), s_decisions=r['s_decisions'],
+                                   active_jobs=r['active_jobs'], completed_delay_sum=r['completed_delay_sum'])
         local_alignment={}
         if getattr(self.c,'s_local_period_mean',False) and collect:
             controlled=-sum(t.reward for t in trans)*self.c.latency_ref_seconds

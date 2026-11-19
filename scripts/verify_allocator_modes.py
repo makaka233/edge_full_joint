@@ -3,6 +3,7 @@
 This compares CPU scheduling only; wired links ALWAYS remain sqrt-KKT.
 It is a physical compatibility probe, not a training or convergence experiment.
 """
+import argparse
 import json
 from pathlib import Path
 import numpy as np
@@ -12,6 +13,9 @@ from edge_d.world import make_world
 from edge_d.physical import evaluate_layout
 
 def main():
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--out', type=Path, help='Write JSON to an explicit path; otherwise print only')
+    args=parser.parse_args()
     seed=20261113;ps=1234;ph=2345
     record,_=sample_layout(seed=seed,scene=0,split='train',actor=new_actor(seed),
           policy_seed=ps,physical_seed=ph,max_actions=700)
@@ -31,7 +35,8 @@ def main():
     output={'source':'original physics.py and cpu_allocation.py','matrix':record['matrix_sha256'],
             'wireless':'equal share original','wired':'sqrt KKT original (both runs)',
             'cpu':'finish_pf versus original sqrt KKT','results':metrics}
-    (Path(__file__).resolve().parents[1]/'checks'/'allocator_modes.json').write_text(json.dumps(output,indent=2))
+    if args.out:
+        args.out.write_text(json.dumps(output,indent=2),encoding='utf8')
     print(json.dumps(output,indent=2))
 
 if __name__=='__main__':main()

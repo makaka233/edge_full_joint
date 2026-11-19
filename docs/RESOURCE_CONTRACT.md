@@ -13,7 +13,7 @@
 python -m scripts.verify_allocator_modes
 ```
 
-固定一张 Actor 真实生成的完整矩阵，固定需求场景和请求随机流，分别用默认 CPU `finish_pf` 和原始 CPU `kkt` 模式评价，输出到 `checks/allocator_modes.json`，验证轨迹哈希相同和资源工作量守恒。结果不是算法训练曲线。
+固定一张 Actor 真实生成的完整矩阵，固定需求场景和请求随机流，分别用默认 CPU `finish_pf` 和原始 CPU `kkt` 模式评价，打印 JSON（可用 `--out` 另存），验证轨迹哈希相同和资源工作量守恒。结果不是算法训练曲线。
 
 ### 新实验选择 CPU 分配器
 

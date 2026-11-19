@@ -1,0 +1,33 @@
+{
+  "config": {
+    "out": "cpu_viability_finish_results",
+    "seeds": [
+      20261113,
+      20261114
+    ],
+    "updates": 4,
+    "rollouts": 3,
+    "eval_scenes": 2,
+    "eval_draws": 2,
+    "eval_scene_start": 70,
+    "eval_every": 2,
+    "lr": 0.001,
+    "pg_scale": 0.02,
+    "grad_clip": 3.0
+  },
+  "completed": [
+    20261113,
+    20261114
+  ],
+  "errors": [],
+  "elapsed_seconds": 243.01054690000092,
+  "no_posthoc_repair": true,
+  "baseline_unchanged": true,
+  "no_manual_replica_quota": true,
+  "finite_action_limit": 1100,
+  "train_and_holdout_on_independent_worlds": true,
+  "original_reward_unchanged": true,
+  "equal_physical_evaluations_if_all_complete": true,
+  "actor_randomly_initialized": true,
+  "no_model_files": true
+}

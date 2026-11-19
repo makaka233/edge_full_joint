@@ -1,0 +1,14 @@
+{
+  "status": "GS0 fixed validation and GS1 authentic main+D80; GS2 full physical run not completed in tool time budget",
+  "validation_rows": 8,
+  "main_gs": 1,
+  "aux_gs": 1,
+  "model_saving_tested": [
+    "best.pt",
+    "latest.pt"
+  ],
+  "warnings": [
+    "This incomplete physical run is not a completed D update or convergence evidence",
+    "The two-GS separate offline credit replay uses frozen original D80 scalar labels; it is not the same as a complete fresh D80 rollout"
+  ]
+}

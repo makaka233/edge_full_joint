@@ -1,0 +1,5 @@
+{"seed": 20261113, "mode": "joint", "step": 0, "split": "fixed", "policy_label": "initial", "n": 1, "reward": -7.621321266235277, "e2e": 0.744701773551149, "censored": 0, "nonviable": 0, "s_updates": 0, "mean_construct_actions": 98.0}
+{"seed": 20261113, "mode": "joint", "step": 0, "split": "holdout", "policy_label": "initial", "n": 1, "reward": -21.006568301686862, "e2e": 2.0875947972376117, "censored": 0, "nonviable": 0, "s_updates": 0, "mean_construct_actions": 72.0}
+{"seed": 20261113, "mode": "joint", "step": 1, "split": "fixed", "policy_label": "last", "n": 1, "reward": -11.50251842862094, "e2e": 1.1329732972094184, "censored": 0, "nonviable": 0, "s_updates": 1, "mean_construct_actions": 98.0}
+{"seed": 20261113, "mode": "joint", "step": 1, "split": "holdout", "policy_label": "best", "n": 1, "reward": -21.006568301686862, "e2e": 2.0875947972376117, "censored": 0, "nonviable": 0, "s_updates": 0, "mean_construct_actions": 72.0}
+{"seed": 20261113, "mode": "joint", "step": 1, "split": "holdout", "policy_label": "last", "n": 1, "reward": -17.761589311717458, "e2e": 1.759030887563516, "censored": 0, "nonviable": 0, "s_updates": 1, "mean_construct_actions": 86.0}

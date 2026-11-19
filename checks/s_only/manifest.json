@@ -1,0 +1,53 @@
+{
+  "status": "completed",
+  "mode": "s-only",
+  "seed": 20261113,
+  "steps": 1,
+  "initial_holdout": {
+    "seed": 20261113,
+    "mode": "s-only",
+    "step": 0,
+    "split": "holdout",
+    "policy_label": "initial",
+    "n": 1,
+    "reward": -21.006568301686862,
+    "e2e": 2.0875947972376117,
+    "censored": 0,
+    "nonviable": 0,
+    "s_updates": 0,
+    "mean_construct_actions": 72.0
+  },
+  "final_holdout": {
+    "best": {
+      "seed": 20261113,
+      "mode": "s-only",
+      "step": 1,
+      "split": "holdout",
+      "policy_label": "best",
+      "n": 1,
+      "reward": -21.006568301686862,
+      "e2e": 2.0875947972376117,
+      "censored": 0,
+      "nonviable": 0,
+      "s_updates": 0,
+      "mean_construct_actions": 72.0
+    },
+    "last": {
+      "seed": 20261113,
+      "mode": "s-only",
+      "step": 1,
+      "split": "holdout",
+      "policy_label": "last",
+      "n": 1,
+      "reward": -31.68137246115564,
+      "e2e": 3.1550752131844897,
+      "censored": 19,
+      "nonviable": 0,
+      "s_updates": 2,
+      "mean_construct_actions": 72.0
+    }
+  },
+  "s_updates": 2,
+  "d_updates": 0,
+  "elapsed_seconds": 21.499408597000013
+}

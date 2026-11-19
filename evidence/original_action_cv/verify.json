@@ -1,0 +1,12 @@
+{
+  "train": 192,
+  "eval": 104,
+  "updates": 64,
+  "matrices_replayed": 296,
+  "paired_train": 96,
+  "paired_eval": 52,
+  "all_native_legal": true,
+  "posthoc_changed_bits": 0,
+  "physically_paired": true,
+  "models_needed": false
+}

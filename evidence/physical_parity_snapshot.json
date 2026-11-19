@@ -1,0 +1,13 @@
+{
+  "purpose": "new-refactor vs original independent_world_protocol/commit_warm exact physical comparison",
+  "seed": 20261113,
+  "scene": 0,
+  "split": "train",
+  "policy_seed": 1234,
+  "physical_seed": 2345,
+  "reward": -9.641345803299131,
+  "penalized_e2e": 0.9490459565470122,
+  "censored": 0,
+  "claim": "observed equality to old legacy physical evaluator on the same submitted matrix and request stream, 2026-11-19",
+  "note": "this single replay check is NOT proof of all-environment equivalence"
+}

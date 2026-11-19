@@ -1,0 +1,40 @@
+{
+  "tested_python": "3.13.5",
+  "packages": {
+    "torch": "2.10.0+cpu",
+    "numpy": "2.3.5",
+    "scipy": "1.17.0",
+    "networkx": "3.6.1",
+    "matplotlib": "3.10.8"
+  },
+  "unit_tests": {
+    "completed": 5,
+    "passed": 5
+  },
+  "physical_parity": {
+    "same_matrix_and_request_seed": true,
+    "reward_difference": 0.0,
+    "e2e_difference": 0.0,
+    "censored_difference": 0,
+    "trace_hash_equal": true
+  },
+  "training_smoke": {
+    "updates": 2,
+    "rollouts_per_update": 2,
+    "status": "completed",
+    "initial_holdout": {
+      "seed": 20261113,
+      "update": 0,
+      "split": "holdout",
+      "model": "initial",
+      "n": 1,
+      "reward": -7.1209659866341175,
+      "e2e": 0.6990057939319326,
+      "censored": 0,
+      "nonviable": 0,
+      "mean_actions": 63.0
+    },
+    "not_convergence_evidence": true
+  },
+  "known_limitation": "No complete GS64 multi-seed holdout, Agent-D learning not yet validated"
+}

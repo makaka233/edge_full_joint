@@ -1,0 +1,40 @@
+{
+  "algorithm": "R12A-stable-v1",
+  "source": "replayed frozen uploaded 80s labels, fresh physical main commits",
+  "gs": 2,
+  "rows": [
+    {
+      "gs": 1,
+      "stage": 25,
+      "covered": false,
+      "physical_reward": -9.390151178734408,
+      "physical_e2e": 0.9047521960251312,
+      "D80_credit": -2.405734301151512
+    },
+    {
+      "gs": 2,
+      "stage": 10,
+      "covered": true,
+      "physical_reward": -6.119608842302094,
+      "physical_e2e": 0.5891189363313364,
+      "D80_credit": -2.7342350540920544
+    }
+  ],
+  "aux_actor_loss": -5.600728511810303,
+  "d_grad_norm": 8.32900619506836,
+  "D_parameters_changed": true,
+  "kl_audit": {
+    "accepted": true,
+    "retries": 0,
+    "step_scale": 1.0,
+    "kl_max": {
+      "macro": 1.0423362255096436e-05,
+      "refresh": 1.1189424640178913e-06,
+      "count": 8.022026304388419e-05,
+      "node": 2.5427885930184857e-07
+    }
+  },
+  "S_updates": 16,
+  "S_loss": 0.016566378995776176,
+  "s_replay_len": 1049
+}

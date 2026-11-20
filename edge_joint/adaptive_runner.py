@@ -58,7 +58,7 @@ def train(cfg, out, target, *, resume=False, init=None):
     resume_path = out / 'resume_latest.pt'
     if resume:
         state = torch.load(resume_path, weights_only=True, map_location='cpu')
-        if state.get('format') != FORM or state['config'] != asdict(cfg):
+        if state.get('format') != FORM or Config(**state['config']) != cfg:
             raise ValueError('Resume requires the same seed and training configuration')
         if target < state['episode']:
             raise ValueError('--episodes is an absolute target and precedes the current checkpoint')
@@ -145,7 +145,7 @@ def evaluate(out, seed):
     d, s, _, _, gate, _ = components(cfg)
     def write(file):
         flows = {}
-        for label, filename, mode in (('best','best.pt','learned'), ('last','last.pt','learned'),
+        for label, filename, mode in (('best','best.pt',cfg.macro_mode), ('last','last.pt',cfg.macro_mode),
                                       ('keep','last.pt','keep'), ('redeploy','last.pt','redeploy')):
             current = torch.load(out/filename, weights_only=True, map_location='cpu')
             load_model(current, d, s, gate)

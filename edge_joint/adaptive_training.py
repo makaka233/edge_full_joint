@@ -22,6 +22,7 @@ class Config(BaseConfig):
     gamma: float = .99
     eval_every: int = 16
     freeze_ds: bool = False
+    macro_mode: str = 'learned'
 
 
 class Gate(nn.Module):
@@ -40,7 +41,11 @@ def components(cfg):
     d, s, opt, replay = initialize(cfg)
     torch.manual_seed(stable_seed('EXP019', cfg.seed, 'macro-initial'))
     gate = Gate()
-    return d, s, opt, replay, gate, torch.optim.Adam(gate.parameters(), lr=.001)
+    if cfg.macro_mode != 'learned':
+        gate.hidden.requires_grad_(False)
+        gate.policy.requires_grad_(False)
+    gate_opt = torch.optim.Adam((p for p in gate.parameters() if p.requires_grad), lr=.001)
+    return d, s, opt, replay, gate, gate_opt
 
 
 def model(d, s, gate):
@@ -95,11 +100,12 @@ def request_metrics(requests, deadline, penalty):
                 completed_delays=completed, penalized_delays=penalized, censored_requests=censored)
 
 
-def episode(cfg, env, d, s, gate, scene, split, index, mode='learned'):
+def episode(cfg, env, d, s, gate, scene, split, index, mode=None):
     """One event queue and one S parameter version across all its business periods."""
     started = time.perf_counter()
     online = split == 'train'
     collect = online and not cfg.freeze_ds
+    mode = cfg.macro_mode if mode is None else mode
     # Natively evolving regimes retain the original parameters. Simulated periods are compact.
     if env.w.amplitude != 0. or env.cost['latency_objective'] != 'period_mean':
         raise ValueError('EXP019 requires stationary within-period demand and original period_mean cost')
@@ -118,7 +124,7 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode='learned'):
             sim.refresh_pressure()
         x = macro_state(env, sim, demand, previous, i, cfg.periods)
         logit, value = gate(x)
-        p = float(logit.detach().sigmoid())
+        p = float(logit.detach().sigmoid()) if mode == 'learned' else float(mode == 'redeploy')
         rng = np.random.default_rng(stable_seed('EXP019', cfg.seed, split, scene, i, 'policy'))
         gate_logp = d_logp = None
         if sim is None:
@@ -126,9 +132,9 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode='learned'):
         elif sim.target is not None:
             action = 'PREPARE'
         else:
-            choose = (rng.random() < p if online else p >= .5) if mode == 'learned' else mode == 'redeploy'
+            choose = rng.random() < p if online else p >= .5
             action = 'REDEPLOY' if choose else 'KEEP'
-            if online:
+            if online and mode == 'learned':
                 gate_logp = torch.nn.functional.logsigmoid(logit if choose else -logit)
         switch = dict(status='idle', switch_cost=0., migration_cost=0., image_link_mbit=0., retired_early=0)
         proposal = None
@@ -237,8 +243,17 @@ def credit_targets(ledger, gamma):
                          for i, row in enumerate(ledger)], dtype=torch.float32)
 
 
+def macro_parameters(gate, learned):
+    if learned:
+        return parameters(gate)
+    return torch.cat((parameters(gate.hidden), parameters(gate.policy)))
+
+
 def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, index, d_updates):
-    d_start, gate_start, s_start = parameters(d), parameters(gate), parameters(s.online)
+    learned = cfg.macro_mode == 'learned'
+    d_start, s_start = parameters(d), parameters(s.online)
+    gate_start = macro_parameters(gate, learned)
+    value_start = parameters(gate.value)
     target_start = parameters(s.target)
     returns = credit_targets(ledger, cfg.gamma)
     values = torch.stack([v for _, _, v in credit])
@@ -271,11 +286,15 @@ def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, 
             for _ in range(cfg.s_updates_per_gs * cfg.periods):
                 metrics.append(s.update(replay.sample(cfg.s_batch, step, rng)))
             s.version += 1
-    return dict(episode=index, gs=ledger[-1]['gs'], macro_updates=index, d_updates=d_updates, s_updates=s.updates,
-                s_updates_this_episode=len(metrics), d_gradient=d_grad, macro_gradient=gate_grad,
-                d_change=float((parameters(d)-d_start).norm()), macro_change=float((parameters(gate)-gate_start).norm()),
+    return dict(episode=index, gs=ledger[-1]['gs'], macro_mode=cfg.macro_mode,
+                macro_updates=index if learned else 0, value_updates=index, d_updates=d_updates, s_updates=s.updates,
+                s_updates_this_episode=len(metrics), d_gradient=d_grad, macro_gradient=gate_grad if learned else None,
+                d_change=float((parameters(d)-d_start).norm()),
+                macro_change=float((macro_parameters(gate, learned)-gate_start).norm()),
+                value_change=float((parameters(gate.value)-value_start).norm()),
                 s_change=float((parameters(s.online)-s_start).norm()),
                 s_target_change=float((parameters(s.target)-target_start).norm()),
                 admitted_to_replay=len(transitions), replay_size=len(replay), s_policy_version=s.version,
-                macro_decisions=len(gate_terms), d_samples=len(d_terms), discounted_return=float(returns[0]),
+                macro_decisions=sum(r['action'] in ('KEEP','REDEPLOY') for r in ledger),
+                macro_policy_samples=len(gate_terms), d_samples=len(d_terms), discounted_return=float(returns[0]),
                 s_loss=float(np.mean([r['s_loss'] for r in metrics])) if metrics else None)

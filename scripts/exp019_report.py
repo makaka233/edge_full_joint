@@ -214,7 +214,7 @@ def audit(prefix, *, render_figures):
         decision_count=decisions, optimizer_last=updates[-1], best_episode=state['best']['episode'],
         positive_updates={k:sum(r[k]>0 for r in updates)
                           for k in ('d_change','macro_change','s_change','s_target_change')},
-        gradient_gate_clip=sum(r['macro_gradient']>5. for r in updates),
+        gradient_gate_clip=sum(r['macro_gradient'] is not None and r['macro_gradient']>5. for r in updates),
         gradient_d_clip=sum(r['d_gradient']>5. for r in updates),
         whole=aggregate(train), intervals={f'{a}-{b}':v for (a,b),v in intervals.items()}, fixed=summaries,
         blocked_overlap=blocked_causes(world,train), worst_cases=[spike_case(r) for r in bad],

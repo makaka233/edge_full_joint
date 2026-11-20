@@ -14,6 +14,8 @@ def add_arguments(parser):
     parser.add_argument('--image-fraction', type=float, default=.001, help='fraction of the SSD footprint transferred')
     parser.add_argument('--eval-every', type=int, default=16, help='fixed validation interval in episodes')
     parser.add_argument('--s-batch', type=int, default=128, help='original DDQN replay minibatch size')
+    parser.add_argument('--macro-mode', choices=('learned', 'keep', 'redeploy'), default='learned',
+                        help='train the gate or fix the action at eligible periods')
     parser.add_argument('--freeze-ds', action='store_true', help='learn the macro policy with fixed D and greedy S')
     initial = parser.add_mutually_exclusive_group()
     initial.add_argument('--init-checkpoint', type=Path, help='same-seed EXP018 D/S initialization')
@@ -26,6 +28,8 @@ def run(parser, args):
         parser.error('Invalid adaptive training parameters')
     if (args.action!='train' and args.resume) or (args.action=='evaluate' and args.init_checkpoint):
         parser.error('Invalid adaptive checkpoint flags for this action')
+    if args.action!='train' and args.macro_mode!='learned':
+        parser.error('--macro-mode is a training setting. Evaluation reads it from the run.')
     import torch
     from .adaptive_runner import evaluate, train, verify
     from .adaptive_storage import RunFiles, run_lock
@@ -45,7 +49,7 @@ def run(parser, args):
             'To resume a run started with a custom --prefix, pass that same prefix.')
     cfg = Config(seed=args.seed, periods=args.periods, period_seconds=args.period_seconds,
                  image_fraction=args.image_fraction, eval_every=args.eval_every, s_batch=args.s_batch,
-                 freeze_ds=args.freeze_ds)
+                 freeze_ds=args.freeze_ds, macro_mode=args.macro_mode)
     torch.set_num_threads(1)
     try:
         with run_lock(out):

@@ -30,6 +30,17 @@ python -m edge_d.cli adaptive train --seed 20261114 --episodes 128 --init-checkp
 
 若目标为每种子 GS3000，首次启动时把 `--episodes 128` 改为 `--episodes 375`，仍传入同种子的 EXP018 初始化权重。
 
+## Seed13 从零训练的固定宏观动作对照
+
+以下两条命令分别固定为每个可决策期请求 REDEPLOY 或在首期部署后始终 KEEP。D/S 从随机权重与空回放开始更新，375 个 episode 对应 3,000 个在线 GS。宏观动作网络冻结，D 仍使用继续拟合的价值头作为回报基线。训练和固定验证采用同一固定动作。
+
+```powershell
+python -m edge_d.cli adaptive train --seed 20261113 --episodes 375 --macro-mode redeploy --prefix ".\runs\results\EXP019\no_keep.seed20261113"
+python -m edge_d.cli adaptive train --seed 20261113 --episodes 375 --macro-mode keep --prefix ".\runs\results\EXP019\always_keep.seed20261113"
+```
+
+两个模式均保留首期 BOOTSTRAP。每期请求 REDEPLOY 时，原容量规则仍可能拒绝新矩阵，已在进行的准备过程仍需结束。恢复时保留相同的 `--macro-mode` 和前缀。独立评价从检查点读取模式。
+
 ## 中断恢复
 
 重新打开 PowerShell 后进入项目根目录。用相同 seed、原训练参数和绝对目标 episode 数恢复。若首次训练指定了自定义前缀，恢复时也传入该前缀。

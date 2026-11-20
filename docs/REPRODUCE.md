@@ -59,4 +59,4 @@ python -m edge_d.cli plot --run-dir runs/p13
 
 ## 4. 独立验收
 
-`python scripts/verify_package.py` 校验 ZIP 提供的 SHA256 清单；`checks/` 中只保留本轮已经真实跑过的短烟测结构摘要，不包含任何训练模型权重。查看 `docs/HANDOVER.md` 中的失败结论及复现限制。
+在已经解压的正式交付包内，`python scripts/verify_package.py` 校验包内 SHA256 清单。历史短烟测存放在 `runs/archive/legacy/checks/`。恢复历史文件见[项目管理说明](RESEARCH_WORKFLOW.md#历史产物恢复)。查看 `docs/HANDOVER.md` 中的失败结论及复现限制。

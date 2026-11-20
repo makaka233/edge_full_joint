@@ -1,9 +1,0 @@
-{"seed": 20261113, "update": 0, "split": "fixed", "n": 4, "reward": -6.550095799201889, "e2e": 0.6385122388871145, "censored": 0, "cpu_unviable": 0, "mean_cpu_rho": 0.5805625370866173, "mean_actions": 89.75}
-{"seed": 20261113, "update": 0, "split": "holdout", "n": 8, "reward": -7.681451942832073, "e2e": 0.7543330067142561, "censored": 0, "cpu_unviable": 0, "mean_cpu_rho": 0.6350031846141685, "mean_actions": 72.375}
-{"seed": 20261113, "update": 8, "split": "fixed", "n": 4, "reward": -6.705381253621924, "e2e": 0.6546016561497557, "censored": 0, "cpu_unviable": 0, "mean_cpu_rho": 0.5812619678960714, "mean_actions": 87.0}
-{"seed": 20261113, "update": 16, "split": "fixed", "n": 4, "reward": -6.38841055583711, "e2e": 0.6212341160970483, "censored": 0, "cpu_unviable": 0, "mean_cpu_rho": 0.521680647929115, "mean_actions": 101.0}
-{"seed": 20261113, "update": 24, "split": "fixed", "n": 4, "reward": -6.276025793352382, "e2e": 0.6097331707547788, "censored": 0, "cpu_unviable": 0, "mean_cpu_rho": 0.5259943283967096, "mean_actions": 101.75}
-{"seed": 20261113, "update": 32, "split": "fixed", "n": 4, "reward": -6.054991833068249, "e2e": 0.5858752060249491, "censored": 0, "cpu_unviable": 0, "mean_cpu_rho": 0.4208973566152572, "mean_actions": 112.5}
-{"seed": 20261113, "update": 40, "split": "fixed", "n": 4, "reward": -5.65361922967056, "e2e": 0.5372602157703272, "censored": 0, "cpu_unviable": 0, "mean_cpu_rho": 0.37440862108171535, "mean_actions": 181.5}
-{"seed": 20261113, "update": 48, "split": "fixed", "n": 4, "reward": -5.255332355384957, "e2e": 0.4964245702368752, "censored": 0, "cpu_unviable": 0, "mean_cpu_rho": 0.35525656183643095, "mean_actions": 224.25}
-{"seed": 20261113, "update": 56, "split": "fixed", "n": 4, "reward": -5.02153088018942, "e2e": 0.46763230960622526, "censored": 0, "cpu_unviable": 0, "mean_cpu_rho": 0.2825306236660204, "mean_actions": 306.0}

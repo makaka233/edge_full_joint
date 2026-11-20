@@ -21,7 +21,7 @@
 1. 删除了运行时对历史 R0、R2、R9、R12、R31、R41 等训练模块的依赖；保留实际运行需要的物理事件仿真源码，封装到 `_engine/`。
 2. 以 `edge_d` 命名空间组织世界、合法动作、Actor、完整 rollout、物理评价、训练和绘图模块；单一 CLI 命令。
 3. 对配置与运行路径去历史化，移除其它实验的动态 import/通配 import；物理模型与 Reward 没有为获得好看趋势而调整。
-4. 做了同矩阵、同需求与同请求随机流的新旧物理评价对照，Reward、E2E、截尾数和请求轨迹哈希完全一致（样本与程序化回归见 `evidence/physical_parity_snapshot.json` 和 `tests/test_core.py`）。
+4. 做了同矩阵、同需求与同请求随机流的新旧物理评价对照，Reward、E2E、截尾数和请求轨迹哈希完全一致（样本与程序化回归见 `tests/fixtures/physical_parity_snapshot.json` 和 `tests/test_core.py`）。
 5. 已运行实际训练烟测，完成 Actor 更新、真实物理评价和仅保存 best/last checkpoint；保留测试结果但**从交接 ZIP 中删除所有模型权重**。
 
 ## 4. 历史事实：不能被误认为已修复
@@ -39,7 +39,7 @@
 
 ### 最近的长训记录：不得遗漏
 
-`evidence/pg64_seed13/` 和 `evidence/pg64_seed14/` 里保留了真实原始训练轨迹、验证、更新以及错误日志，不含 `.pt`。
+`runs/archive/legacy/evidence/pg64_seed13/` 和 `runs/archive/legacy/evidence/pg64_seed14/` 里保留了真实原始训练轨迹、验证、更新以及错误日志，不含 `.pt`。
 
 - Seed13：已完成 **60 次参数更新**；在计划的第 61 次中出现 `Policy did not FINISH`，因此实验中止，**未完成 64**。固定验证均值 GS0→56 从 `-6.5501` 到 `-5.0215`，E2E 从约 `0.6385s` 到 `0.4676s`，但平均构造动作从约 `89.8` 增至 `306.0`。
 - Seed14：可查到 **57 次完整参数更新**（不是 64）。固定验证 GS0→56 从 `-8.2345` 到 `-5.4341`，E2E 从约 `0.8139s` 到 `0.5110s`；构造动作从约 `49.0` 增至 `266.8`。此日志没有可核验的 GS64 最终 holdout。
@@ -75,4 +75,4 @@
 - `docs/HISTORY.md`：历史事实与不该重复的负实验。
 - `docs/NEXT_STEPS.md`：研究任务和客观验收。
 - `docs/REPRODUCE.md`：Windows/Linux 完整命令。
-- `evidence/`：可查证的原始轨迹、CPU 实验、未平滑原始 Reward 图，不是活跃代码。
+- `runs/archive/legacy/evidence/`：可查证的原始轨迹、CPU 实验、未平滑原始 Reward 图，不是活跃代码。

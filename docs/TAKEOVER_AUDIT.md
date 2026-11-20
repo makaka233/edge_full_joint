@@ -38,4 +38,4 @@
 
 ## 历史负结果
 
-`evidence/pg64_seed13` 与 `pg64_seed14` 保留训练、固定验证与未完成 64 次更新记录（约 60、57 次）；不能将中止视为无学习信号。`evidence/original_action_cv/summary.json` 中两种 credit arm 的固定验证均下降；训练集拟合不代表未见状态方面的正确性。`evidence/spike_causality_results/all_192_exact_lp.json` 保留 192 张矩阵中 34 张理想 CPU 承载不足的调查。过往 `checks/` 的短训不是收敛证据。
+`runs/archive/legacy/evidence/pg64_seed13` 与 `pg64_seed14` 保留训练、固定验证与未完成 64 次更新记录（约 60、57 次）；不能将中止视为无学习信号。`runs/archive/legacy/evidence/original_action_cv/summary.json` 中两种 credit arm 的固定验证均下降；训练集拟合不代表未见状态方面的正确性。`runs/archive/legacy/evidence/spike_causality_results/all_192_exact_lp.json` 保留 192 张矩阵中 34 张理想 CPU 承载不足的调查。过往 `runs/archive/legacy/checks/` 的短训不是收敛证据。

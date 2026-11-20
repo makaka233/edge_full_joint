@@ -74,7 +74,7 @@ class TestCore(unittest.TestCase):
         self.assertLess(abs(float(model.stop_bias.grad)),1e-6)
 
     def test_physical_legacy_parity_snapshot(self):
-        snap=json.loads((ROOT/"evidence/physical_parity_snapshot.json").read_text())
+        snap=json.loads((ROOT/"tests/fixtures/physical_parity_snapshot.json").read_text(encoding="utf8"))
         model=new_actor(snap["seed"])
         row,_=sample_layout(seed=snap["seed"],scene=snap["scene"],
                  split=snap["split"],actor=model,

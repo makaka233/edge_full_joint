@@ -12,6 +12,33 @@ GitHub `makaka233/edge_full_joint` 是源码版本记录。主程序入口在 `e
 
 每轮的设计、复现说明及交接统一放在 `research/<实验编号>/`，对外交接文件名为 `AI_RESEARCH_REVIEW.md`。文档和结果目录使用完全相同的实验编号。已迁移的旧产物集中于 `runs/archive/legacy`，`runs/archive/PATH_INDEX.csv` 记录旧位置。
 
+归档前先盘点 Git 跟踪文件、本地运行文件以及源码、测试、说明对各路径的引用。让测试必需的固定输入留在 `tests/fixtures/`。归档旧运行产物前，在 GitHub 核对原提交和归档标签。迁移完成后验证新路径、轻量测试和远端提交。已推送的改动用新提交回滚，可保留各轮历史。参见 [Git 恢复和回滚命令](https://git-scm.com/docs/git#_reset_restore_and_revert)。
+
+推送分支、核对提交和保留归档标签用于本项目的版本回档。完整仓库容灾副本另有独立镜像流程。未跟踪的本地运行产物需要由运行目录另行保存。参见 [GitHub 仓库备份文档](https://docs.github.com/en/repositories/archiving-a-github-repository/backing-up-a-repository)。
+
+## 历史产物恢复
+
+原 `evidence/` 存放训练记录、曲线和审计数据，原 `checks/` 存放烟测、分配器检查和短训记录。这批旧交付产物没有统一实验编号，现保存在 `runs/archive/legacy/` 下。原交付包清单 `SHA256_MANIFEST.json` 一起归档。GitHub 标签 [archive/pre-cleanup-evidence-checks](https://github.com/makaka233/edge_full_joint/tree/archive/pre-cleanup-evidence-checks) 保留原始版本。
+
+需要在新克隆项目中恢复这批文件时，从项目根目录运行。已存在的本地归档请先按路径索引查看。
+
+```powershell
+git fetch origin tag archive/pre-cleanup-evidence-checks
+$legacy = 'runs/archive/legacy'
+New-Item -ItemType Directory -Path $legacy -Force | Out-Null
+if ((Test-Path "$legacy/evidence") -or (Test-Path "$legacy/checks") -or (Test-Path "$legacy/SHA256_MANIFEST.json")) {
+    throw 'Archive destination already contains legacy files'
+}
+$tar = Join-Path ([IO.Path]::GetTempPath()) ("edge-legacy-" + [guid]::NewGuid() + ".tar")
+git archive --format=tar --output="$tar" archive/pre-cleanup-evidence-checks evidence checks SHA256_MANIFEST.json
+if ($LASTEXITCODE -ne 0) { throw 'Git archive failed' }
+tar.exe -xf $tar -C $legacy
+if ($LASTEXITCODE -ne 0) { throw 'Archive extraction failed' }
+Remove-Item -LiteralPath $tar
+```
+
+该命令只还原指定历史产物。原始研发资料仍可通过提交或标签访问。参见 [git archive 文档](https://git-scm.com/docs/git-archive)。
+
 ## 研究验收
 
 1. 在正式运行前写清假设、对照、种子、请求场景、物理设置、提交与优化预算、评价口径和验收条件。

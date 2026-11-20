@@ -1,1 +1,0 @@
-{"step": 1, "mean_reward": -7.0034539131991975, "discounted_episode_return_mean": -13.926353454589844, "d_loss": -0.22941406071186066, "d_grad_norm": 0.05898064002394676, "s_loss_mean": 0.047560643404722214, "s_updates_total": 1, "s_replay_size": 2126, "keep": 0, "build": 4, "censored": 0, "elapsed_seconds": 19.77151637099996}

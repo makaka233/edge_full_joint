@@ -10,7 +10,7 @@
 
 ## 2026-11-19 研究交接：有界整矩阵策略
 
-本轮新增 `placement-train`：随机初始化的条件部署策略直接生成完整合法矩阵，继续使用原始事件引擎、Reward 与 Masked Dueling DDQN。原 EDIT、原 S 独立入口和两个历史联合入口仍可运行。参见 [本轮实验报告](docs/PLACEMENT_RESEARCH.md)、[算法与训练协议](docs/PLACEMENT_METHOD.md)、[物理与 R12 审计](docs/TAKEOVER_AUDIT.md) 和 `evidence/research_20261119/`。下文的旧命令及非声明是交接基线说明。
+本轮新增 `placement-train`：随机初始化的条件部署策略直接生成完整合法矩阵，继续使用原始事件引擎、Reward 与 Masked Dueling DDQN。原 EDIT、原 S 独立入口和两个历史联合入口仍可运行。参见 [本轮实验报告](docs/PLACEMENT_RESEARCH.md)、[算法与训练协议](docs/PLACEMENT_METHOD.md)、[物理与 R12 审计](docs/TAKEOVER_AUDIT.md) 和 `runs/archive/legacy/evidence/research_20261119/`。下文的旧命令及非声明是交接基线说明。
 
 ```powershell
 python -m edge_d.cli placement-train --seed 20261113 --gs 64 --mode d-only --out runs/placement_d_13
@@ -49,7 +49,7 @@ python -m edge_d.cli periodic-train --seed 20261113 --updates 64 --periods 3 --o
 
 `--updates` 是优化器更新次数，**不是**逻辑天/GS。请在正式训练前检查物理预算与构造终止风险。
 
-**源代码导航：** `edge_d/` 改进后的部署构造与策略、`edge_s/agent.py` 原始 S 薄适配层、`edge_d/_engine/edge_rl/agents.py` 原始 S 网络与 DDQN 核心（逐字节保留）、`edge_d/_engine/edge_rl/replay.py` 原始年龄过滤回放（逐字节保留）、`edge_d/_engine/edge_rl/physics.py` 原始事件仿真/KKT、`edge_d/_engine/edge_rl/cpu_allocation.py` 原始 CPU 调度模式、`edge_joint/` 新联动训练编排、`reference/original_project/` 完整原始可追溯代码、`evidence/` 原始实验记录。
+**源代码导航：** `edge_d/` 改进后的部署构造与策略、`edge_s/agent.py` 原始 S 薄适配层、`edge_d/_engine/edge_rl/agents.py` 原始 S 网络与 DDQN 核心（逐字节保留）、`edge_d/_engine/edge_rl/replay.py` 原始年龄过滤回放（逐字节保留）、`edge_d/_engine/edge_rl/physics.py` 原始事件仿真/KKT、`edge_d/_engine/edge_rl/cpu_allocation.py` 原始 CPU 调度模式、`edge_joint/` 新联动训练编排、`reference/original_project/` 完整原始可追溯代码、`runs/archive/legacy/evidence/` 原始实验记录。
 
 **请首先阅读：** [完整交接](docs/MASTER_HANDOVER.md)、[逐模块来源](docs/MODULE_PROVENANCE.md)、[物理分配合同](docs/RESOURCE_CONTRACT.md)、[限制与风险](docs/KNOWN_LIMITATIONS.md)、[运行与复现](docs/REPRODUCE.md)。
 

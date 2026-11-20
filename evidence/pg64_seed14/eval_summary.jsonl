@@ -1,9 +1,0 @@
-{"seed": 20261114, "update": 0, "split": "fixed", "n": 4, "reward": -8.234475048429719, "e2e": 0.8139038359228277, "censored": 0, "cpu_unviable": 0, "mean_cpu_rho": 0.6072238677302132, "mean_actions": 49.0}
-{"seed": 20261114, "update": 0, "split": "holdout", "n": 8, "reward": -6.62606599389899, "e2e": 0.6475402739072451, "censored": 0, "cpu_unviable": 0, "mean_cpu_rho": 0.5691795128532314, "mean_actions": 79.0}
-{"seed": 20261114, "update": 8, "split": "fixed", "n": 4, "reward": -8.096073355452283, "e2e": 0.8000691293026152, "censored": 0, "cpu_unviable": 0, "mean_cpu_rho": 0.5992579386610041, "mean_actions": 49.0}
-{"seed": 20261114, "update": 16, "split": "fixed", "n": 4, "reward": -8.037712491559907, "e2e": 0.7943317880827965, "censored": 0, "cpu_unviable": 0, "mean_cpu_rho": 0.5420126706811643, "mean_actions": 47.75}
-{"seed": 20261114, "update": 24, "split": "fixed", "n": 4, "reward": -7.015598058375915, "e2e": 0.6928883180065344, "censored": 0, "cpu_unviable": 0, "mean_cpu_rho": 0.608546335476013, "mean_actions": 48.0}
-{"seed": 20261114, "update": 32, "split": "fixed", "n": 4, "reward": -7.956489965860382, "e2e": 0.7868471105709737, "censored": 0, "cpu_unviable": 0, "mean_cpu_rho": 0.6004950407807299, "mean_actions": 48.0}
-{"seed": 20261114, "update": 40, "split": "fixed", "n": 4, "reward": -6.193980994249579, "e2e": 0.603438631721339, "censored": 0, "cpu_unviable": 0, "mean_cpu_rho": 0.5084619667076915, "mean_actions": 85.5}
-{"seed": 20261114, "update": 48, "split": "fixed", "n": 4, "reward": -7.028009481012463, "e2e": 0.6879440417815301, "censored": 0, "cpu_unviable": 0, "mean_cpu_rho": 0.6050304546222633, "mean_actions": 82.75}
-{"seed": 20261114, "update": 56, "split": "fixed", "n": 4, "reward": -5.434091386781142, "e2e": 0.5109730292291503, "censored": 0, "cpu_unviable": 0, "mean_cpu_rho": 0.34847167945801216, "mean_actions": 266.75}

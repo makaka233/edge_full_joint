@@ -37,7 +37,7 @@ python -m edge_d.cli train
 ## 清理原则
 
 1. 没有通配导入、旧 Rxx 训练模块或测试场景绑死的绝对路径；
-2. 旧方法的研究证据只保存在 `docs/HISTORY.md` / `evidence/`，不能从主路径导入；
+2. 旧方法的研究证据只保存在 `docs/HISTORY.md` / `runs/archive/legacy/evidence/`，不能从主路径导入；
 3. `_engine/` 的物理实现优先保持算法对照时稳定；未来必须通过相同矩阵、相同请求流的回归测试才允许修改；
 4. `sample_layout()` 返回真实物理评价字典与可导动作 `log_prob` 列表。现有编码将整个内部构造视为一个完整部署物理样本。
 5. 不存在自动强制 FINISH、行动合法化投影或根据 Reward 重新选部署；达到 1100 个内部动作仍未结束时显式异常。

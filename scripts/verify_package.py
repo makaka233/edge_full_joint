@@ -15,6 +15,9 @@ def _payloads():
             p.suffix.lower() not in (WEIGHT_SUFFIXES | {'.pyc'})]
 
 def verify():
+    if not MANIFEST.is_file():
+        print(f'Package manifest missing: {MANIFEST}. Run this check from an extracted delivery.')
+        return False
     manifest=json.loads(MANIFEST.read_text(encoding='utf8'))
     listed={item['path']:item for item in manifest['files']}
     found={p.relative_to(ROOT).as_posix():p for p in _payloads()}

@@ -86,11 +86,17 @@ def cli():
     pe.add_argument("--checkpoint",type=Path,required=True)
     pe.add_argument("--split",choices=("fixed","holdout"),default="holdout")
     pe.add_argument("--out",type=Path,default=Path("runs/periodic_manual_eval"))
+    adaptive=sub.add_parser("adaptive",help="Continuous KEEP/REDEPLOY and original DDQN")
+    from edge_joint.adaptive_cli import add_arguments
+    add_arguments(adaptive)
     args=p.parse_args()
     os.environ.setdefault("OMP_NUM_THREADS","1")
     os.environ.setdefault("OPENBLAS_NUM_THREADS","1")
     os.environ.setdefault("MKL_NUM_THREADS","1")
-    if args.command=='placement-train':
+    if args.command=='adaptive':
+        from edge_joint.adaptive_cli import run as run_adaptive
+        raise SystemExit(run_adaptive(adaptive,args))
+    elif args.command=='placement-train':
         from edge_joint.placement_training import PlacementConfig, train as train_placement
         settings = vars(args).copy()
         out = settings.pop('out')

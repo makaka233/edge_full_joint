@@ -12,8 +12,8 @@ from scripts.exp009 import rows
 from scripts.exp011 import scenario
 
 
-def trace(seed, row, stress):
-    env = scenario(seed,row['scene'],row['split'],stress)
+def trace(seed, row, stress, *, environment=None):
+    env = scenario(seed,row['scene'],row['split'],stress) if environment is None else environment
     matrix = np.unpackbits(np.frombuffer(bytes.fromhex(row['matrix_packed_hex']),np.uint8)).reshape(env.K,env.N)
     request_seed = row['request_seed']
     origin,shifts,arrivals,_ = nested(env,request_seed)

@@ -70,6 +70,9 @@ def initialize(cfg):
 
 
 def scheduler_for(cfg):
+    if getattr(cfg,'resource_exploration',False):
+        from edge_joint.resource_exploration import ResourceExplorer
+        return ResourceExplorer(cfg.seed)
     if hasattr(cfg,'exploration_arm'):
         from edge_joint.exploration import EarlyExplorer
         return EarlyExplorer(cfg.seed,cfg.exploration_arm)
@@ -154,7 +157,7 @@ _contrast_scheduler = None
 
 def contrast(cfg, scene, gs, placement, online, version, epsilon):
     global _contrast_scheduler
-    key=(cfg.seed,getattr(cfg,'exploration_arm',None))
+    key=(cfg.seed,getattr(cfg,'exploration_arm',None),getattr(cfg,'resource_exploration',False))
     if _contrast_scheduler is None or _contrast_scheduler[0]!=key:
         torch.set_num_threads(1)
         _contrast_scheduler = key,scheduler_for(cfg)
@@ -262,16 +265,16 @@ def recover_ledgers(out,state):
 
 
 @torch.no_grad()
-def greedy(cfg,d,s,scene,split,gs):
-    env = world(cfg,scene,split)
+def greedy(cfg,d,s,scene,split,gs,*,world_factory=world):
+    env = world_factory(cfg,scene,split)
     layout = decode(env,d(env).numpy(),_identity(cfg,split,'decoder',scene),True)
     row,_ = physical(cfg,env,layout,s,split,scene,gs)
     return row
 
 
-def fit(cfg,out,target,resume=False,parallel=True):
+def fit(cfg,out,target,resume=False,parallel=True,*,milestones=MILESTONES):
     torch.set_num_threads(1)
-    if target not in MILESTONES[1:]:
+    if target not in milestones[1:]:
         raise ValueError('Target must be a registered training checkpoint')
     out.mkdir(parents=True,exist_ok=True)
     d,s,opt,replay = initialize(cfg)
@@ -332,7 +335,7 @@ def fit(cfg,out,target,resume=False,parallel=True):
             totals['wall_seconds'] = prior_time+time.perf_counter()-start
             for name,row in zip(paths,(a,b,dict(**diagnostic,**totals))):
                 _emit(out/name,row)
-            if gs in MILESTONES:
+            if gs in milestones:
                 milestone(gs)
     finally:
         if pool is not None:

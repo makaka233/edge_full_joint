@@ -1,0 +1,576 @@
+{
+  "cases": {
+    "20261113_1": {
+      "role": "train",
+      "A": {
+        "reward": -30.204077259509646,
+        "completed": 643,
+        "censored": 22,
+        "penalized_e2e": {
+          "mean": 3.006425940054193,
+          "p95": 10.856469049627586,
+          "p99": 20.79634863477383
+        },
+        "completed_e2e": {
+          "mean": 2.4217458025684446,
+          "p95": 8.949083885641787,
+          "p99": 11.156736723603187
+        },
+        "peak_resources": {
+          "cpu": {
+            "index": 12,
+            "utilization": 0.9938365470947573,
+            "max_jobs": 65
+          },
+          "wired": {
+            "index": 6,
+            "utilization": 0.5704806212662056,
+            "max_jobs": 13
+          },
+          "wireless": {
+            "index": 3,
+            "utilization": 0.15752824499245924,
+            "max_jobs": 5
+          }
+        },
+        "visited_nodes": 26,
+        "top_node_share": 0.07587052939511182,
+        "shadow_recovered": 22,
+        "unresolved": 0,
+        "actual_after_shadow": {
+          "mean": 2.711908981294691,
+          "p95": 10.50301459343882,
+          "p99": 11.653138880498554
+        },
+        "extra_delay_after_cutoff": {
+          "mean": 1.0975555647696018,
+          "p95": 2.2167574200858096,
+          "p99": 4.674970217174698
+        },
+        "actual_residence": {
+          "wireless": {
+            "mean": 0.03466985855058047,
+            "p95": 0.061712052993470934,
+            "p99": 0.13300388136836777
+          },
+          "wired": {
+            "mean": 0.2444641721599708,
+            "p95": 0.6176848627548222,
+            "p99": 0.9608070246397813
+          },
+          "cpu": {
+            "mean": 2.4327749505841396,
+            "p95": 10.383732576994953,
+            "p99": 11.319999527502391
+          }
+        },
+        "recovered_beyond_penalty": 0,
+        "visits": 1.0,
+        "decisions": 10597
+      },
+      "R": {
+        "reward": -10.018550690360527,
+        "completed": 665,
+        "censored": 0,
+        "penalized_e2e": {
+          "mean": 0.9878732831392809,
+          "p95": 1.7916550656621892,
+          "p99": 2.2265863798106427
+        },
+        "completed_e2e": {
+          "mean": 0.9878732831392809,
+          "p95": 1.7916550656621892,
+          "p99": 2.2265863798106427
+        },
+        "actual_after_shadow": {
+          "mean": 0.9878732831392809,
+          "p95": 1.7916550656621892,
+          "p99": 2.2265863798106427
+        },
+        "actual_residence": {
+          "wireless": {
+            "mean": 0.03466985855058047,
+            "p95": 0.061712052993470934,
+            "p99": 0.13300388136836777
+          },
+          "wired": {
+            "mean": 0.22540342309593164,
+            "p95": 0.5183579974588608,
+            "p99": 0.6963754792217062
+          },
+          "cpu": {
+            "mean": 0.7278000014927688,
+            "p95": 1.4403707109054247,
+            "p99": 1.9885552994331923
+          }
+        },
+        "unresolved": 0,
+        "peak_resources": {
+          "cpu": {
+            "index": 28,
+            "utilization": 0.9551273300089207,
+            "max_jobs": 16
+          },
+          "wired": {
+            "index": 6,
+            "utilization": 0.5640668680410241,
+            "max_jobs": 13
+          },
+          "wireless": {
+            "index": 3,
+            "utilization": 0.16692539641110624,
+            "max_jobs": 5
+          }
+        },
+        "visits": 1.0,
+        "soft_draws": 6754,
+        "decisions": 8937,
+        "resource_weight": 0.75
+      },
+      "rule_reward_delta": 20.18552656914912,
+      "s_competition_norm": 0.0,
+      "official_reward_gain_and_real_e2e": true,
+      "nondeterioration": {
+        "reward": true,
+        "censored": true,
+        "shadow_p99": true,
+        "visits": true,
+        "unresolved": true
+      }
+    },
+    "20261114_2": {
+      "role": "train",
+      "A": {
+        "reward": -162.93552716294127,
+        "completed": 128,
+        "censored": 373,
+        "penalized_e2e": {
+          "mean": 16.28132884198247,
+          "p95": 23.441493543676188,
+          "p99": 23.817077548259476
+        },
+        "completed_e2e": {
+          "mean": 3.0391347862472884,
+          "p95": 11.75590763331511,
+          "p99": 12.686883900532141
+        },
+        "peak_resources": {
+          "cpu": {
+            "index": 4,
+            "utilization": 0.9886323506853972,
+            "max_jobs": 321
+          },
+          "wired": {
+            "index": 6,
+            "utilization": 0.45239058676247,
+            "max_jobs": 10
+          },
+          "wireless": {
+            "index": 26,
+            "utilization": 0.13119848295404352,
+            "max_jobs": 3
+          }
+        },
+        "visited_nodes": 26,
+        "top_node_share": 0.12712842712842712,
+        "shadow_recovered": 373,
+        "unresolved": 0,
+        "actual_after_shadow": {
+          "mean": 24.561505236653307,
+          "p95": 50.02736092629493,
+          "p99": 51.35738539157319
+        },
+        "extra_delay_after_cutoff": {
+          "mean": 21.121631028766995,
+          "p95": 39.981888845384674,
+          "p99": 40.50908370002435
+        },
+        "actual_residence": {
+          "wireless": {
+            "mean": 0.03330900854424165,
+            "p95": 0.05994432122497528,
+            "p99": 0.08270118942527915
+          },
+          "wired": {
+            "mean": 0.17309192949171062,
+            "p95": 0.4003227976754715,
+            "p99": 0.5979810909120715
+          },
+          "cpu": {
+            "mean": 24.355104298617356,
+            "p95": 49.876095959763916,
+            "p99": 51.23546757319309
+          }
+        },
+        "recovered_beyond_penalty": 301,
+        "visits": 1.0,
+        "decisions": 6930
+      },
+      "R": {
+        "reward": -9.50440685152026,
+        "completed": 501,
+        "censored": 0,
+        "penalized_e2e": {
+          "mean": 0.9382168108403713,
+          "p95": 2.250747561760363,
+          "p99": 3.227012162835308
+        },
+        "completed_e2e": {
+          "mean": 0.9382168108403713,
+          "p95": 2.250747561760363,
+          "p99": 3.227012162835308
+        },
+        "actual_after_shadow": {
+          "mean": 0.9382168108403713,
+          "p95": 2.250747561760363,
+          "p99": 3.227012162835308
+        },
+        "actual_residence": {
+          "wireless": {
+            "mean": 0.03330900854424165,
+            "p95": 0.05994432122497528,
+            "p99": 0.08270118942527915
+          },
+          "wired": {
+            "mean": 0.14189212766614073,
+            "p95": 0.2979606621865969,
+            "p99": 0.44607479966362007
+          },
+          "cpu": {
+            "mean": 0.763015674629989,
+            "p95": 1.9599506356898928,
+            "p99": 3.0226513010493363
+          }
+        },
+        "unresolved": 0,
+        "peak_resources": {
+          "cpu": {
+            "index": 4,
+            "utilization": 0.9837181682781538,
+            "max_jobs": 27
+          },
+          "wired": {
+            "index": 6,
+            "utilization": 0.4293086236989068,
+            "max_jobs": 8
+          },
+          "wireless": {
+            "index": 26,
+            "utilization": 0.13095541890879336,
+            "max_jobs": 3
+          }
+        },
+        "visits": 1.0,
+        "soft_draws": 5011,
+        "decisions": 7006,
+        "resource_weight": 0.7265625
+      },
+      "rule_reward_delta": 153.431120311421,
+      "s_competition_norm": 0.04396884888410568,
+      "official_reward_gain_and_real_e2e": true,
+      "nondeterioration": {
+        "reward": true,
+        "censored": true,
+        "shadow_p99": true,
+        "visits": true,
+        "unresolved": true
+      }
+    },
+    "20261114_3": {
+      "role": "train",
+      "A": {
+        "reward": -29.937432295811536,
+        "completed": 853,
+        "censored": 8,
+        "penalized_e2e": {
+          "mean": 2.980371079012491,
+          "p95": 8.711152624237002,
+          "p99": 11.852689187979545
+        },
+        "completed_e2e": {
+          "mean": 2.826665597876504,
+          "p95": 8.395922674701433,
+          "p99": 10.489289608308901
+        },
+        "peak_resources": {
+          "cpu": {
+            "index": 8,
+            "utilization": 0.9837055096700343,
+            "max_jobs": 46
+          },
+          "wired": {
+            "index": 7,
+            "utilization": 0.889325260077673,
+            "max_jobs": 56
+          },
+          "wireless": {
+            "index": 10,
+            "utilization": 0.18700987994294577,
+            "max_jobs": 5
+          }
+        },
+        "visited_nodes": 27,
+        "top_node_share": 0.08209462008601826,
+        "shadow_recovered": 8,
+        "unresolved": 0,
+        "actual_after_shadow": {
+          "mean": 2.8931705022113148,
+          "p95": 8.622078915275779,
+          "p99": 10.950374369510243
+        },
+        "extra_delay_after_cutoff": {
+          "mean": 0.6150379217733644,
+          "p95": 1.1886958812719968,
+          "p99": 1.2086306705903553
+        },
+        "actual_residence": {
+          "wireless": {
+            "mean": 0.03624635057667811,
+            "p95": 0.06841663399973186,
+            "p99": 0.1081909945707593
+          },
+          "wired": {
+            "mean": 0.4579225684004263,
+            "p95": 1.4119655020913342,
+            "p99": 1.951908214103605
+          },
+          "cpu": {
+            "mean": 2.3990015832342104,
+            "p95": 8.008738761192944,
+            "p99": 10.711397167732502
+          }
+        },
+        "recovered_beyond_penalty": 0,
+        "visits": 1.0,
+        "decisions": 13253
+      },
+      "R": {
+        "reward": -12.91607347431495,
+        "completed": 861,
+        "censored": 0,
+        "penalized_e2e": {
+          "mean": 1.2782351968628325,
+          "p95": 2.40910518079545,
+          "p99": 2.949847881364985
+        },
+        "completed_e2e": {
+          "mean": 1.2782351968628325,
+          "p95": 2.40910518079545,
+          "p99": 2.949847881364985
+        },
+        "actual_after_shadow": {
+          "mean": 1.2782351968628325,
+          "p95": 2.40910518079545,
+          "p99": 2.949847881364985
+        },
+        "actual_residence": {
+          "wireless": {
+            "mean": 0.03624635057667811,
+            "p95": 0.06841663399973186,
+            "p99": 0.1081909945707593
+          },
+          "wired": {
+            "mean": 0.3423680408477985,
+            "p95": 0.9213643616130867,
+            "p99": 1.218145459399238
+          },
+          "cpu": {
+            "mean": 0.899620805438356,
+            "p95": 1.7989377395570045,
+            "p99": 2.5908569678358617
+          }
+        },
+        "unresolved": 0,
+        "peak_resources": {
+          "cpu": {
+            "index": 21,
+            "utilization": 0.9563904888626745,
+            "max_jobs": 19
+          },
+          "wired": {
+            "index": 7,
+            "utilization": 0.8847045716156132,
+            "max_jobs": 31
+          },
+          "wireless": {
+            "index": 10,
+            "utilization": 0.18825468550516858,
+            "max_jobs": 5
+          }
+        },
+        "visits": 1.0,
+        "soft_draws": 8069,
+        "decisions": 11436,
+        "resource_weight": 0.703125
+      },
+      "rule_reward_delta": 17.021358821496584,
+      "s_competition_norm": 0.08068238198757172,
+      "official_reward_gain_and_real_e2e": true,
+      "nondeterioration": {
+        "reward": true,
+        "censored": true,
+        "shadow_p99": true,
+        "visits": true,
+        "unresolved": true
+      }
+    },
+    "20261114_7": {
+      "role": "antithetic",
+      "A": {
+        "reward": -31.422327455272455,
+        "completed": 926,
+        "censored": 5,
+        "penalized_e2e": {
+          "mean": 3.1211148549820154,
+          "p95": 6.921623283258668,
+          "p99": 8.85792536701994
+        },
+        "completed_e2e": {
+          "mean": 3.03953060348786,
+          "p95": 6.8804890772553335,
+          "p99": 8.35741761733334
+        },
+        "peak_resources": {
+          "cpu": {
+            "index": 15,
+            "utilization": 0.9822573376037492,
+            "max_jobs": 52
+          },
+          "wired": {
+            "index": 7,
+            "utilization": 0.9893104440864592,
+            "max_jobs": 101
+          },
+          "wireless": {
+            "index": 10,
+            "utilization": 0.19852773690328263,
+            "max_jobs": 7
+          }
+        },
+        "visited_nodes": 31,
+        "top_node_share": 0.06925227614882787,
+        "shadow_recovered": 5,
+        "unresolved": 0,
+        "actual_after_shadow": {
+          "mean": 3.0703997767571054,
+          "p95": 6.921623283258668,
+          "p99": 8.557486875785981
+        },
+        "extra_delay_after_cutoff": {
+          "mean": 0.5568524345217156,
+          "p95": 1.0184794896151288,
+          "p99": 1.0455924073021743
+        },
+        "actual_residence": {
+          "wireless": {
+            "mean": 0.03460186680955141,
+            "p95": 0.06510592595805065,
+            "p99": 0.09105013196094668
+          },
+          "wired": {
+            "mean": 1.0461589986077493,
+            "p95": 2.9570198249166424,
+            "p99": 3.6129158812196702
+          },
+          "cpu": {
+            "mean": 1.9896389113398045,
+            "p95": 5.401964297179802,
+            "p99": 6.285934332440957
+          }
+        },
+        "recovered_beyond_penalty": 0,
+        "visits": 1.0,
+        "decisions": 13949
+      },
+      "R": {
+        "reward": -30.051701388143105,
+        "completed": 930,
+        "censored": 1,
+        "penalized_e2e": {
+          "mean": 2.98405224826908,
+          "p95": 6.447131742646889,
+          "p99": 8.176632352390156
+        },
+        "completed_e2e": {
+          "mean": 2.9676648442578295,
+          "p95": 6.433270949267898,
+          "p99": 8.063391813856366
+        },
+        "actual_after_shadow": {
+          "mean": 2.973388280956913,
+          "p95": 6.447131742646889,
+          "p99": 8.176632352390156
+        },
+        "actual_residence": {
+          "wireless": {
+            "mean": 0.03460186680955141,
+            "p95": 0.06510592595805065,
+            "p99": 0.09105013196094668
+          },
+          "wired": {
+            "mean": 1.1438611981232212,
+            "p95": 2.879344721604866,
+            "p99": 3.506349479095661
+          },
+          "cpu": {
+            "mean": 1.794925216024141,
+            "p95": 5.75750721436998,
+            "p99": 6.831583951173525
+          }
+        },
+        "unresolved": 0,
+        "peak_resources": {
+          "cpu": {
+            "index": 13,
+            "utilization": 0.9916082156282635,
+            "max_jobs": 51
+          },
+          "wired": {
+            "index": 7,
+            "utilization": 0.9902435885090579,
+            "max_jobs": 93
+          },
+          "wireless": {
+            "index": 10,
+            "utilization": 0.19416595221856103,
+            "max_jobs": 7
+          }
+        },
+        "visits": 1.0,
+        "soft_draws": 8260,
+        "decisions": 13380,
+        "resource_weight": 0.609375
+      },
+      "rule_reward_delta": 1.3706260671293506,
+      "s_competition_norm": 0.25136223435401917,
+      "official_reward_gain_and_real_e2e": true,
+      "nondeterioration": {
+        "reward": true,
+        "censored": true,
+        "shadow_p99": true,
+        "visits": true,
+        "unresolved": true
+      }
+    }
+  },
+  "initial_network": {
+    "20261113": {
+      "inputs": 24,
+      "base_norm": 4.624114990234375,
+      "competition_norm": 0.0
+    },
+    "20261114": {
+      "inputs": 24,
+      "base_norm": 4.547276496887207,
+      "competition_norm": 0.0
+    }
+  },
+  "checks": {
+    "three_useful": true,
+    "every_case_nondeteriorates": true,
+    "lower_censor": true,
+    "one_cpu_improves": true,
+    "one_wired_improves": true
+  },
+  "pass_causal": true
+}

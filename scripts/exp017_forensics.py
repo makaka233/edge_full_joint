@@ -73,8 +73,11 @@ class TapeSimulator(Simulator):
         q=self.agent.team_q(torch.as_tensor(obs[None],device=self.agent.device))[0].numpy()
         valid=np.flatnonzero(mask)
         task=self.ready_task
-        eps,weight,temp=self.agent.active_settings
-        probabilities_at_state=probabilities(q[valid].astype(float),eps,weight,temp)
+        if hasattr(self.agent,'logged_probabilities'):
+            probabilities_at_state=self.agent.logged_probabilities(obs,valid,q[valid].astype(float))
+        else:
+            eps,weight,temp=self.agent.active_settings
+            probabilities_at_state=probabilities(q[valid].astype(float),eps,weight,temp)
         details=dict(window=self.window_index,phase=self.phase,time=self.now,request=task.id,
                      stage_index=task.index,stage=int(self.c.services[task.arrival.service][task.index]),
                      source=task.source,chosen=action,greedy=int(valid[q[valid].argmax()]),legal=valid.tolist(),
@@ -122,14 +125,14 @@ def shadow(windows,agent,out):
     return timeline
 
 
-def run(seed,gs,arm,checkpoint,out):
+def run(seed,gs,arm,checkpoint,out,*,agent_factory=ForensicAgent):
     out.mkdir(parents=True,exist_ok=False)
     role=CASES[seed][gs]
     original=base_rows(seed,role)[gs-1]
     cfg=Config(seed)
     env=world(cfg,original['scene'],'train')
     matrix=decode(env,np.array(original['latent'],dtype=np.float32),original['layout_seed'],True)
-    s=ForensicAgent(seed,arm)
+    s=agent_factory(seed,arm)
     saved=torch.load(checkpoint/f's{gs}.pt',weights_only=True)
     s.online.load_state_dict(saved['s']); s.version=saved['version']
     policy_id=fingerprint(parameters(s.online))

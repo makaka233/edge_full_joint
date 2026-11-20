@@ -31,7 +31,7 @@ def inventory_draw(env,cfg,policy,_arm,split,scene,_sample):
 
 
 @torch.no_grad()
-def evaluate(seed,source,out,case,d_gs,s_gs,scenes):
+def evaluate(seed,source,out,case,d_gs,s_gs,scenes,*,world_factory=world):
     cfg=Config(seed)
     d=PlacementPolicy()
     d.load_state_dict(read_state(checkpoint(source,d_gs))['d'])
@@ -51,10 +51,10 @@ def evaluate(seed,source,out,case,d_gs,s_gs,scenes):
         if scene in present:
             continue
         if case=='short':
-            row=greedy(cfg,d,scheduler,scene,'holdout',d_gs)
+            row=greedy(cfg,d,scheduler,scene,'holdout',d_gs,world_factory=world_factory)
         else:
             row=sustained(cfg,d,'inventory',scene,scheduler,
-                          world=lambda seed,index,split:world(Config(seed),index,split),
+                          world=lambda seed,index,split:world_factory(Config(seed),index,split),
                           decoder=inventory_draw,gs=d_gs)
         _emit(file,dict(**row,scheduler=name,d_gs=d_gs,s_gs=s_gs))
 

@@ -16,6 +16,8 @@ from edge_joint.adaptive_physics import DEPLOYMENT_MODEL, capacity_ok, footprint
 
 RESULTS = Path('runs/results/EXP019')
 PREFIX = 'from_zero.seed20261113'
+INSTANT_MODES = ('keep','redeploy','learned')
+INSTANT_MODELS = ('best','last','keep','redeploy')
 
 
 def artifact(prefix, suffix):
@@ -44,6 +46,12 @@ def aggregate(records):
         worst=float(raw[0]), worst5=float(raw[:n_tail].mean()), worst5_n=n_tail, spikes=int((raw<=-20).sum()),
         requests=sum(r['requests'] for r in records), completed=sum(r['completed'] for r in records),
         censored=sum(r['censored'] for r in records), drops=sum(r['drops'] for r in records),
+        post_cutoff_finishes=sum(x['final_finish'] is not None for r in records for x in r['censored_requests']),
+        terminal_unfinished=sum(r.get('residual_requests',0) for r in records),
+        total_switch=sum(r['switch_cost'] for r in records),
+        cold_start_switch=sum(r['switch_cost'] for r in records if r['action']=='BOOTSTRAP'),
+        mean_holding=float(np.mean([r['holding_cost'] for r in records])),
+        max_backlog=max(r['backlog_out'] for r in records),
         completed_e2e=distributions(records,'completed_delays'), adjusted_e2e=distributions(records,'penalized_delays'),
         actions=dict(Counter(r['action'] for r in records)), status=dict(Counter(r['status'] for r in records)),
         activations=sum(r['activated_at'] is not None for r in records),
@@ -83,19 +91,35 @@ def validate(prefix, manifest, state, train, updates, fixed):
     world = make_world(state['config']['seed'],0,'train')
     instantaneous = manifest.get('deployment_model') == DEPLOYMENT_MODEL
     for r in train+fixed:
-        expected = -(world.cost['delay_weight']*(r['e2e_penalized'] or 0.)+r['holding_cost']+r['switch_cost'])
-        if (r['requests']!=len(r['penalized_delays']) or r['completed']!=len(r['completed_delays']) or
-                r['censored']!=len(r['censored_requests']) or r['requests']!=r['completed']+r['censored'] or
-                abs(r['reward_raw']-expected)>1e-8 or
-                abs(r['reward_net']-(expected-r.get('migration_cost',0.)))>1e-8 or
-                r['conservation_error']>1e-6 or r['capacity_error']>1e-8):
-            raise ValueError('Physical ledger row did not reconcile')
-        if instantaneous:
-            check_instant_switch(world,r)
+        check_period(world,r,instantaneous)
     decisions = sum(r['s_decisions']+r.get('drain_decisions',0) for r in train)
     if decisions != sum(r['admitted_to_replay'] for r in updates):
         raise ValueError('Scheduling decisions and admitted transitions do not match')
     return world,decisions
+
+
+def check_period(world, row, instantaneous):
+    r = row
+    adjusted = r['penalized_delays']
+    completed = r['completed_delays']
+    deadline = r['score_deadline']
+    expected_delays = completed+[deadline-x['arrival']+world.failure_penalty for x in r['censored_requests']]
+    expected = -(world.cost['delay_weight']*(r['e2e_penalized'] or 0.)+r['holding_cost']+r['switch_cost'])
+    if (r['requests']!=len(r['penalized_delays']) or r['completed']!=len(r['completed_delays']) or
+            r['censored']!=len(r['censored_requests']) or r['requests']!=r['completed']+r['censored'] or
+            abs(r['reward_raw']-expected)>1e-8 or
+            abs(r['reward_net']-(expected-r.get('migration_cost',0.)))>1e-8 or
+            r['conservation_error']>1e-6 or r['capacity_error']>1e-8):
+        raise ValueError('Physical ledger row did not reconcile')
+    if (not np.allclose(sorted(adjusted),sorted(expected_delays),rtol=0.,atol=1e-8)
+            or any(x['final_finish'] is not None and x['final_finish'] <= deadline for x in r['censored_requests'])):
+        raise ValueError('Censor accounting disagrees with the deadline and configured penalty')
+    for key,samples in (('e2e_penalized',adjusted),('e2e_completed',completed)):
+        if (samples and not np.isclose(r[key],np.mean(samples),rtol=0.,atol=1e-8)) or (
+                not samples and r[key] is not None):
+            raise ValueError('Reported mean E2E disagrees with the request ledger')
+    if instantaneous:
+        check_instant_switch(world,r)
 
 
 def unpack(world, matrix):
@@ -171,19 +195,23 @@ def blocked_causes(world, train):
 
 
 def spike_case(r):
-    env = make_world(r['seed'],r['scene'],'train')
+    env = make_world(r['seed'],r['scene'],r['split'])
     for _ in range(r['period']-1):
         env.w.advance()
     if not np.allclose(env.w.node_demand().sum(0),r['demand_by_service']):
         raise ValueError('Recorded demand differs from reconstructed state')
     node,telemetry = max(enumerate(r['cpu']),key=lambda item:item[1]['peak_jobs'])
+    link,wired = max(enumerate(r['wired']),key=lambda item:item[1]['utilization'])
+    src,dst,capacity = env.w.directed[link]
     return dict(
-        **{k:r[k] for k in ('gs','episode','period','scene','status','action','reward_raw','reward_net',
+        **{k:r[k] for k in ('gs','episode','period','scene','status','action','reward_raw','reward_net','split','model',
                             'requests','completed','censored','e2e_completed','e2e_penalized','p99',
                             'offered_cpu_load','backlog_in','backlog_out','migration_cost','switch_cost',
                             'image_hop_work_started','holding_cost') if k in r},
         replicas=sum(r['active_replicas']), cpu_node=node, cpu_trace=telemetry,
         peak_wired_util=max(x['utilization'] for x in r['wired']),
+        peak_wired_link=dict(index=link,source=src,destination=dst,**wired,
+                            work_served=capacity*(r['end']-r['start'])*wired['utilization']),
         peak_wireless_util=max(x['utilization'] for x in r['wireless']),
         cpu_ideal_active=cpu_lower_bound(env,unpack(env,r['active_matrix'])),
         cpu_ideal_target=cpu_lower_bound(env,unpack(env,r['proposed_matrix'])) if r['proposed_matrix'] else None)
@@ -351,12 +379,222 @@ def compare_runs(prefix, reference, current, *, render_figures):
     return comparison
 
 
+def check_continuous_episode(ledger, periods, seconds):
+    if [r['period'] for r in ledger] != list(range(1,periods+1)):
+        raise ValueError('Incomplete continuous episode')
+    for i,r in enumerate(ledger):
+        cpu_and_links = r['cpu']+r['wired']
+        resources = cpu_and_links+r['wireless']
+        if (r['start'] != i*seconds or r['end'] != (i+1)*seconds
+                or r['backlog_out'] != sum(resource['end_jobs'] for resource in resources)
+                or any(not -1e-8 <= a['utilization'] <= 1.+1e-8 for a in resources)):
+            raise ValueError('Resource ledger does not match period bounds or queue size')
+        if i == 0:
+            if r['action']!='BOOTSTRAP' or r['backlog_in'] or r['dispatched_in']:
+                raise ValueError('Episode did not begin with an empty queue and BOOTSTRAP')
+        else:
+            before = ledger[i-1]
+            if (r['old_matrix'] != before['active_matrix'] or r['backlog_in'] != before['backlog_out']
+                    or r['dispatched_in'] != sum(a['end_jobs'] for a in before['cpu']+before['wired'])):
+                raise ValueError('Lost an in-flight job or deployment at a period boundary')
+    unfinished = sum(x['final_finish'] is None for r in ledger for x in r['censored_requests'])
+    if unfinished != ledger[-1]['residual_requests']:
+        raise ValueError('Final incomplete request count does not match drain ledger')
+
+
+def instant_run(seed, mode):
+    prefix = RESULTS/f'instant.{mode}.seed{seed}'
+    manifest = json.loads(artifact(prefix,'manifest.json').read_text(encoding='utf8'))
+    state = torch.load(artifact(prefix,'resume_latest.pt'),weights_only=True,mmap=True,map_location='cpu')
+    train,updates,fixed,holdout = [rows(prefix,f'{name}.jsonl') for name in ('train','updates','fixed','holdout')]
+    cfg = manifest['config']
+    if (manifest['deployment_model']!=DEPLOYMENT_MODEL or state['format']!=manifest['format']
+            or manifest['origin']['kind']!='random' or state['source_history']!=manifest['source_history']
+            or (cfg['seed'],cfg['macro_mode'],cfg['freeze_ds'])!=(seed,mode,False)):
+        raise ValueError(f'Mixed provenance or physics for {prefix.name}')
+    world,decisions = validate(prefix,manifest,state,train,updates,fixed)
+    if state['s_actions']!=decisions:
+        raise ValueError('Stored S action count differs from physical and replay counts')
+    for r in holdout:
+        check_period(world,r,True)
+        checkpoint = state['best']['episode'] if r['model']=='best' else state['episode']
+        action_mode = r['model'] if r['model'] in ('keep','redeploy') else mode
+        if (r['episode'],r['mode'],r['epsilon']) != (checkpoint,action_mode,0.):
+            raise ValueError('Holdout label does not match the selected checkpoint or gate mode')
+    periods,seconds = cfg['periods'],cfg['period_seconds']
+    ledgers = defaultdict(list)
+    for r in train+fixed+holdout:
+        ledgers[(r['split'],r.get('model'),r['episode'],r['scene'])].append(r)
+    for ledger in ledgers.values():
+        check_continuous_episode(ledger,periods,seconds)
+
+    fixed_checkpoints = sorted({r['episode'] for r in fixed})
+    fixed_summary = {e*periods:aggregate([r for r in fixed if r['episode']==e]) for e in fixed_checkpoints}
+    best_gs = state['best']['episode']*periods
+    if max(fixed_summary,key=lambda gs:fixed_summary[gs]['mean_net'])!=best_gs:
+        raise ValueError('Best projection does not maximize fixed validation')
+    for ix,e in enumerate(fixed_checkpoints):
+        group = [r for r in fixed if r['episode']==e]
+        if [(r['scene'],r['period']) for r in group] != [
+                (scene,p) for scene in manifest['fixed_scenes'] for p in range(1,periods+1)]:
+            raise ValueError(f'Missing fixed activity for checkpoint {ix}')
+    holdout_summary = {}
+    for label in INSTANT_MODELS:
+        group = [r for r in holdout if r['model']==label]
+        if [(r['scene'],r['period']) for r in group] != [
+                (scene,p) for scene in manifest['holdout_scenes'] for p in range(1,periods+1)]:
+            raise ValueError(f'Missing holdout activity for {label}')
+        holdout_summary[label] = dict(**aggregate(group), gs=group[0]['episode']*periods,
+                                     by_scene={s:aggregate([r for r in group if r['scene']==s])
+                                               for s in manifest['holdout_scenes']})
+    summary = dict(
+        manifest=manifest, online_gs=len(train), episodes=state['episode'], best_gs=best_gs,
+        logical_business_seconds=len(train)*seconds, logical_drain_seconds=state['episode']*world.tail,
+        wall_seconds=state['wall_seconds'], schedule_actions=decisions,
+        updates={key:updates[-1][key] for key in ('d_updates','s_updates','macro_updates','value_updates')},
+        positive_updates={k:sum(r[k]>0 for r in updates)
+                          for k in ('d_change','s_change','macro_change','value_change','s_target_change')},
+        d_samples=sum(r['d_samples'] for r in updates),
+        d_gradient_clips=sum(r['d_gradient']>5 for r in updates),
+        max_conservation_error=max(r['conservation_error'] for r in train+fixed+holdout),
+        max_capacity_error=max(r['capacity_error'] for r in train+fixed+holdout),
+        online=aggregate(train), online_first=aggregate(train[:2*periods]), online_late=aggregate(train[-2*periods:]),
+        fixed=fixed_summary, holdout=holdout_summary,
+        online_activations=[{'gs':r['gs'],'episode':r['episode'],'at_seconds':r['activated_at']}
+                            for r in train if r['activated_at'] is not None],
+        severe=[spike_case(r) for r in train+fixed+holdout if r['reward_raw']<=-20.],
+        worst_online=spike_case(min(train,key=lambda r:r['reward_raw'])),
+        holdout_worst_last={str(scene):spike_case(min(
+            (r for r in holdout if r['model']=='last' and r['scene']==scene),key=lambda r:r['reward_raw']))
+                            for scene in manifest['holdout_scenes']})
+    return summary,(train,fixed,holdout)
+
+
+def instant_trial(*, render_figures):
+    results = {}
+    for seed in (20261113,20261114):
+        arms = {mode:instant_run(seed,mode) for mode in INSTANT_MODES}
+        summaries = {mode:summary for mode,(summary,_) in arms.items()}
+        configs = [{k:v for k,v in s['manifest']['config'].items() if k!='macro_mode'} for s in summaries.values()]
+        protocols = [s['manifest']['source_history'] for s in summaries.values()]
+        if any(c!=configs[0] for c in configs) or any(p!=protocols[0] for p in protocols):
+            raise ValueError(f'Training settings or provenance differ within seed {seed}')
+        train,fixed,holdout = zip(*(ledger for _,ledger in arms.values()))
+
+        def matched(ledgers, keys):
+            return all(
+                all(values == row[0] for values in row[1:])
+                for row in zip(*([tuple(r[k] for k in keys) for r in ledger] for ledger in ledgers),strict=True))
+
+        common = ('period','scene','trace_sha256','requests')
+        if not matched(train,('gs',*common)) or not matched(fixed,('episode',*common)):
+            raise ValueError(f'Training or fixed validation streams differ for seed {seed}')
+        holdout_arms = [[r for r in rows if r['model']==label] for rows in holdout for label in INSTANT_MODELS]
+        if not matched(holdout_arms,common):
+            raise ValueError(f'Independent scenario streams differ for seed {seed}')
+        starts = [train[i][0] for i in range(len(train))]
+        if len({r['active_matrix'] for r in starts})!=1:
+            raise ValueError(f'First sampled deployment differs for seed {seed}')
+        results[seed] = dict(matched_online=len(train[0]), matched_fixed=len(fixed[0]),
+                             matched_holdout_per_arm=len(holdout_arms[0]), modes=summaries)
+        if render_figures:
+            instant_figures(seed, dict(zip(INSTANT_MODES,train,strict=True)), summaries)
+        print(f'Seed {seed}: matched {len(train[0])} online, {len(fixed[0])} fixed and '
+              f'{len(holdout_arms[0])} holdout periods across 3 training arms and 12 holdout arms.')
+    (RESULTS/'instant.audit.json').write_text(json.dumps(results,indent=2,allow_nan=False)+'\n',encoding='utf8')
+
+
+def instant_figures(seed, train, summaries):
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    plt.rcParams.update({'font.size':11,'path.simplify':False})
+    palette = ('#315d8a','#b04a28','#277755')
+    markers = ('o','s','^')
+    modes = ('Fixed KEEP','Fixed REDEPLOY','Learned gate')
+    prefix = RESULTS/f'instant.seed{seed}'
+
+    def finish(fig, title, filename):
+        fig.suptitle(f'EXP019 | Seed {seed} | {title}')
+        fig.savefig(artifact(prefix,filename),dpi=105)
+        plt.close(fig)
+
+    measures = (
+        ('Raw reward','reward_raw'), ('Completed mean E2E (s)','e2e_completed'),
+        ('Penalty-adjusted mean E2E (s)','e2e_penalized'), ('Penalty-adjusted P99 E2E (s)','p99'),
+        ('Censored requests','censored'),
+    )
+    for start,filename in ((0,'training.png'),(-16,'training-late.png')):
+        fig,axs = plt.subplots(3,2,figsize=(11,7.7),sharex=True,layout='constrained')
+        for i,(rows,label,color,marker) in enumerate(zip(train.values(),modes,palette,markers)):
+            selected = rows[start:]
+            x = [r['gs'] for r in selected]
+            for ax,(axis_label,key) in zip(axs.flat,measures):
+                ax.plot(x,[r[key] for r in selected],color=color,marker=marker,markersize=2.7,
+                        linewidth=.78,alpha=.85,label=label)
+                ax.set_ylabel(axis_label)
+            switches = [r['gs'] for r in selected if r['activated_at'] is not None]
+            axs[-1,-1].plot(switches,[i]*len(switches),color=color,marker='|',markersize=7,linestyle='None')
+        switch_axis = axs[-1,-1]
+        switch_axis.set(yticks=range(len(modes)),yticklabels=('KEEP','REDEPLOY','Learned'),
+                        ylim=(-.5,2.5),title='Actual matrix switches (at GS start)')
+        for ax in axs.flat:
+            ax.grid(alpha=.2)
+        for ax in axs[-1]:
+            ax.set_xlabel('Online physical GS')
+            ax.set_xlim(x[0]-.4,x[-1]+.4)
+        axs[0,0].legend(loc='lower right',fontsize=9)
+        finish(fig,f'Raw training GS {x[0]}-{x[-1]}',filename)
+
+    measures = (
+        ('Mean net reward',lambda a:a['mean_net']),
+        ('Penalty-adjusted mean E2E (s)',lambda a:a['adjusted_e2e']['mean']),
+        ('Penalty-adjusted P99 E2E (s)',lambda a:a['adjusted_e2e']['p99']),
+        ('Censored requests',lambda a:a['censored']),
+    )
+    fig,axs = plt.subplots(2,2,figsize=(11,6),sharex=True,layout='constrained')
+    for summary,label,color,marker in zip(summaries.values(),modes,palette,markers):
+        fixed = summary['fixed']
+        for ax,(axis_label,metric) in zip(axs.flat,measures):
+            ax.plot(list(fixed),[metric(a) for a in fixed.values()],color=color,marker=marker,
+                    markersize=4,linewidth=1.3,label=label)
+            ax.set(ylabel=axis_label,xticks=list(fixed))
+            ax.grid(alpha=.2)
+    axs[0,0].legend(loc='best',fontsize=9)
+    for ax in axs[-1]:
+        ax.set_xlabel('Checkpoint GS')
+    finish(fig,'Fixed validation on 2 matched scenarios','fixed.png')
+
+    fig,axs = plt.subplots(2,2,figsize=(11,6),sharex=True,layout='constrained')
+    holdout_measures = (*measures[:3],('Actual matrix switches',lambda a:a['activations']))
+    x = np.arange(len(modes))
+    for i,(model,label,marker,color) in enumerate(zip(
+            INSTANT_MODELS,('Best, own gate','Last, own gate','Last, forced KEEP','Last, forced REDEPLOY'),
+            ('D','o','v','^'),('#544487','#1f657d','#686d73','#ad512d'))):
+        evaluation = [s['holdout'][model] for s in summaries.values()]
+        for ax,(axis_label,metric) in zip(axs.flat,holdout_measures):
+            ax.plot(x+(i-1.5)*.16,[metric(a) for a in evaluation],color=color,marker=marker,
+                    markersize=5,linestyle='None',label=label)
+            ax.set(ylabel=axis_label,xticks=x,xticklabels=modes)
+            ax.grid(alpha=.2,axis='y')
+    axs[0,0].legend(loc='best',fontsize=8)
+    for ax in axs[-1]:
+        ax.set_xlabel('Training arm')
+    finish(fig,'Independent holdout on 3 matched scenarios','holdout.png')
+
+
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--prefix',default=PREFIX,help='a run filename prefix within runs/results/EXP019')
     parser.add_argument('--compare',help='filename prefix of the learned-gate reference run')
+    parser.add_argument('--instant-trial',action='store_true',help='audit and plot the six instantaneous-deployment runs')
     parser.add_argument('--no-figures',action='store_true')
     args=parser.parse_args()
+    if args.instant_trial:
+        if args.prefix!=PREFIX or args.compare:
+            parser.error('--instant-trial uses the six protocol prefixes')
+        instant_trial(render_figures=not args.no_figures)
+        raise SystemExit(0)
     for name in filter(None,(args.prefix,args.compare)):
         if Path(name).name!=name or '/' in name or '\\' in name:
             parser.error('The run prefix must be a filename')

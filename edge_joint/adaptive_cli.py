@@ -37,6 +37,12 @@ def run(parser, args):
     if prefix.parent != results:
         parser.error(f'EXP019 results must use a filename prefix inside {results}')
     out = RunFiles(prefix)
+    checkpoint = out/'resume_latest.pt'
+    if args.resume and not checkpoint.is_file():
+        parser.error(
+            f'No EXP019 resume checkpoint at {checkpoint}. '
+            'For a first run, use train without --resume and pass --init-checkpoint for EXP018 weights. '
+            'To resume a run started with a custom --prefix, pass that same prefix.')
     cfg = Config(seed=args.seed, periods=args.periods, period_seconds=args.period_seconds,
                  image_fraction=args.image_fraction, eval_every=args.eval_every, s_batch=args.s_batch,
                  freeze_ds=args.freeze_ds)

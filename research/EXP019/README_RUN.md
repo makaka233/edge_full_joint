@@ -28,9 +28,13 @@ python -m edge_d.cli adaptive train --seed 20261114 --episodes 128 --init-checkp
 
 省略 `--init-checkpoint` 可随机初始化 D/S。显式 `--freeze-ds` 会固定 D 的均值解码和 S 的贪婪调度，只训练宏观层。另一个独立运行需采用另一个前缀，同一前缀只能由一个进程占用。
 
+若目标为每种子 GS3000，首次启动时把 `--episodes 128` 改为 `--episodes 375`，仍传入同种子的 EXP018 初始化权重。
+
 ## 中断恢复
 
 重新打开 PowerShell 后进入项目根目录。用相同 seed、原训练参数和绝对目标 episode 数恢复。若首次训练指定了自定义前缀，恢复时也传入该前缀。
+
+`--resume` 要求该运行已有 `.resume_latest.pt`。尚未产生正式恢复点时，使用上面的首次训练命令。续跑至 GS3000 时，恢复命令的累计目标也填 `--episodes 375`。
 
 ```powershell
 python -m edge_d.cli adaptive train --seed 20261113 --episodes 128 --resume

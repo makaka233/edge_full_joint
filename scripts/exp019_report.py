@@ -228,12 +228,86 @@ def audit(prefix, *, render_figures):
     return summary
 
 
+def compare_runs(prefix, reference, current, *, render_figures):
+    baseline = audit(reference, render_figures=False)
+    manifests = [s['manifest'] for s in (baseline,current)]
+    configs = [dict(m['config']) for m in manifests]
+    modes = [c.pop('macro_mode','learned') for c in configs]
+    if modes != ['learned','redeploy'] or configs[0] != configs[1] or any(
+            m['origin']['kind'] != 'random' for m in manifests):
+        raise ValueError('Expected a matched from-zero learned/redeploy comparison')
+
+    def matched(suffix, keys):
+        a,b = [rows(p,suffix) for p in (reference,prefix)]
+        for left,right in zip(a,b,strict=True):
+            if any(left[k]!=right[k] for k in keys):
+                raise ValueError(f'Unpaired request stream in {suffix}')
+        return a,b
+
+    n_fixed = len(matched('fixed.jsonl',('episode','scene','period','trace_sha256','requests'))[0])
+    train = matched('train.jsonl',('gs','seed','scene','period','trace_sha256','requests'))
+    periods = configs[0]['periods']
+    delta = np.array([b['reward_raw']-a['reward_raw'] for a,b in zip(*train)])
+    episode_delta = delta.reshape(-1,periods).mean(axis=1)
+    comparison = dict(reference=reference.name, treatment=prefix.name, matched_online=len(delta),
+                      matched_fixed=n_fixed, mean_raw_reward_delta=float(delta.mean()),
+                      episodes_improved=int((episode_delta>0).sum()),
+                      episodes_worsened=int((episode_delta<0).sum()))
+    artifact(prefix,'comparison.json').write_text(json.dumps(comparison,indent=2)+'\n',encoding='utf8')
+    if not render_figures:
+        return comparison
+
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    plt.rcParams.update({'font.size':11,'path.simplify':False})
+    labels = ('Learned gate','Always request REDEPLOY')
+    palette = ('#224d84','#a44720')
+    x = [r['gs'] for r in train[0]]
+    fig,axs = plt.subplots(2,2,figsize=(11,6),sharex=True,layout='constrained')
+    for ax,(label,key) in zip(axs.flat,(('Raw reward','reward_raw'),('Mean E2E (s)','e2e_penalized'),
+                                         ('P99 E2E (s)','p99'),('Censored requests','censored'))):
+        for series,name,color,marker in zip(train,labels,palette,('.', '+')):
+            ax.plot(x,[r[key] for r in series],linestyle='None',marker=marker,
+                    markersize=2,markeredgewidth=.5,alpha=.75,color=color,label=name)
+        ax.set(ylabel=label,xlabel='Online physical GS')
+        ax.grid(alpha=.2)
+    axs[0,0].legend(loc='lower left',markerscale=2)
+    fig.suptitle(f'EXP019 | Seed {configs[0]["seed"]} | All {len(x):,} matched online periods per arm')
+    fig.savefig(artifact(prefix,'compared-training.png'),dpi=118)
+    plt.close(fig)
+
+    fig,axs = plt.subplots(2,2,figsize=(11,6),sharex=True,layout='constrained')
+    measures = (('Mean net reward',lambda r:r['mean_net']),
+                ('Mean E2E (s)',lambda r:r['adjusted_e2e']['mean']),
+                ('P99 E2E (s)',lambda r:r['adjusted_e2e']['p99']),
+                ('Mean active replicas',lambda r:r['mean_replicas']))
+    for ax,(label,measure) in zip(axs.flat,measures):
+        for summary,name,color,marker in zip((baseline,current),labels,palette,('o','s')):
+            fixed = summary['fixed']
+            ax.plot([k*periods for k in fixed],[measure(r) for r in fixed.values()],
+                    color=color,marker=marker,markersize=3,label=name)
+        ax.set(ylabel=label,xlabel='Checkpoint GS')
+        ax.grid(alpha=.2)
+    axs[0,0].legend(loc='best')
+    fig.suptitle(f'EXP019 | Seed {configs[0]["seed"]} | Fixed validation on matched request streams')
+    fig.savefig(artifact(prefix,'compared-fixed.png'),dpi=118)
+    plt.close(fig)
+    return comparison
+
+
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--prefix',default=PREFIX,help='a run filename prefix within runs/results/EXP019')
+    parser.add_argument('--compare',help='filename prefix of the learned-gate reference run')
     parser.add_argument('--no-figures',action='store_true')
     args=parser.parse_args()
-    if Path(args.prefix).name!=args.prefix or '/' in args.prefix or '\\' in args.prefix:
-        parser.error('The run prefix must be a filename')
-    info=audit(RESULTS/args.prefix,render_figures=not args.no_figures)
+    for name in filter(None,(args.prefix,args.compare)):
+        if Path(name).name!=name or '/' in name or '\\' in name:
+            parser.error('The run prefix must be a filename')
+    prefix=RESULTS/args.prefix
+    info=audit(prefix,render_figures=not args.no_figures)
     print(f"Audited {info['online_gs']} online GS and {info['episodes']} optimization batches.")
+    if args.compare:
+        comparison=compare_runs(prefix,RESULTS/args.compare,info,render_figures=not args.no_figures)
+        print(f"Paired {comparison['matched_online']} online and {comparison['matched_fixed']} fixed records.")

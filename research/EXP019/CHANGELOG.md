@@ -1,5 +1,19 @@
 # EXP019 源码变更
 
+## 瞬时矩阵切换
+
+| 文件 | 改动 |
+|---|---|
+| `edge_joint/adaptive_physics.py` | 合法目标在决策时刻成为有效矩阵。直接按新矩阵计持有成本，保留已有资源作业和工作守恒验证。 |
+| `edge_joint/adaptive_training.py` | 移除等待动作与准备特征，保留 D/S 及宏观信用。记录即刻激活、矩阵和成本。 |
+| `edge_joint/adaptive_runner.py`、`edge_joint/adaptive_cli.py` | 同一主入口支持历史受阻期复算。格式 2 区分瞬时版，旧检查点不进入新训练和评价。 |
+| `scripts/exp019_report.py` | 继续读历史账本并保留历史阻塞诊断，审计新日志的合法矩阵、切换时点和成本。 |
+| `tests/test_adaptive_training.py` | 验证重叠不可行时的双向切换、成本和在途任务、新掩码、三组更新、恢复与旧检查点保护。 |
+
+本轮通过 14 项聚焦测试、三模式 CLI 烟测、学习组评价和旧数据两例重放。数据与边界见[单文件交接](AI_RESEARCH_REVIEW.md)。
+
+## 历史容量阻塞版记录
+
 | 文件 | 改动 |
 |---|---|
 | `edge_joint/adaptive_physics.py` | 继承原事件引擎，增加旧副本引用计数、容量重叠规划、实际镜像传输、准备完成切换、资源与请求守恒检查。 |

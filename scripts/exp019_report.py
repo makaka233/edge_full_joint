@@ -7,10 +7,11 @@ import json
 from pathlib import Path
 
 import numpy as np
+from scipy.optimize import Bounds, LinearConstraint, milp
 import torch
 
 from edge_d.world import cpu_lower_bound, make_world
-from edge_joint.adaptive_physics import retirement_plan
+from edge_joint.adaptive_physics import DEPLOYMENT_MODEL, capacity_ok, footprint, switch_cost
 
 
 RESULTS = Path('runs/results/EXP019')
@@ -80,14 +81,17 @@ def validate(prefix, manifest, state, train, updates, fixed):
         if flows.setdefault(key,r['trace_sha256']) != r['trace_sha256']:
             raise ValueError('Fixed comparison uses different request streams')
     world = make_world(state['config']['seed'],0,'train')
+    instantaneous = manifest.get('deployment_model') == DEPLOYMENT_MODEL
     for r in train+fixed:
         expected = -(world.cost['delay_weight']*(r['e2e_penalized'] or 0.)+r['holding_cost']+r['switch_cost'])
         if (r['requests']!=len(r['penalized_delays']) or r['completed']!=len(r['completed_delays']) or
                 r['censored']!=len(r['censored_requests']) or r['requests']!=r['completed']+r['censored'] or
                 abs(r['reward_raw']-expected)>1e-8 or
-                abs(r['reward_net']-(expected-r['migration_cost']))>1e-8 or
+                abs(r['reward_net']-(expected-r.get('migration_cost',0.)))>1e-8 or
                 r['conservation_error']>1e-6 or r['capacity_error']>1e-8):
             raise ValueError('Physical ledger row did not reconcile')
+        if instantaneous:
+            check_instant_switch(world,r)
     decisions = sum(r['s_decisions']+r.get('drain_decisions',0) for r in train)
     if decisions != sum(r['admitted_to_replay'] for r in updates):
         raise ValueError('Scheduling decisions and admitted transitions do not match')
@@ -97,6 +101,56 @@ def validate(prefix, manifest, state, train, updates, fixed):
 def unpack(world, matrix):
     return np.unpackbits(np.frombuffer(bytes.fromhex(matrix),dtype=np.uint8),
                          count=world.K*world.N).reshape(world.K,world.N).astype(bool)
+
+
+def check_instant_switch(world, row):
+    action = row['action']
+    old,active = (unpack(world,row[key]) for key in ('old_matrix','active_matrix'))
+    expected = row['old_matrix'] if action == 'KEEP' else row['proposed_matrix']
+    changed = action == 'REDEPLOY' and not np.array_equal(old,active)
+    statuses = {'BOOTSTRAP':'bootstrap','KEEP':'idle','REDEPLOY':'activated' if changed else 'unchanged'}
+    if (row['status'] != statuses.get(action) or row['active_matrix'] != expected
+            or not active.any(1).all() or not capacity_ok(active,world.spec,world.capacity)
+            or row['activated_at'] != (row['start'] if changed else None)
+            or not np.isclose(row['switch_cost'],switch_cost(world,old,active),rtol=0.,atol=1e-8)
+            or not np.isclose(row['holding_cost'],world.cost['holding_weight']*footprint(world,active),
+                              rtol=0.,atol=1e-8)):
+        raise ValueError('Instantaneous deployment ledger did not reconcile')
+
+
+# For historical overlapping-deployment logs only.
+def legacy_capacity_ok(matrix, spec, capacity):
+    return bool(np.all(matrix.T @ spec <= capacity + 1e-7))
+
+
+def retirement_plan(active, target, pinned, spec, capacity):
+    """Keep as many old endpoints as possible while reserving target and live pins."""
+    if legacy_capacity_ok(active | target | pinned, spec, capacity):
+        return active.copy()
+    fixed = active & (target | pinned)
+    reserved = fixed | target | pinned
+    if not legacy_capacity_ok(reserved, spec, capacity):
+        return None
+    stages, nodes = np.nonzero(active & ~fixed)
+    if not len(stages):
+        return None
+    free = capacity - reserved.T @ spec
+    node_use = (nodes[None, :] == np.arange(active.shape[1])[:, None])[:, None, :] * spec[stages].T[None, :, :]
+    coverage = stages[None, :] == np.arange(active.shape[0])[:, None]
+    limits = (
+        LinearConstraint(node_use.reshape(capacity.size, -1), -np.inf, free.ravel() + 1e-8),
+        LinearConstraint(coverage, (~fixed.any(1)).astype(float), np.inf),
+    )
+    result = milp(-np.ones(len(stages)), integrality=np.ones(len(stages)), bounds=Bounds(0., 1.),
+                  constraints=limits)
+    if result.status == 2:
+        return None
+    if not result.success:
+        raise RuntimeError(f'Retirement capacity solver: {result.message}')
+    fixed[stages, nodes] = result.x > .5
+    if not fixed.any(1).all() or not legacy_capacity_ok(fixed | target | pinned, spec, capacity):
+        raise AssertionError('Invalid overlapping deployment plan')
+    return fixed
 
 
 def blocked_causes(world, train):
@@ -127,7 +181,7 @@ def spike_case(r):
         **{k:r[k] for k in ('gs','episode','period','scene','status','action','reward_raw','reward_net',
                             'requests','completed','censored','e2e_completed','e2e_penalized','p99',
                             'offered_cpu_load','backlog_in','backlog_out','migration_cost','switch_cost',
-                            'image_hop_work_started','holding_cost')},
+                            'image_hop_work_started','holding_cost') if k in r},
         replicas=sum(r['active_replicas']), cpu_node=node, cpu_trace=telemetry,
         peak_wired_util=max(x['utilization'] for x in r['wired']),
         peak_wireless_util=max(x['utilization'] for x in r['wireless']),
@@ -152,8 +206,9 @@ def figures(prefix, train, fixed, periods):
     plt.rcParams.update({'font.size':11,'path.simplify':False})
     palette = ('#224d84','#a44720')
     labels = ('Physical raw','Net after migration')
+    reward_keys = ('reward_raw','reward_net') if 'migration_cost' in train[0] else ('reward_raw',)
     training = (
-        ('Reward', ('reward_raw','reward_net'), labels),
+        ('Reward', reward_keys, labels if len(reward_keys)==2 else ()),
         ('Mean E2E (s)', ('e2e_completed','e2e_penalized'), ('Completed','Penalty-adjusted')),
         ('P99 E2E (s)', ('p99',), ()),
         ('Requests censored', ('censored',), ()),

@@ -11,8 +11,8 @@ from edge_d._engine.edge_rl.model import Arrival
 from edge_d.placement import decode
 from edge_d.world import make_world
 from edge_joint.adaptive_training import Config, components, credit_targets
-from edge_joint.adaptive_physics import PeriodSimulator, capacity_ok, retirement_plan
-from edge_joint.adaptive_runner import train
+from edge_joint.adaptive_physics import PeriodSimulator, capacity_ok
+from edge_joint.adaptive_runner import evaluate, train
 from edge_joint.adaptive_storage import RunFiles
 
 
@@ -20,19 +20,41 @@ class ContinuousDeploymentTests(unittest.TestCase):
     def setUp(self):
         torch.set_num_threads(1)
 
-    def test_capacity_planner_retires_only_unpinned_and_keeps_coverage(self):
-        old = np.array([[1, 1], [0, 1]], dtype=bool)
-        target = np.array([[0, 1], [1, 0]], dtype=bool)
-        capacity = np.array([[1., 1.], [2., 2.]])
-        spec = np.ones((2, 2))
-        pins = np.zeros_like(old)
-        live = retirement_plan(old, target, pins, spec, capacity)
-        np.testing.assert_array_equal(live, [[0, 1], [0, 1]])
-        self.assertTrue(capacity_ok(live | target, spec, capacity))
-        pins[0, 0] = True
-        self.assertIsNone(retirement_plan(old, target, pins, spec, capacity))
+    def test_legal_matrices_switch_both_directions_despite_infeasible_union(self):
+        env = make_world(20261113, 0, 'fixed')
+        rng = np.random.default_rng(42)
+        old = decode(env, np.zeros(8), 8, True).matrix
+        for i in range(12):
+            target = decode(env, rng.normal(size=8), i+1, True).matrix
+            if not capacity_ok(old | target, env.spec, env.capacity):
+                break
+        else:
+            self.fail('Fixture needs two individually feasible matrices with infeasible overlap')
+        for matrix in (old, target):
+            self.assertEqual(matrix.shape, (28, 32))
+            self.assertTrue(matrix.any(1).all())
+            self.assertTrue(capacity_ok(matrix, env.spec, env.capacity))
+        sim = PeriodSimulator(env, old, None, 1, 0, False)
+        for before, after in ((old,target), (target,old)):
+            change = sim.redeploy(after)
+            self.assertEqual((change['status'], change['activated_at']), ('activated', sim.now))
+            np.testing.assert_array_equal(sim.deployment, after)
+            added = (after & ~before).T @ env.spec / env.capacity
+            removed = (before & ~after).T @ env.spec / env.capacity
+            cost_scale = env.cost['resource_normalizer'] / env.N
+            expected = env.cost['switch_weight'] * cost_scale * (
+                added.sum() + env.cost['removal_ratio'] * removed.sum())
+            self.assertAlmostEqual(change['switch_cost'], expected)
+            self.assertAlmostEqual(sim.holding_cost(), env.cost['holding_weight'] * cost_scale *
+                                   ((after.T @ env.spec) / env.capacity).sum())
+            self.assertEqual(sim.redeploy(after), dict(status='unchanged', switch_cost=0., activated_at=None))
+            sim.verify()
+        for invalid in (np.zeros_like(old), np.ones_like(old), old.astype(int)*2, old[:-1]):
+            with self.assertRaises(ValueError):
+                sim.redeploy(invalid)
+            np.testing.assert_array_equal(sim.deployment, old)
 
-    def test_image_transfer_keeps_dispatched_stage_and_releases_old_footprint(self):
+    def test_dispatched_cpu_and_wired_jobs_survive_switch_and_future_masks_change(self):
         env = make_world(20261113, 0, 'fixed')
         old = decode(env, np.zeros(8), 8, True, include_optional=False).matrix
         service = 0
@@ -44,36 +66,42 @@ class ContinuousDeploymentTests(unittest.TestCase):
             target = old.copy()
             target[stage, source] = False
             target[stage, node] = True
-            if capacity_ok(old | target, env.spec, env.capacity):
+            if capacity_ok(target, env.spec, env.capacity):
                 break
         else:
-            self.fail('No test migration with feasible overlap')
+            self.fail('No feasible test target')
         sim = PeriodSimulator(env, old, lambda obs, mask: source if mask[source] else int(np.flatnonzero(mask)[0]),
                               1, 0, True)
-        sim.add_arrivals([Arrival(0., 0, source, service)])
-        uploaded = env.w.stages[stage, 1] / sim.wireless[source].capacity
+        sim.trace_enabled = True
+        payload = env.w.stages[stage, 1]
+        uploaded = payload / sim.wireless[source].capacity
         cpu_duration = env.w.stages[stage, 0] / sim.cpu[source].capacity
-        sim.run_until(uploaded + cpu_duration * .01)
-        self.assertEqual(sim.pins[stage, source], 1)
-        now = sim.now
-        change = sim.redeploy(target, 1e-10)
-        self.assertEqual(change['status'], 'preparing')
-        self.assertGreater(change['migration_cost'], 0)
-        self.assertTrue(sim.image_jobs)
-        mask_before = sim.deployment.copy()
-        self.assertTrue(mask_before[stage, source])
-        self.assertFalse(mask_before[stage, node])
+        boundary = 1.+uploaded+cpu_duration*.25
+        access = next(n for n in range(env.N) if n!=source)
+        link = env.w.routes[access][source][0]
+        wire_dispatch = boundary - min(.05, payload / sim.wired[link].capacity*.25)
+        wire_arrival = wire_dispatch - payload / sim.wireless[access].capacity
+        sim.add_arrivals([Arrival(1., 0, source, service), Arrival(wire_arrival, 1, access, service),
+                          Arrival(boundary+.1, 2, source, service)])
+        sim.run_until(boundary)
+        self.assertEqual((len(sim.cpu[source].jobs),len(sim.wired[link].jobs)), (1,1))
+        before = [tuple(r.jobs) for r in sim.resources]
+        self.assertEqual(sim.redeploy(target)['activated_at'], boundary)
+        self.assertEqual(before,[tuple(r.jobs) for r in sim.resources])
+        self.assertEqual([r.destination for r in sim.requests],[source,source])
+        self.assertFalse(sim.deployment[stage,source])
         sim.verify()
-        sim.run_until(now + cpu_duration * .05)
-        self.assertIsNone(sim.target)
-        self.assertEqual(sim.requests[0].destination, source)
-        self.assertFalse(sim.deployment[stage, source])
-        self.assertTrue(sim.occupied()[stage, source])
-        sim.run_until(now + 20.)
-        self.assertIsNotNone(sim.requests[0].finish)
-        self.assertFalse(sim.occupied()[stage, source])
-        self.assertGreater(sim.image_submitted, 0.)
+        sim.run_until(boundary+60.)
+        for request in sim.requests:
+            first = source if request.arrival.user in (0,1) else node
+            chain = env.c.services[service]
+            self.assertIsNotNone(request.finish)
+            for index, stage_id in enumerate(chain):
+                finishes = [event for event in request.trace if event[0]==index and event[1]=='finish']
+                self.assertEqual(len(finishes),1)
+                self.assertEqual(finishes[0][3],first if index==0 else int(np.flatnonzero(target[stage_id])[0]))
         self.assertEqual(len(sim.transitions), sim.decisions)
+        self.assertEqual(len({(r.request_id,r.stage_index) for r in sim.transitions}),sim.decisions)
         sim.verify()
 
     def test_credit_includes_only_earlier_cohorts_with_open_deadlines(self):
@@ -99,6 +127,10 @@ class ContinuousDeploymentTests(unittest.TestCase):
                             self.assertEqual((r['mode'],r['action'],r['redeploy_probability']),
                                              (mode,action,probability))
                             self.assertIsNone(r['gate_logp'])
+                            if action == 'REDEPLOY':
+                                self.assertEqual(r['active_matrix'],r['proposed_matrix'])
+                                if r['active_matrix'] != r['old_matrix']:
+                                    self.assertEqual(r['activated_at'],r['start'])
                         if name=='train.jsonl':
                             flows.append([r['trace_sha256'] for r in records])
                     update=json.loads((out/'updates.jsonl').read_text())
@@ -122,9 +154,6 @@ class ContinuousDeploymentTests(unittest.TestCase):
             a, b = RunFiles(base/'continuous'), RunFiles(base/'resumed')
             train(cfg, a, 2)
             train(cfg, b, 1)
-            older = torch.load(b/'resume_latest.pt',weights_only=True)
-            del older['config']['macro_mode']
-            torch.save(older,b/'resume_latest.pt')
             with (b/'train.jsonl').open('ab') as file:
                 file.write(b'{interrupted}\n')
             train(cfg, b, 2, resume=True)
@@ -146,6 +175,19 @@ class ContinuousDeploymentTests(unittest.TestCase):
                     self.assertEqual(aa[field], bb[field])
             updates = list(map(json.loads, (b/'updates.jsonl').read_text().splitlines()))
             self.assertTrue(all(row['d_change']>0 and row['macro_change']>0 and row['s_change']>0 for row in updates))
+
+    def test_historical_checkpoint_cannot_be_resumed_or_republished(self):
+        cfg = Config(seed=20261113)
+        with tempfile.TemporaryDirectory(prefix='exp019-test-') as directory:
+            out = RunFiles(Path(directory)/'historical')
+            torch.save(dict(format=1),out/'resume_latest.pt')
+            before = (out/'resume_latest.pt').read_bytes()
+            with self.assertRaisesRegex(ValueError,'historical deployment model'):
+                train(cfg,out,1,resume=True)
+            with self.assertRaisesRegex(ValueError,'historical deployment model'):
+                evaluate(out,cfg.seed)
+            self.assertEqual((out/'resume_latest.pt').read_bytes(),before)
+            self.assertFalse((out/'last.pt').exists())
 
 
 if __name__ == '__main__':

@@ -1,6 +1,8 @@
 """Run and resume EXP019 episodes and evaluate model projections."""
 from copy import deepcopy
 from dataclasses import asdict
+from itertools import islice
+import json
 import platform
 import subprocess
 import time
@@ -11,13 +13,23 @@ import torch
 from edge_d.world import make_world, stable_seed
 from edge_joint.inventory_joint import recover_ledgers, replay_snapshot, restore_replay
 
+from .adaptive_physics import DEPLOYMENT_MODEL, capacity_ok
 from .adaptive_training import Config, components, episode, load_model, model, update
 from .adaptive_storage import append, atomic, line, publish, random_state, restore_random
 
 
 FIXED = (19001, 19002)
 HOLDOUT = (19101, 19102, 19103)
-FORM = 1
+FORM = 2
+
+
+def read_checkpoint(path):
+    state = torch.load(path, weights_only=True, map_location='cpu')
+    if state.get('format') != FORM:
+        raise ValueError('This checkpoint uses the historical deployment model. '
+                         'Start a new run with a fresh prefix for instantaneous deployment. '
+                         'Use the recorded Git revision to run the historical model.')
+    return state
 
 
 def source():
@@ -57,8 +69,8 @@ def train(cfg, out, target, *, resume=False, init=None):
     d, s, opt, replay, gate, gate_opt = components(cfg)
     resume_path = out / 'resume_latest.pt'
     if resume:
-        state = torch.load(resume_path, weights_only=True, map_location='cpu')
-        if state.get('format') != FORM or Config(**state['config']) != cfg:
+        state = read_checkpoint(resume_path)
+        if Config(**state['config']) != cfg:
             raise ValueError('Resume requires the same seed and training configuration')
         if target < state['episode']:
             raise ValueError('--episodes is an absolute target and precedes the current checkpoint')
@@ -110,7 +122,8 @@ def train(cfg, out, target, *, resume=False, init=None):
         snapshot(False, 0.)
     if best is None:
         snapshot(True, 0.)
-    metadata = dict(config=asdict(cfg), origin=origin, source_history=history,
+    metadata = dict(format=FORM, deployment_model=DEPLOYMENT_MODEL,
+                    config=asdict(cfg), origin=origin, source_history=history,
                     fixed_scenes=FIXED, holdout_scenes=HOLDOUT)
     atomic(out/'manifest.json', lambda file: file.write(line(metadata)))
     for index in range(index+1, target+1):
@@ -135,7 +148,7 @@ def repair_projections(out, state):
 
 @torch.no_grad()
 def evaluate(out, seed):
-    state = torch.load(out/'resume_latest.pt', weights_only=True, map_location='cpu')
+    state = read_checkpoint(out/'resume_latest.pt')
     if state['config']['seed'] != seed:
         raise ValueError('The evaluation prefix belongs to another seed')
     if state['best'] is None:
@@ -168,5 +181,76 @@ def verify(cfg, out, init=None):
     origin = seed_weights(init, cfg, d, s) if init is not None else dict(kind='random')
     rows = episode(cfg, make_world(cfg.seed, 19201, 'fixed'), d, s, gate, 19201, 'fixed', 0, 'redeploy')[0]
     path = out/'verify.jsonl'
-    atomic(path, lambda file: file.writelines(line(dict(origin=origin, **row)) for row in rows))
+    atomic(path, lambda file: file.writelines(
+        line(dict(origin=origin, deployment_model=DEPLOYMENT_MODEL, **row)) for row in rows))
+    print(path.resolve(), flush=True)
+
+
+@torch.no_grad()
+def replay_blocked(seed, original, out, points):
+    """Recreate a blocked episode-one state before testing a single change."""
+    manifest = json.loads((original/'manifest.json').read_text(encoding='utf8'))
+    options = dict(manifest['config'])
+    if (manifest['origin']['kind'] != 'random' or options['seed'] != seed
+            or 'image_fraction' not in options):
+        raise ValueError('Replay requires a same-seed historical run with random initialization')
+    del options['image_fraction']
+    cfg = Config(**options)
+    with (original/'train.jsonl').open(encoding='utf8') as file:
+        first_episode = [json.loads(row) for row in islice(file, cfg.periods)]
+    if ([row['gs'] for row in first_episode] != list(range(1, cfg.periods+1))
+            or any(row['episode'] != 1 or row['s_policy_version'] != 0 for row in first_episode)
+            or any(row['image_hop_work_started'] != 0 or row['activated_at'] is not None
+                   or row['active_matrix'] != first_episode[0]['active_matrix'] for row in first_episode)):
+        raise ValueError('Replay requires a complete first episode without accepted legacy transitions')
+    history = {row['gs']: row for row in first_episode}
+    if len(set(points)) != len(points) or any(
+            gs not in history or history[gs]['status'] != 'capacity_blocked' for gs in points):
+        raise ValueError('Each replay GS must be a distinct capacity_blocked row of episode one')
+    scene = first_episode[0]['scene']
+    env = make_world(seed, scene)
+
+    def matrix(hex_value):
+        return np.unpackbits(np.frombuffer(bytes.fromhex(hex_value), dtype=np.uint8),
+                             count=env.K*env.N).reshape(env.K,env.N).astype(bool)
+
+    old = matrix(first_episode[0]['active_matrix'])
+    d, s, _, _, gate, _ = components(cfg)
+
+    def rollout(deployments):
+        return episode(cfg, make_world(seed, scene), d, s, gate, scene, 'train', 1,
+                       recorded_matrices=deployments)[0]
+
+    schedule = [old] + [None]*(cfg.periods-1)
+    keep = rollout(schedule)
+    fields = ('trace_sha256', 'backlog_in', 'backlog_out', 'dispatched_in', 'active_matrix',
+              'completed', 'censored', 'drops', 'completed_delays', 'penalized_delays')
+    for before, after in zip(first_episode, keep, strict=True):
+        if (any(before[key]!=after[key] for key in fields)
+                or not np.isclose(before['reward_raw'],after['reward_raw'],atol=1e-9,rtol=0.)):
+            raise ValueError(f'Historical KEEP physics did not reproduce at GS{before["gs"]}')
+    output = []
+    for gs in points:
+        target = matrix(history[gs]['proposed_matrix'])
+        deployments = schedule.copy()
+        deployments[gs-1] = target
+        switched = rollout(deployments)
+        row = switched[gs-1]
+        if (row['status'] != 'activated' or row['activated_at'] != row['start']
+                or row['active_matrix'] != history[gs]['proposed_matrix']):
+            raise AssertionError(f'Historical target was not activated at GS{gs}')
+        for baseline, alternate in zip(keep, switched, strict=True):
+            if baseline['trace_sha256'] != alternate['trace_sha256'] or (
+                    baseline['gs'] <= gs and any(baseline[key] != alternate[key]
+                                                for key in ('backlog_in','dispatched_in','old_matrix'))):
+                raise AssertionError(f'Replay arms do not share the same pre-action state at GS{gs}')
+        info = dict(focal_gs=gs, historical_prefix=original.prefix.name,
+                    historical_commit=manifest['source_history'][0]['commit'],
+                    historical_status=history[gs]['status'],
+                    historical_keep_exact=True, union_fits=capacity_ok(old | target,env.spec,env.capacity),
+                    deployment_model=DEPLOYMENT_MODEL)
+        for arm, rows in (('keep', keep), ('instant_redeploy', switched)):
+            output.extend(dict(arm=arm, **info, **row) for row in rows)
+    path = out/'replay.jsonl'
+    atomic(path, lambda file: file.writelines(line(row) for row in output))
     print(path.resolve(), flush=True)

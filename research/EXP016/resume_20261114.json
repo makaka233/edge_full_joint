@@ -1,0 +1,39 @@
+{
+  "seed": 20261114,
+  "checkpoint": 64,
+  "verified_gs": 65,
+  "s_updates": 520,
+  "replay_size": 25000,
+  "exact_fields": {
+    "train": [
+      "reward",
+      "penalized_e2e",
+      "matrix_packed_hex",
+      "trace_sha256",
+      "completed_delays_seconds",
+      "penalty_adjusted_delays_seconds",
+      "s_transition_count",
+      "s_policy_fingerprint"
+    ],
+    "antithetic": [
+      "reward",
+      "penalized_e2e",
+      "matrix_packed_hex",
+      "trace_sha256",
+      "s_policy_fingerprint",
+      "s_transition_count"
+    ],
+    "updates": [
+      "paired_reward_delta",
+      "d_updates",
+      "s_updates",
+      "s_next_version",
+      "replay_size",
+      "d_grad_norm",
+      "s_loss",
+      "d_parameter_delta",
+      "s_parameter_delta",
+      "s_target_delta"
+    ]
+  }
+}

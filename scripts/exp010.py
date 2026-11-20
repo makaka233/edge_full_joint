@@ -45,14 +45,17 @@ def _dot_cos(a, b):
     return float(np.dot(a, b)/norm) if norm else None
 
 
-def step(cfg, actor, arm, groups, optimizers, update):
+def step(cfg, actor, arm, groups, optimizers, update, *, world=make_world, physical_record=None):
     scene = update-1
-    context = make_world(cfg.seed, scene, 'train')
+    context = world(cfg.seed, scene, 'train')
     kind = actor_kind(arm)
     with torch.no_grad():
         before = actor(context).numpy()
         before_logits = actor.logits(context, before).numpy() if kind == 'spatial' else None
-    observed, delta, gaussian_loss, spatial_loss = train_step(actor, cfg, kind, update, trace_probabilities=True)
+    observed, delta, gaussian_loss, spatial_loss = train_step(actor, cfg, kind, update,
+                                                            trace_probabilities=True, world=world)
+    if physical_record is not None:
+        observed = [physical_record(row,context) for row in observed]
     losses = {'gaussian': gaussian_loss, 'spatial': spatial_loss}
     stats = dict(gs=2*update, update=update, reward_delta=delta)
     for head, optimizer in optimizers.items():

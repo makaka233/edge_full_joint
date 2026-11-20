@@ -1,6 +1,6 @@
 # 协同边缘计算：原始物理系统 + 原始 Agent-S + 改进 Agent-D 的完整研究工程
 
-Agent-D 资源竞争实验见 [EXP014 单文件交接](research/EXP014/AI_RESEARCH_REVIEW.md) 与 [复现命令](research/EXP014/REPRODUCE.md)。
+Agent-D 训练需求分布对照见 [EXP015 单文件交接](research/EXP015/AI_RESEARCH_REVIEW.md) 与 [复现命令](research/EXP015/REPRODUCE.md)。节点并行策略的原始训练见 [EXP014](research/EXP014/AI_RESEARCH_REVIEW.md)。
 
 ## 2026-11-19 研究交接：有界整矩阵策略
 

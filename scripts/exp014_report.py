@@ -28,13 +28,13 @@ def matrix(row):
     return np.unpackbits(np.frombuffer(bytes.fromhex(row['matrix_packed_hex']),np.uint8)).reshape(28,32)
 
 
-def annotate(batch,seed):
+def annotate(batch,seed,*,world=environment):
     scenes = {}
     for row in batch:
         scene,split = row['scene'],row.get('split','holdout')
         key = scene,split
         if key not in scenes:
-            env = environment(seed,scene,split)
+            env = world(seed,scene,split)
             work = env.w.node_demand()[:,env.w.stage_service].sum(0)*env.w.stages[:,0]
             stages = np.argsort(-work,kind='stable')[:4]
             scenes[key] = (work,stages,env.w.nodes[:,0])
@@ -82,8 +82,8 @@ def queue_profile(batch):
     return profile
 
 
-def plan_path(row,seed,u=None):
-    env = make_world(seed,row['scene'],row['split'])
+def plan_path(row,seed,u=None,*,world=make_world):
+    env = world(seed,row['scene'],row['split'])
     from edge_d.global_actor import context
     state = context(env,row['layout_seed'])
     declared = np.column_stack((row['path_stages'],row['path_nodes']))
@@ -123,7 +123,7 @@ def plan_path(row,seed,u=None):
               f"Archived path probability differs at {seed}/{row['gs']}: {score} versus {row['log_probability']}")
 
 
-def resource_audit(train,updates,seed):
+def resource_audit(train,updates,seed,*,world=make_world):
     check([r['gs'] for r in train]==list(range(1,257)) and len(updates)==128,'Resource training budget differs')
     previous = [0.,0.,0.]
     for update in updates:
@@ -140,7 +140,7 @@ def resource_audit(train,updates,seed):
             if u['phase']!=phase:
                 continue
             for row in (a,b):
-                plan_path(row,seed,u)
+                plan_path(row,seed,u,world=world)
             items.append((a,b,u))
         effective = [u for a,b,u in items if u['changed_bits'] and abs(u['reward_delta'])>1e-10]
         denser_loses = [u for a,b,u in items if (a['replicas']-b['replicas'])*u['reward_delta']<0.]

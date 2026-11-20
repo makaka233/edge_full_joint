@@ -132,8 +132,8 @@ def distribution(cfg, actor, arm, gs, out):
             emit(out/'probe.jsonl', dict(sample=sample, **row))
 
 
-def train_step(actor, cfg, arm, update, *, trace_probabilities=False):
-    context = make_world(cfg.seed, update-1, 'train')
+def train_step(actor, cfg, arm, update, *, trace_probabilities=False, world=make_world):
+    context = world(cfg.seed, update-1, 'train')
     mean = actor(context)
     noise = np.random.default_rng(_identity(cfg, 'train', 'exploration', update-1)).standard_normal(8)
     normal = torch.as_tensor(noise, dtype=mean.dtype)
@@ -160,7 +160,8 @@ def train_step(actor, cfg, arm, update, *, trace_probabilities=False):
                         selected_log_prob=float(torch.nn.functional.logsigmoid(logits[selected]).sum()),
                         rejected_log_prob=float(torch.nn.functional.logsigmoid(-logits[~selected]).sum()),
                         selected_bits=int(selected.sum()))
-        row = submit(cfg, actor, decode_one, LoadAwareHeuristic(), 'train', update-1, 2*update-1+index, vector)
+        row = submit(cfg, actor, decode_one, LoadAwareHeuristic(), 'train', update-1, 2*update-1+index, vector,
+                     environment=world(cfg.seed, update-1, 'train'))
         data.append(dict(update=update, branch='positive' if index == 0 else 'negative', **metadata, **row))
     if data[0]['nested_trace_hash'] != data[1]['nested_trace_hash']:
         raise AssertionError('Matched physical request traces differ')

@@ -81,8 +81,8 @@ def evaluate_case(cfg,actor,arm,scene,split,gs,scheduler=None,index=None):
     return dict(**measure(cfg,env,scene,split,placement,latent,gs,scheduler),**metadata)
 
 
-def update(cfg,actor,optimizer,scene,step,out,split='train',phase=None):
-    env = make_world(cfg.seed,scene,split)
+def update(cfg,actor,optimizer,scene,step,out,split='train',phase=None,*,world=make_world):
+    env = world(cfg.seed,scene,split)
     state = context(env,_identity(cfg,split,'decoder',scene))
     phase = phase or ('order' if step%4==0 else 'acceptance')
     rng = np.random.default_rng(stable_seed('EXP014',cfg.seed,split,scene,'pair'))
@@ -93,7 +93,7 @@ def update(cfg,actor,optimizer,scene,step,out,split='train',phase=None):
     scores = torch.stack([log_probability(output,path,phase,focal) for path in paths])
     samples = []
     for index,path in enumerate(paths):
-        row = measure(cfg,make_world(cfg.seed,scene,split),scene,split,path.placement,torch.zeros(0),2*step-1+index)
+        row = measure(cfg,world(cfg.seed,scene,split),scene,split,path.placement,torch.zeros(0),2*step-1+index)
         row.update(update=step,phase=phase,branch=('positive','negative')[index],
                    log_probability=float(scores[index].detach()),focal_nodes=focal.tolist(),**details(path))
         emit(out/'train.jsonl',row)

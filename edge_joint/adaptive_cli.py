@@ -7,7 +7,7 @@ import traceback
 def add_arguments(parser):
     parser.add_argument('action', choices=('train', 'evaluate', 'verify'))
     parser.add_argument('--seed', type=int, choices=(20261113, 20261114), required=True)
-    parser.add_argument('--prefix', type=Path, help='output filename prefix, default: runs/results/EXP019.seed<seed>')
+    parser.add_argument('--prefix', type=Path, help='filename prefix in runs/results/EXP019, default: seed<seed>')
     parser.add_argument('--episodes', type=int, default=128, help='absolute training target')
     parser.add_argument('--periods', type=int, default=8, help='periods per continuous episode')
     parser.add_argument('--period-seconds', type=float, default=24.)
@@ -32,8 +32,11 @@ def run(parser, args):
     from .adaptive_training import Config
 
     checkout = Path(__file__).resolve().parents[1]
-    workspace = checkout.parent if checkout.name=='source' and (checkout/'.git').is_file() else checkout
-    out = RunFiles((args.prefix or workspace/'runs/results'/f'EXP019.seed{args.seed}').resolve())
+    results = (checkout/'runs/results/EXP019').resolve()
+    prefix = (args.prefix or results/f'seed{args.seed}').resolve()
+    if prefix.parent != results:
+        parser.error(f'EXP019 results must use a filename prefix inside {results}')
+    out = RunFiles(prefix)
     cfg = Config(seed=args.seed, periods=args.periods, period_seconds=args.period_seconds,
                  image_fraction=args.image_fraction, eval_every=args.eval_every, s_batch=args.s_batch,
                  freeze_ds=args.freeze_ds)

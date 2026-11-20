@@ -4,13 +4,13 @@
 
 GitHub `makaka233/edge_full_joint` 是源码版本记录。主程序入口在 `edge_d.cli`。每轮从当前经过验证的提交开一条短分支，写一组同主题代码、协议和测试，完成轻量验收后提交并推送。用实验编号标注分支、提交和研究文档。发布时同样记录分支和完整 SHA，便于从任意轮次复现。候选验证完成后依据结果决定是否合并或成为默认。分支管理参考 [GitHub Flow](https://docs.github.com/en/get-started/using-github/github-flow)。
 
-本机的标准源码工作树位于 `source/`，沿用 Git 的 linked worktree 机制。外层旧 checkout 有独立本地改动，保留供其原作者处理。正式实验在 `source/` 中从明确的分支与提交启动。Git 管理源版本，运行目录只存数据。参见 [Git worktree 文档](https://git-scm.com/docs/git-worktree)。
+本机在项目根目录保留一套源码工作区。各轮在同一目录切换 Git 分支，从明确的提交启动主程序。Git 管理源版本，运行目录用于保存产物。
 
 ## 统一存放结果
 
-相对于本机项目根目录，新日志、检查点、评估和图表统一写入 `runs/results/`。使用 `实验编号.种子.数据类型` 前缀。每次重新训练使用新的运行标识。每个运行的 manifest 记录代码 SHA、配置、训练权重来源、场景分割和软件环境。训练日志逐条追加，固定验证与 Holdout 分账，模型保存 best、last 和最近完整状态。大体积结果留本地。GitHub 发布必要源码、复现说明、可审阅的小型摘要和明确的结果引用。
+新日志、检查点、评估、烟测和图表统一写入 `runs/results/<实验编号>/`。种子和新运行标识写在文件名中。每个运行的 manifest 记录代码 SHA、配置、训练权重来源、场景分割和软件环境。训练日志逐条追加，固定验证与 Holdout 分账，模型保存 best、last 和最近完整状态。大体积结果留本地。每轮的源码、配置、复现脚本、交接文档及其变更均备份到 GitHub。
 
-已迁移的旧产物集中于 `runs/archive/legacy`，`runs/archive/PATH_INDEX.csv` 记录它们的旧位置。原研究证据在此前提交中可追溯。历史复现命令原样保留，需要旧产物时按索引定位。当前轮文档沿用 `research/`，以实验编号作为文件名前缀。
+每轮的设计、复现说明及交接统一放在 `research/<实验编号>/`，对外交接文件名为 `AI_RESEARCH_REVIEW.md`。文档和结果目录使用完全相同的实验编号。已迁移的旧产物集中于 `runs/archive/legacy`，`runs/archive/PATH_INDEX.csv` 记录旧位置。
 
 ## 研究验收
 

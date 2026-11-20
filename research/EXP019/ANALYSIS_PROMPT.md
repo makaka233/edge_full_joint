@@ -1,6 +1,6 @@
 # EXP019 实验完成后的结果审核
 
-我已在 Windows 本地运行完 EXP019。请只执行离线审核。项目根目录为 `C:\Users\1\Desktop\edge_full_joint`，源码及协议位于 `source/research/EXP019_DESIGN.md`。请读取共享结果目录 `runs/results` 中前缀为 `EXP019.seed20261113` 与 `EXP019.seed20261114` 的真实文件。核对各自 manifest 的初始化来源、Git 提交和代码改动状态。带 smoke 标记的文件仅作工程证据。若有缺失的训练或评价，先告诉我，等待明确授权。
+我已在 Windows 本地运行完 EXP019。请只执行离线审核。项目根目录为 `C:\Users\1\Desktop\edge_full_joint`，协议位于 `research/EXP019/DESIGN.md`。请读取 `runs/results/EXP019/` 中前缀为 `seed20261113` 与 `seed20261114` 的真实文件。核对各自 manifest 的初始化来源、Git 提交和代码改动状态。带 smoke 标记的文件仅作工程证据。若有缺失的训练或评价，先告诉我，等待明确授权。
 
 1. 读取全部真实在线、优化记录、固定验证和独立评价。用恢复状态及更新表对齐两个种子的 GS、episode、D、门、S 优化数，核对实际长度、固定选模与日志缺口。中断尾账仅用于运行审计。
 2. 检查 D、宏观门、S Online/Target 的真实参数变化、回放数量、没有更新的原因和初始化来源。
@@ -9,5 +9,5 @@
 5. 核对完整 KEEP/REDEPLOY 选择分布与策略概率。分别统计 BOOTSTRAP、准备延续、容量阻塞、无矩阵改变和真实激活。分析是否因需求变化选择切换及其真实成本、准备时延和长期净收益。
 6. 核对连续队列。对账同一 episode 的 backlog 交接、在途阶段和退休副本、跨期激活及物理守恒，将 episode 边界清楚标注。
 7. 分别报告 best 和 last 的独立 Reward、请求加权真实及惩罚后 E2E、P95/P99 和截尾。在相同 held-out 流上评价固定 KEEP 和固定 REDEPLOY 的同流结果。核对同种子场景请求流一致性。
-8. 结论区分本地代码验收、真实训练改善、独立泛化和趋稳。指出后期退化、种子差异和证据局限。将可独立转交的结果写入 `source/research/EXP019_AI_RESEARCH_REVIEW.md`，图保存在 `runs/results/`，使用带实验与种子的文件名。
+8. 结论区分本地代码验收、真实训练改善、独立泛化和趋稳。指出后期退化、种子差异和证据局限。将可独立转交的结果写入 `research/EXP019/AI_RESEARCH_REVIEW.md`，图保存在 `runs/results/EXP019/`，文件名标注种子。
 9. 结尾只提出下一轮最小必要改进与最小验证。保留本地实验数据，由我决定是否开启下一轮执行。

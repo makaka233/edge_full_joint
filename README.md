@@ -4,7 +4,7 @@
 
 初始调度探索与影子排空见 [EXP017 单文件交接](research/EXP017/AI_RESEARCH_REVIEW.md)。
 
-连续部署的本地入口为 `python -m edge_d.cli adaptive`。见 [EXP019 运行指南](research/EXP019_README_RUN.md)及[项目与实验管理](docs/RESEARCH_WORKFLOW.md)。
+连续部署的本地入口为 `python -m edge_d.cli adaptive`。见 [EXP019 运行指南](research/EXP019/README_RUN.md)及[项目与实验管理](docs/RESEARCH_WORKFLOW.md)。
 
 低约束资源感知探索、双种子验收与 EXP016 续训见 [EXP018 单文件交接](research/EXP018/AI_RESEARCH_REVIEW.md)及[复现命令](research/EXP018/REPRODUCE.md)。
 

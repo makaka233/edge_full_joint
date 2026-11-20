@@ -16,4 +16,4 @@
 - `python -m edge_d.cli adaptive --help` 验证主程序接口。
 - `python -m unittest discover -s tests -p test_adaptive_training.py -v` 验证四项测试。完整运行和中断续跑的 D、门、S 参数及关键逐点物理量精确相同。
 - Seed13 命令行烟测由 1 个 episode 启动，再恢复到 2 个 episode，共 4 GS。产生 2 次 D 更新、2 次门更新、32 次 DDQN 更新，best/last/恢复状态均存在。独立评价生成 24 条业务期记录并通过各比较对象同流检查。
-- Seed14 加载冻结的 EXP018 GS1024 权重，运行 2 个各 1 秒的连续物理期。烟测轨迹存入共享 `runs/results/`。
+- Seed14 加载冻结的 EXP018 GS1024 权重，运行 2 个各 1 秒的连续物理期。烟测轨迹存入共享 `runs/results/EXP019/`。

@@ -2,7 +2,7 @@
 
 ## 工程边界
 
-实验从 GitHub 主线派生于 EXP018 提交 `a8298662f741679379cb2a988d7f4950b38d6ee8`。进入本机标准工作树 `source/`，使用同一主入口 `python -m edge_d.cli adaptive`。源码由 Git 分支区分轮次。GS1024 来源及运行位置见[运行指南](EXP019_README_RUN.md)。
+实验从 GitHub 主线派生于 EXP018 提交 `a8298662f741679379cb2a988d7f4950b38d6ee8`。在项目根目录运行主入口 `python -m edge_d.cli adaptive`。源码由 Git 分支区分轮次。GS1024 来源及运行位置见[运行指南](README_RUN.md)。
 
 库存协调解码每次输出一个完整 28×32 矩阵。调度由原 Masked Dueling Double DQN 逐阶段完成。仿真继承原事件队列、AP 内上行均分、CPU finish_pf 和有向链路逐跳平方根 KKT。原 EXP018 的 BUILD-only 训练、奖励、回放和产物还可独立运行。EXP019 增加持续合同及对应控制接口。
 

@@ -4,4 +4,4 @@
 - Put the single-file handoff for each round at `research/<EXPERIMENT_ID>/AI_RESEARCH_REVIEW.md`, for example `research/EXP019/AI_RESEARCH_REVIEW.md`. Keep that round's protocol and reproduction notes in the same research folder.
 - Write run results and intermediate files beneath the project's shared `runs/results/<EXPERIMENT_ID>/` directory. This includes logs, checkpoints, smoke evidence, evaluation outputs and figures. Distinguish seeds and reruns by filename within that directory.
 - Publish researched code, configuration, scripts, documentation and handoff changes to GitHub with the round identifier. Record the commit SHA with the run and in the handoff. Keep raw run files in the designated results directory and link to the evidence from the handoff.
-- Keep experiment commands in the established project checkout. A new round uses the same checkout and directory layout. On the current Windows installation, `source/` is the established source checkout and `runs/results/` beside it is the shared result directory.
+- Run experiments from the main project root. New rounds use the same source checkout and directory layout.

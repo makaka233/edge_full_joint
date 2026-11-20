@@ -83,3 +83,14 @@ python -m scripts.exp019_report --prefix instant.redeploy.long3000.seed20261113 
 ```
 
 计算的物理界只放宽竞争与部署限制，用于衡量可能的改善空间。各算法的可实现表现来自连续事件仿真。
+
+复算已有 GS64 权重的双种子早期归因，只需跑两场固定验证。
+
+```powershell
+foreach ($seed in 20261113, 20261114) {
+    python -m edge_d.cli adaptive baseline --seed $seed --fixed-only --prefix ".\runs\results\EXP019\instant.redeploy.seed$seed"
+    if ($LASTEXITCODE -ne 0) { throw "Fixed baseline failed for seed $seed" }
+    python -m scripts.exp019_report --prefix "instant.redeploy.seed$seed" --baseline-gs 64 --baseline-fixed
+    if ($LASTEXITCODE -ne 0) { throw "Fixed baseline report failed for seed $seed" }
+}
+```

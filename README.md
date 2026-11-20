@@ -2,6 +2,8 @@
 
 库存协调 Agent-D 与原始 DDQN 的 BUILD-only 联合训练见 [EXP016 单文件交接](research/EXP016/AI_RESEARCH_REVIEW.md) 与 [连续训练复现](research/EXP016/REPRODUCE.md)。训练需求分布对照见 [EXP015](research/EXP015/AI_RESEARCH_REVIEW.md)。
 
+初始调度探索与影子排空见 [EXP017 单文件交接](research/EXP017/AI_RESEARCH_REVIEW.md)。
+
 ## 2026-11-19 研究交接：有界整矩阵策略
 
 本轮新增 `placement-train`：随机初始化的条件部署策略直接生成完整合法矩阵，继续使用原始事件引擎、Reward 与 Masked Dueling DDQN。原 EDIT、原 S 独立入口和两个历史联合入口仍可运行。参见 [本轮实验报告](docs/PLACEMENT_RESEARCH.md)、[算法与训练协议](docs/PLACEMENT_METHOD.md)、[物理与 R12 审计](docs/TAKEOVER_AUDIT.md) 和 `evidence/research_20261119/`。下文的旧命令及非声明是交接基线说明。

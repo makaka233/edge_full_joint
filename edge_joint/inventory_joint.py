@@ -65,8 +65,15 @@ def world(cfg, scene, split):
 def initialize(cfg):
     torch.manual_seed(_identity(cfg,'train','initial',0))
     d = PlacementPolicy()
-    s = SchedulingAgent(cfg.seed)
+    s = scheduler_for(cfg)
     return d,s,torch.optim.Adam(d.parameters(),lr=cfg.d_lr),SReplay(cfg.replay_capacity,cfg.replay_age)
+
+
+def scheduler_for(cfg):
+    if hasattr(cfg,'exploration_arm'):
+        from edge_joint.exploration import EarlyExplorer
+        return EarlyExplorer(cfg.seed,cfg.exploration_arm)
+    return SchedulingAgent(cfg.seed)
 
 
 def parameters(module):
@@ -77,7 +84,7 @@ def fingerprint(vector):
     return hashlib.sha256(vector.numpy().tobytes()).hexdigest()
 
 
-def physical(cfg, env, placement, scheduler, split, scene, gs, epsilon=0., collect=False):
+def physical(cfg, env, placement, scheduler, split, scene, gs, epsilon=0., collect=False, *, window_hook=None):
     tick = time.perf_counter()
     finished, adjusted = [], []
     load = load_scale(env)
@@ -91,8 +98,12 @@ def physical(cfg, env, placement, scheduler, split, scene, gs, epsilon=0., colle
                     e2e = task.finish-task.arrival.time
                     finished.append(e2e)
                     adjusted.append(e2e)
+        if window_hook is not None:
+            window_hook(sim,start,stop)
 
     env.window_observer = observe
+    if hasattr(scheduler,'begin_rollout'):
+        scheduler.begin_rollout(gs)
     actions = getattr(scheduler,'actions',0)
     row, replay = measure(env,placement,scheduler,cfg.warmup_seconds,
                           _identity(cfg,split,'request',scene),gs,collect,epsilon)
@@ -112,6 +123,8 @@ def physical(cfg, env, placement, scheduler, split, scene, gs, epsilon=0., colle
     if residual>1e-6 or abs(row['reward']+row['delay_cost']+row['holding_cost']+row['switch_cost'])>1e-8:
         raise ValueError('Work or physical Reward did not reconcile')
     row['windows'] = [{k:v for k,v in w.items() if k!='resources'} for w in row['windows']]
+    if hasattr(scheduler,'rollout_stats'):
+        row.update(scheduler.rollout_stats())
     return dict(**row,gs=gs,split=split,scene=scene,epsilon=epsilon,offered_cpu_load=load,
                 s_version=scheduler.version,completed_delays_seconds=finished,
                 penalty_adjusted_delays_seconds=adjusted,peak_resources=peaks,conservation=residual,
@@ -141,10 +154,11 @@ _contrast_scheduler = None
 
 def contrast(cfg, scene, gs, placement, online, version, epsilon):
     global _contrast_scheduler
-    if _contrast_scheduler is None:
+    key=(cfg.seed,getattr(cfg,'exploration_arm',None))
+    if _contrast_scheduler is None or _contrast_scheduler[0]!=key:
         torch.set_num_threads(1)
-        _contrast_scheduler = SchedulingAgent(cfg.seed)
-    scheduler = _contrast_scheduler
+        _contrast_scheduler = key,scheduler_for(cfg)
+    scheduler = _contrast_scheduler[1]
     scheduler.online.load_state_dict(online)
     scheduler.version = version
     row,_ = physical(cfg,world(cfg,scene,'train'),placement,scheduler,'train',scene,gs,epsilon)

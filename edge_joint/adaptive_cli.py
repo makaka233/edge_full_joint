@@ -19,6 +19,7 @@ def add_arguments(parser):
     parser.add_argument('--freeze-ds', action='store_true', help='learn the macro policy with fixed D and greedy S')
     parser.add_argument('--replay-from', type=Path, help='verify an archived run by filename prefix')
     parser.add_argument('--replay-gs', type=int, nargs='+', help='blocked GS to replay from episode one')
+    parser.add_argument('--fixed-only', action='store_true', help='limit the baseline to the fixed scenarios')
     initial = parser.add_mutually_exclusive_group()
     initial.add_argument('--init-checkpoint', type=Path, help='same-seed EXP018 D/S initialization')
     initial.add_argument('--resume', action='store_true', help='restore the complete episode checkpoint')
@@ -33,6 +34,8 @@ def run(parser, args):
         parser.error('Invalid adaptive checkpoint flags for this action')
     if args.action!='train' and args.macro_mode!='learned':
         parser.error('--macro-mode is a training setting. Evaluation reads it from the run.')
+    if args.fixed_only and args.action!='baseline':
+        parser.error('--fixed-only is a baseline setting.')
     if args.replay_from is not None or args.replay_gs is not None:
         if (args.action!='verify' or args.init_checkpoint is not None
                 or args.replay_from is None or args.replay_gs is None):
@@ -71,7 +74,7 @@ def run(parser, args):
             if args.action=='train':
                 train(cfg, out, args.episodes, resume=args.resume, init=args.init_checkpoint)
             elif args.action=='baseline':
-                baseline(out, args.seed)
+                baseline(out, args.seed, fixed_only=args.fixed_only)
             elif original is not None:
                 replay_blocked(args.seed, original, out, args.replay_gs)
             elif args.action=='verify':

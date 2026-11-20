@@ -66,3 +66,20 @@ foreach ($seed in 20261113, 20261114) {
 | `.replay.jsonl` | 历史受阻状态的物理对照。 |
 
 正式实验结束后，把[离线审核提示词](ANALYSIS_PROMPT.md)交给 Codex。上下文及已观察结果见[单文件交接](AI_RESEARCH_REVIEW.md)。
+
+## 固定 REDEPLOY 的冻结算法基线
+
+以下入口只读取指定运行的 best 和 last 模型。它在两场固定验证、三个自然 Holdout 及两个独立压力场景评价相同请求流。基线包含随机初始化与 best 的 D/S 交叉、末次模型、固定库存协调解码与负载感知启发式。两个压力场景的首期目标全网 CPU 提供负载为 0.55 和 0.70，此后继续按原需求过程演化。
+
+```powershell
+python -m edge_d.cli adaptive baseline --seed 20261113 --prefix ".\runs\results\EXP019\instant.redeploy.long3000.seed20261113"
+```
+
+命令输出 `*.baseline.gs<N>.jsonl`。使用该文件名报告的 GS 复算指标和图表。
+
+```powershell
+$gs = [int](Read-Host 'Baseline output GS')
+python -m scripts.exp019_report --prefix instant.redeploy.long3000.seed20261113 --baseline-gs $gs
+```
+
+计算的物理界只放宽竞争与部署限制，用于衡量可能的改善空间。各算法的可实现表现来自连续事件仿真。

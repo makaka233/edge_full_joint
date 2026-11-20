@@ -209,7 +209,7 @@ def baseline_bounds(cfg, env, scene, split, ledger):
 
 
 @torch.no_grad()
-def baseline(out, seed):
+def baseline(out, seed, *, fixed_only=False):
     """Frozen D/S ablation, non-learning controls and same-flow physical bounds."""
     best = read_checkpoint(out/'best.pt')
     last = read_checkpoint(out/'last.pt')
@@ -235,14 +235,14 @@ def baseline(out, seed):
         ('initial_d_heuristic_s',d0,heuristic,0,None),
         ('best_d_heuristic_s',d_best,heuristic,best['episode'],None),
     )
-    scenarios = (
-        *((s,'fixed',None) for s in FIXED),
-        *((s,'holdout',None) for s in HOLDOUT),
-        (19251,'holdout',.55),(19252,'holdout',.70),
-    )
+    scenarios = [(s,'fixed',None) for s in FIXED]
+    if not fixed_only:
+        scenarios.extend((s,'holdout',None) for s in HOLDOUT)
+        scenarios.extend(((19251,'holdout',.55),(19252,'holdout',.70)))
     provenance = source()
     periods = cfg.periods
-    path = out/f'baseline.gs{last["episode"]*periods}.jsonl'
+    prefix = 'baseline-fixed' if fixed_only else 'baseline'
+    path = out/f'{prefix}.gs{last["episode"]*periods}.jsonl'
 
     def write(file):
         for scene,split,pressure in scenarios:

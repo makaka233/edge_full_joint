@@ -583,15 +583,95 @@ def instant_figures(seed, train, summaries):
     finish(fig,'Independent holdout on 3 matched scenarios','holdout.png')
 
 
+def baseline_audit(prefix, gs, *, render_figures, fixed_only=False):
+    kind = 'baseline-fixed' if fixed_only else 'baseline'
+    name = prefix.with_name(f'{prefix.name}.{kind}.gs{gs}')
+    ledger = rows(prefix,f'{kind}.gs{gs}.jsonl')
+    world = make_world(ledger[0]['seed'],0)
+    groups = defaultdict(list)
+    comparison = {}
+    placements = {}
+    for r in ledger:
+        check_period(world,r,True)
+        period = r['scene'],r['period']
+        flow = r['trace_sha256'],r['requests']
+        if comparison.setdefault(period,flow)!=flow:
+            raise ValueError('Baseline comparison is not paired')
+        key = (*period,r['d_gs'])
+        if placements.setdefault(key,r['active_matrix'])!=r['active_matrix']:
+            raise ValueError('Frozen D produced distinct deployments across S controls')
+        if (r['reward_raw'] > r['deployed_reward_upper']+1e-8
+                or r['deployed_reward_upper'] > r['relaxed_reward_upper']+1e-8):
+            raise ValueError('Physical upper bounds do not bracket measured Reward')
+        pressure = r['initial_cpu_load_target']
+        category = f'Pressure {pressure:.2f}' if pressure else ('Fixed' if r['split']=='fixed' else 'Natural holdout')
+        groups[category,r['arm']].append(r)
+    results = defaultdict(dict)
+    for (case,arm),run in groups.items():
+        results[case][arm] = dict(
+            **aggregate(run),d_gs=run[0]['d_gs'],s_gs=run[0]['s_gs'],
+            load_range=[min(r['offered_cpu_load'] for r in run),max(r['offered_cpu_load'] for r in run)],
+            all_delay_bound=distributions(run,'relaxed_e2e_all'),
+            deployment_delay_bound=distributions(run,'relaxed_e2e_deployed'),
+            all_reward_bound=float(np.mean([r['relaxed_reward_upper'] for r in run])),
+            deployment_reward_bound=float(np.mean([r['deployed_reward_upper'] for r in run])))
+    artifact(name,'metrics.json').write_text(json.dumps(results,indent=2,allow_nan=False)+'\n',encoding='utf8')
+    if render_figures:
+        baseline_figures(name,ledger[0]['seed'],gs,results)
+    print(f'Audited {len(ledger)} physical periods, {len(comparison)} paired scene periods.')
+
+
+def baseline_figures(prefix, seed, gs, results):
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    labels = {
+        'initial_both':'D0 + S0','trained_s_only':'D0 + S best',
+        'trained_d_only':'D best + S0','best_both':'D best + S best','last_both':'D last + S last',
+        'heuristic_both':'Fixed decoder + H','initial_d_heuristic_s':'D0 + H','best_d_heuristic_s':'D best + H',
+    }
+    metrics = (
+        ('Mean net reward',lambda a:a['mean_net'],lambda a:a['all_reward_bound']),
+        ('Mean adjusted E2E (s)',lambda a:a['adjusted_e2e']['mean'],lambda a:a['all_delay_bound']['mean']),
+        ('Adjusted P99 E2E (s)',lambda a:a['adjusted_e2e']['p99'],lambda a:a['all_delay_bound']['p99']),
+    )
+    for cases,suffix in ((('Fixed','Natural holdout'),'natural'),(('Pressure 0.55','Pressure 0.70'),'stress')):
+        cases = [case for case in cases if case in results]
+        if not cases:
+            continue
+        fig,axs = plt.subplots(len(cases),3,squeeze=False,figsize=(12.5,3.1*len(cases)),layout='constrained')
+        for row,case in enumerate(cases):
+            arms = results[case]
+            pos = np.arange(len(arms))
+            for col,(label,fn,limit) in enumerate(metrics):
+                ax = axs[row,col]
+                ax.scatter([fn(a) for a in arms.values()],pos,c=[
+                    '#237853' if k.endswith('heuristic_s') or k=='heuristic_both' else '#305e87' for k in arms])
+                ax.axvline(limit(next(iter(arms.values()))),color='#a44b27',linestyle='--',linewidth=1.2,
+                           label='Relaxed physical bound')
+                ax.set(yticks=pos,yticklabels=[labels[k] for k in arms] if col==0 else [],
+                       ylim=(len(arms)-.5,-.5),xlabel=label,title=case if col==1 else None)
+                ax.grid(alpha=.22,axis='x')
+                if col==2 and row==0:
+                    ax.legend(loc='best',fontsize=8)
+        fig.suptitle(f'EXP019 | Seed {seed} | frozen D/S controls through GS{gs}')
+        fig.savefig(artifact(prefix,f'{suffix}.png'),dpi=108)
+        plt.close(fig)
+
+
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--prefix',default=PREFIX,help='a run filename prefix within runs/results/EXP019')
     parser.add_argument('--compare',help='filename prefix of the learned-gate reference run')
     parser.add_argument('--instant-trial',action='store_true',help='audit and plot the six instantaneous-deployment runs')
+    parser.add_argument('--baseline-gs',type=int,help='audit and plot a named frozen baseline snapshot')
+    parser.add_argument('--baseline-fixed',action='store_true',help='read a fixed-only frozen baseline')
     parser.add_argument('--no-figures',action='store_true')
     args=parser.parse_args()
+    if args.baseline_fixed and args.baseline_gs is None:
+        parser.error('--baseline-fixed requires --baseline-gs')
     if args.instant_trial:
-        if args.prefix!=PREFIX or args.compare:
+        if args.prefix!=PREFIX or args.compare or args.baseline_gs is not None:
             parser.error('--instant-trial uses the six protocol prefixes')
         instant_trial(render_figures=not args.no_figures)
         raise SystemExit(0)
@@ -599,6 +679,11 @@ if __name__=='__main__':
         if Path(name).name!=name or '/' in name or '\\' in name:
             parser.error('The run prefix must be a filename')
     prefix=RESULTS/args.prefix
+    if args.baseline_gs is not None:
+        if args.compare or args.baseline_gs < 0:
+            parser.error('--baseline-gs needs a nonnegative snapshot and no --compare')
+        baseline_audit(prefix,args.baseline_gs,render_figures=not args.no_figures,fixed_only=args.baseline_fixed)
+        raise SystemExit(0)
     info=audit(prefix,render_figures=not args.no_figures)
     print(f"Audited {info['online_gs']} online GS and {info['episodes']} optimization batches.")
     if args.compare:

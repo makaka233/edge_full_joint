@@ -1,5 +1,0 @@
-{"step": 0, "split": "fixed", "label": "initial", "n_periods": 2, "reward": -9.27180557837887, "e2e": 0.9036878498387338, "censored": 0, "keep_count": 0, "build_count": 2}
-{"step": 0, "split": "holdout", "label": "initial", "n_periods": 2, "reward": -12.940899011484548, "e2e": 1.2771600535696468, "censored": 0, "keep_count": 0, "build_count": 2}
-{"step": 1, "split": "fixed", "label": "last", "n_periods": 2, "reward": -9.22420968231096, "e2e": 0.8990300909937303, "censored": 0, "keep_count": 0, "build_count": 2}
-{"step": 1, "split": "holdout", "label": "best", "n_periods": 2, "reward": -13.250399986052896, "e2e": 1.3080939886554268, "censored": 0, "keep_count": 0, "build_count": 2}
-{"step": 1, "split": "holdout", "label": "last", "n_periods": 2, "reward": -13.250399986052896, "e2e": 1.3080939886554268, "censored": 0, "keep_count": 0, "build_count": 2}

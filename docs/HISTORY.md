@@ -30,11 +30,11 @@
 | 终止风险 | 在计划 update61 记录未自然 FINISH 的异常 | 最多有 57 次完成，未见完整 64/update64 holdout 记录 |
 
 证据文件：
-- `evidence/pg64_seed13/train.jsonl`, `updates.jsonl`, `eval_summary.jsonl`, `errors.jsonl`, `manifest.json`；
-- `evidence/pg64_seed14/train.jsonl`, `updates.jsonl`, `eval_summary.jsonl`；
-- `evidence/pg64_seed*/raw_reward.png`, `raw_e2e.png`, `fixed_reward.png`, `construction_length.png`：由原始数据逐点画出，不平滑、不删除负尖峰；
-- `evidence/cpu_viability_finish_results/`：真实门控对照原始日志；
-- `evidence/spike_causality_results/`：192 张 LP 审计与预热审计。
+- `runs/archive/legacy/evidence/pg64_seed13/train.jsonl`, `updates.jsonl`, `eval_summary.jsonl`, `errors.jsonl`, `manifest.json`；
+- `runs/archive/legacy/evidence/pg64_seed14/train.jsonl`, `updates.jsonl`, `eval_summary.jsonl`；
+- `runs/archive/legacy/evidence/pg64_seed*/raw_reward.png`, `raw_e2e.png`, `fixed_reward.png`, `construction_length.png`：由原始数据逐点画出，不平滑、不删除负尖峰；
+- `runs/archive/legacy/evidence/cpu_viability_finish_results/`：真实门控对照原始日志；
+- `runs/archive/legacy/evidence/spike_causality_results/`：192 张 LP 审计与预热审计。
 
 **严格结论：** 后期固定验证有一定改善，不可声称“没有任何学习”；但平均构造动作数快速膨胀、已有非终止、双种子均无完成 64 次正式训练与独立最终 holdout，仍无法通过收敛验收。
 

@@ -81,7 +81,7 @@ def _compress(source, destination):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--out', type=Path, default=Path('evidence/research_20261119'))
+    parser.add_argument('--out', type=Path, required=True, help='result directory under runs/results/<EXPERIMENT_ID>')
     parser.add_argument('--probes', type=Path, nargs='*', default=[])
     parser.add_argument('runs', type=Path, nargs='+')
     args = parser.parse_args()

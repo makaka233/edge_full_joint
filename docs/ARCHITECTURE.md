@@ -19,7 +19,7 @@
 | `edge_joint/training.py::mode=joint` | D REINFORCE + S DDQN，同一次物理评价分别取信用 | D 整体 Reward；S 逐阶段回报 |
 | `edge_joint/periodic.py` | 宏 Bernoulli KEEP/BUILD + D REINFORCE + S DDQN | 跨周期折扣的物理 Reward + S 局部回报 |
 
-不同训练器不互相依赖，且不依赖旧 `r0/r2b/r12/r41` 脚本。已验证历史负结果存 `evidence/`；未将废弃网络和策略代码混入当前运行时。
+不同训练器不互相依赖，且不依赖旧 `r0/r2b/r12/r41` 脚本。已验证历史负结果存 `runs/archive/legacy/evidence/`；未将废弃网络和策略代码混入当前运行时。
 
 ## 外部合同与未解决缺陷
 

@@ -14,7 +14,7 @@
 | D/S BUILD-only 联合训练 | `edge_joint/training.py` | 新协调实现，调用原 S，非原 R12 算法无损迁移 |
 | KEEP/BUILD 周期联合训练 | `edge_joint/periodic.py` | 新基线协调实现，尚未证明长期收敛 |
 | 原始 R12 联合训练与宏观信用源码 | `reference/original_project/` | 隔离保留原始源码；不是当前主入口的调用依赖 |
-| 历史学习曲线与失败样本 | `evidence/` | 保留关键原始日志与负结果，不混合为新训练数据 |
+| 历史学习曲线与失败样本 | `runs/archive/legacy/evidence/` | 保留关键原始日志与负结果，不混合为新训练数据 |
 
 文件 SHA256 见 `SOURCE_PROVENANCE.json` 与 `ORIGINAL_PHYSICS_AND_S_SHA256.json`。`reference/original_project` 的原始代码依赖原本脚本的路径/配置，作为研究溯源而不是当前主运行路径，未承诺所有历史实验命令都可以无需历史模型运行。
 

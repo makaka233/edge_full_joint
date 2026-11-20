@@ -6,7 +6,7 @@
 
 - 固定 `finish_pf`、逐跳 wired KKT、AP 等分、原 Reward、有效 warm 20 s。训练两种子 `20261113/20261114`，每 arm 64 次训练提交；GS0/8/16/24/32/40/48/56/64 做固定验证。只以固定 Reward 选最佳，其后才运行 holdout 初始/最佳/末次对照。BUILD 每种子每次 4 个固定或 8 个独立 holdout 场景；周期每次 2 个固定或 4 个独立四期 episode；周期同 episode 的 4 个时期不是 4 个独立样本。对照不能用 holdout 反向挑选。
 - 主结果 `e2e` 为合计请求加权的窗口惩罚后 E2E；零截尾时等于实测完成 E2E，其他时候不可称作实测完成时延。`tail_fraction` 为超过 1 s 或窗口截尾的请求比例；完成 p95/完成均值、持有/切换、实际副本、队列、链路与资源数据另存。Reward 为按提交平均，和请求加权 E2E 不可直接线性换算。
-- 8 个正式 runs 共 **512 次训练物理提交**，加验证共 **1112 次物理提交**（6×124+2×184，不含专项探针和复现重跑）；每次真机运行数见 `evidence/research_20261119/summary.json`。D-only 与 BUILD 联合各 32 次 D 更新，S-only 为零，周期各 8 次；含学习 S 的 6 次运行各 128 次原始 DDQN 更新。训练仿真约 3477–3636 秒/次，单次实测主进程墙钟 82–272 秒（并行运行，不能作为单线程同机性能比较）。
+- 8 个正式 runs 共 **512 次训练物理提交**，加验证共 **1112 次物理提交**（6×124+2×184，不含专项探针和复现重跑）；每次真机运行数见 `runs/archive/legacy/evidence/research_20261119/summary.json`。D-only 与 BUILD 联合各 32 次 D 更新，S-only 为零，周期各 8 次；含学习 S 的 6 次运行各 128 次原始 DDQN 更新。训练仿真约 3477–3636 秒/次，单次实测主进程墙钟 82–272 秒（并行运行，不能作为单线程同机性能比较）。
 - 异常样本全部保留：例如 D-only 训练最差 Reward `-122.71/-51.42`，BUILD 联合 `-123.34/-81.72`，周期 `-135.56/-134.18`。8 份 `raw_training.png` 每个 GS 一点，未平滑、剪裁或排除。单样本的 JSONL 含完整矩阵、小窗请求哈希、截尾、资源有限容量/活跃数/利用率、动作和版本；权重不在归档内。
 
 ## 训练与独立对照
@@ -37,37 +37,38 @@
 
 ## 复现与继续研究
 
-Windows PowerShell，建议新环境，不改变已有机器全局环境。已使用 Python 3.11 / PyTorch 2.11.0 / NumPy 2.4.6 / SciPy 1.17.1 / NetworkX 3.6.1 / Matplotlib 3.11.1。
+Windows PowerShell，建议新环境，不改变已有机器全局环境。已使用 Python 3.11 / PyTorch 2.11.0 / NumPy 2.4.6 / SciPy 1.17.1 / NetworkX 3.6.1 / Matplotlib 3.11.1。为新的复现准备一个实验编号。
 
 ```powershell
 python -m venv .venv
 $python = '.\.venv\Scripts\python.exe'
 & $python -m pip install -r requirements.txt
 $env:OMP_NUM_THREADS='1'; $env:OPENBLAS_NUM_THREADS='1'; $env:MKL_NUM_THREADS='1'
-& $python -m scripts.verify_package
 & $python -m unittest discover -s tests -v
 & $python -m scripts.verify_allocator_modes
 & $python -m edge_d.cli smoke
 & $python -m edge_d.cli joint-smoke
+$round = Read-Host 'Experiment ID'
+$study = "runs/results/$round"
+New-Item -ItemType Directory -Path $study -ErrorAction Stop | Out-Null
 foreach ($suffix in 13, 14) {
     $seed = 20261100 + $suffix
-    & $python -m edge_d.cli placement-train --seed $seed --mode d-only --out "runs/placement_d_$suffix"
-    & $python -m edge_d.cli placement-train --seed $seed --mode s-only --out "runs/placement_s_$suffix"
-    & $python -m edge_d.cli placement-train --seed $seed --mode joint --out "runs/placement_joint_$suffix"
-    & $python -m edge_d.cli placement-train --seed $seed --mode periodic --periods 4 --fixed-scenes 2 --holdout-scenes 4 --out "runs/placement_periodic_$suffix"
+    & $python -m edge_d.cli placement-train --seed $seed --mode d-only --out "$study/placement_d_$suffix"
+    & $python -m edge_d.cli placement-train --seed $seed --mode s-only --out "$study/placement_s_$suffix"
+    & $python -m edge_d.cli placement-train --seed $seed --mode joint --out "$study/placement_joint_$suffix"
+    & $python -m edge_d.cli placement-train --seed $seed --mode periodic --periods 4 --fixed-scenes 2 --holdout-scenes 4 --out "$study/placement_periodic_$suffix"
 }
-& $python -m scripts.probe_physics --out runs/allocator_continuous.jsonl runs/placement_d_13 runs/placement_d_14
-& $python -m scripts.probe_physics --stress --out runs/allocator_stress.jsonl runs/placement_d_13 runs/placement_d_14
-& $python -m scripts.probe_learning --out runs/joint_checkpoint_swaps.jsonl runs/placement_joint_13 runs/placement_joint_14
-& $python -m scripts.probe_learning --out runs/periodic_gate_controls.jsonl runs/placement_periodic_13 runs/placement_periodic_14
-$runs = @(Get-ChildItem runs -Directory -Filter 'placement_*' | ForEach-Object FullName)
-$probes = @(Get-ChildItem runs -File -Filter '*.jsonl' | ForEach-Object FullName)
-& $python -m scripts.archive_results @runs --probes @probes
-& $python -m scripts.package_research
+& $python -m scripts.probe_physics --out "$study/allocator_continuous.jsonl" "$study/placement_d_13" "$study/placement_d_14"
+& $python -m scripts.probe_physics --stress --out "$study/allocator_stress.jsonl" "$study/placement_d_13" "$study/placement_d_14"
+& $python -m scripts.probe_learning --out "$study/joint_checkpoint_swaps.jsonl" "$study/placement_joint_13" "$study/placement_joint_14"
+& $python -m scripts.probe_learning --out "$study/periodic_gate_controls.jsonl" "$study/placement_periodic_13" "$study/placement_periodic_14"
+$runs = @(Get-ChildItem $study -Directory -Filter 'placement_*' | ForEach-Object FullName)
+$probes = @(Get-ChildItem $study -File -Filter '*.jsonl' | ForEach-Object FullName)
+& $python -m scripts.archive_results --out "$study/summary" @runs --probes @probes
 ```
 
-首次复现用空输出目录；不要把新日志混入交接证据，也不要用同一批最终 holdout 反复调参。仓库 `.gitignore` 及 ZIP 排除运行权重。打开 `evidence/research_20261119/` 内每个 run 的 `raw_training.png`、`validation.png`、`updates.png`；`.jsonl.gz` 是无损压缩的未删减原始行。
+首次复现用空输出目录；不要把新日志混入交接证据，也不要用同一批最终 holdout 反复调参。仓库 `.gitignore` 及 ZIP 排除运行权重。打开 `runs/archive/legacy/evidence/research_20261119/` 内每个 run 的 `raw_training.png`、`validation.png`、`updates.png`；`.jsonl.gz` 是无损压缩的未删减原始行。
 
-验收记录见 `evidence/research_20261119/validation.json`：A/B 与 C/D 快照均独立解压校验并运行单元测试；完整版在独立解压目录执行 17 项测试、原始分配器探针、BUILD/JOIN 两个原始 smoke 和新周期 8 GS smoke。原 R12 使用原入口的模块路径与工作目录，7 项稳定性测试通过。D-only 20261113 重跑的 64 个 GS 的矩阵、请求哈希与 Reward 逐点相同。
+验收记录见 `runs/archive/legacy/evidence/research_20261119/validation.json`：A/B 与 C/D 快照均独立解压校验并运行单元测试；完整版在独立解压目录执行 17 项测试、原始分配器探针、BUILD/JOIN 两个原始 smoke 和新周期 8 GS smoke。原 R12 使用原入口的模块路径与工作目录，7 项稳定性测试通过。D-only 20261113 重跑的 64 个 GS 的矩阵、请求哈希与 Reward 逐点相同。
 
 **下一轮验收顺序**：先在不改变 Reward 的情况下，以不同负载制度和更长的连续队列复验当前策略，再比较部署门的现有 LP 压力特征和显式配对 KEEP/BUILD 信用。预注册固定集与全新人口/需求 holdout，统一物理预算比较 64/128 GS 与固定 KEEP/BUILD；之后才比较 R12 D80 信用和 S 系统信用，并检验 S 辅助分支的真实 replay/更新闭合。不用变更 CPU 默认、惩罚或规模掩盖坏结果。

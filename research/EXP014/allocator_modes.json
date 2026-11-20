@@ -1,0 +1,23 @@
+{
+  "source": "original physics.py and cpu_allocation.py",
+  "matrix": "14ed28ab0b0c748e73d85aeea0be4e325a3b6d1e56ef06de5c6e8a7dd8f32e33",
+  "wireless": "equal share original",
+  "wired": "sqrt KKT original (both runs)",
+  "cpu": "finish_pf versus original sqrt KKT",
+  "results": {
+    "finish_pf": {
+      "reward": -9.641345803299131,
+      "penalized_e2e": 0.9490459565470122,
+      "censored": 0,
+      "trace": "57807318bbd6d95267028f7e4b216dd603329f07ba671dff7f5d362db1475145",
+      "max_conservation_error": 2.277289468111121e-12
+    },
+    "kkt": {
+      "reward": -11.84311420101931,
+      "penalized_e2e": 1.16922279631903,
+      "censored": 0,
+      "trace": "57807318bbd6d95267028f7e4b216dd603329f07ba671dff7f5d362db1475145",
+      "max_conservation_error": 2.3874235921539366e-12
+    }
+  }
+}

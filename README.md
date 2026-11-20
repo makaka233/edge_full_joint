@@ -1,5 +1,7 @@
 # 协同边缘计算：原始物理系统 + 原始 Agent-S + 改进 Agent-D 的完整研究工程
 
+Agent-D 资源竞争实验见 [EXP014 单文件交接](research/EXP014/AI_RESEARCH_REVIEW.md) 与 [复现命令](research/EXP014/REPRODUCE.md)。
+
 ## 2026-11-19 研究交接：有界整矩阵策略
 
 本轮新增 `placement-train`：随机初始化的条件部署策略直接生成完整合法矩阵，继续使用原始事件引擎、Reward 与 Masked Dueling DDQN。原 EDIT、原 S 独立入口和两个历史联合入口仍可运行。参见 [本轮实验报告](docs/PLACEMENT_RESEARCH.md)、[算法与训练协议](docs/PLACEMENT_METHOD.md)、[物理与 R12 审计](docs/TAKEOVER_AUDIT.md) 和 `evidence/research_20261119/`。下文的旧命令及非声明是交接基线说明。

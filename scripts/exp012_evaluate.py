@@ -18,9 +18,9 @@ from scripts.exp012 import (ARMS, CONTINUOUS, HOLDOUT, PROBE, archive_shape, dem
                             draw, environment, load_policy, measure_case)
 
 
-def sustained(cfg,actor,arm,scene,scheduler):
-    env = environment(cfg.seed,scene,'holdout')
-    placement,latent,details = draw(env,cfg,actor,arm,'holdout',scene,None)
+def sustained(cfg,actor,arm,scene,scheduler,*,world=environment,decoder=draw,gs=256):
+    env = world(cfg.seed,scene,'holdout')
+    placement,latent,details = decoder(env,cfg,actor,arm,'holdout',scene,None)
     start = env.w.t
     trace_seed = stable_seed('EXP012',cfg.seed,scene,'continuous')
     arrivals = env.w.arrivals(start,start+84,np.random.default_rng(trace_seed))
@@ -47,7 +47,7 @@ def sustained(cfg,actor,arm,scene,scheduler):
         raise ValueError('Continuous cohort count mismatch')
     matrix = placement.matrix
     capacity_fraction = (matrix.T@env.spec)/env.capacity
-    return dict(scene=scene,gs=256,trace_seed=trace_seed,trace_hash=hasharr(arrivals),
+    return dict(scene=scene,gs=gs,trace_seed=trace_seed,trace_hash=hasharr(arrivals),
                 requests=len(observed),completed=len(completed),censored=len(censored),
                 completed_e2e=float(np.mean(completed)) if completed else None,
                 penalized_e2e=float(np.mean(completed+censored)) if observed else None, reward=None,

@@ -10,10 +10,11 @@ import time
 import numpy as np
 import torch
 
-from edge_d.world import make_world, stable_seed
-from edge_joint.inventory_joint import recover_ledgers, replay_snapshot, restore_replay
+from edge_d.physical import hasharr
+from edge_d.world import LoadAwareHeuristic, make_world, stable_seed
+from edge_joint.inventory_joint import load_scale, recover_ledgers, replay_snapshot, restore_replay
 
-from .adaptive_physics import DEPLOYMENT_MODEL, capacity_ok
+from .adaptive_physics import DEPLOYMENT_MODEL, capacity_ok, solo_delay_bounds
 from .adaptive_training import Config, components, episode, load_model, model, update
 from .adaptive_storage import append, atomic, line, publish, random_state, restore_random
 
@@ -173,6 +174,98 @@ def evaluate(out, seed):
     path = out/'holdout.jsonl'
     atomic(path, write)
     print(path.resolve(), flush=True)
+
+
+def baseline_bounds(cfg, env, scene, split, ledger):
+    env = deepcopy(env)
+    env.w.t = 0.
+    shape = (env.K,env.N)
+    masks = [np.unpackbits(np.frombuffer(bytes.fromhex(r['active_matrix']),dtype=np.uint8),
+                           count=env.K*env.N).reshape(shape).astype(bool) for r in ledger]
+    # A cohort can use later deployments, so relax eligibility to the union of
+    # its own period and every later period. Do not alter the rollout.
+    available = np.logical_or.accumulate(masks[::-1],axis=0)[::-1]
+    unrestricted = solo_delay_bounds(env.w,np.ones(shape,dtype=bool))
+    for i,(r,mask) in enumerate(zip(ledger,available,strict=True)):
+        rng = np.random.default_rng(stable_seed('EXP019',cfg.seed,split,scene,i,'traffic'))
+        arrivals = env.w.arrivals(r['start'],r['end'],rng)
+        if hasharr(arrivals) != r['trace_sha256']:
+            raise AssertionError('Physical bounds received a different request stream')
+        deployed = solo_delay_bounds(env.w,mask)
+        keys = ([a.access for a in arrivals],[a.service for a in arrivals])
+        cutoff_proxy = np.asarray([r['score_deadline']-a.time+env.failure_penalty for a in arrivals])
+        all_nodes = np.minimum(unrestricted[keys],cutoff_proxy)
+        given_layouts = np.minimum(deployed[keys],cutoff_proxy)
+        if np.any(given_layouts > np.asarray(r['penalized_delays'])+1e-8):
+            raise AssertionError('Recorded delay is below its physical lower bound')
+        weight = env.cost['delay_weight']
+        r.update(relaxed_e2e_all=all_nodes.tolist(),relaxed_e2e_deployed=given_layouts.tolist(),
+                 relaxed_reward_upper=-weight*float(all_nodes.mean()) if arrivals else 0.,
+                 deployed_reward_upper=-(weight*float(given_layouts.mean()) if arrivals else 0.)
+                 -r['holding_cost']-r['switch_cost'])
+        if i+1 < len(ledger):
+            env.w.advance()
+            env.w.t = r['end']
+
+
+@torch.no_grad()
+def baseline(out, seed):
+    """Frozen D/S ablation, non-learning controls and same-flow physical bounds."""
+    best = read_checkpoint(out/'best.pt')
+    last = read_checkpoint(out/'last.pt')
+    cfg = Config(**last['config'])
+    if cfg.seed != seed or cfg.macro_mode != 'redeploy' or last['origin']['kind'] != 'random':
+        raise ValueError('Baseline requires a same-seed from-zero fixed-REDEPLOY run')
+    if (best['config'] != last['config'] or best['origin'] != last['origin']
+            or best['episode'] > last['episode']):
+        raise ValueError('Best and last do not belong to the same run snapshot')
+    d0,s0,_,_,gate,_ = components(cfg)
+    d_best,d_last = deepcopy(d0),deepcopy(d0)
+    s_best,s_last = deepcopy(s0),deepcopy(s0)
+    load_model(best,d_best,s_best,gate)
+    load_model(last,d_last,s_last,gate)
+    heuristic = LoadAwareHeuristic()
+    arms = (
+        ('initial_both',d0,s0,0,0),
+        ('trained_s_only',d0,s_best,0,best['episode']),
+        ('trained_d_only',d_best,s0,best['episode'],0),
+        ('best_both',d_best,s_best,best['episode'],best['episode']),
+        ('last_both',d_last,s_last,last['episode'],last['episode']),
+        ('heuristic_both',lambda env:torch.zeros(d0.dimensions),heuristic,None,None),
+        ('initial_d_heuristic_s',d0,heuristic,0,None),
+        ('best_d_heuristic_s',d_best,heuristic,best['episode'],None),
+    )
+    scenarios = (
+        *((s,'fixed',None) for s in FIXED),
+        *((s,'holdout',None) for s in HOLDOUT),
+        (19251,'holdout',.55),(19252,'holdout',.70),
+    )
+    provenance = source()
+    periods = cfg.periods
+    path = out/f'baseline.gs{last["episode"]*periods}.jsonl'
+
+    def write(file):
+        for scene,split,pressure in scenarios:
+            env = make_world(seed,scene,split)
+            if pressure is not None:
+                env.w.scale *= pressure/load_scale(env)
+            flow = None
+            for label,d,s,d_episode,s_episode in arms:
+                rows = episode(cfg,deepcopy(env),d,s,gate,scene,split,d_episode or 0,'redeploy')[0]
+                hashes = [r['trace_sha256'] for r in rows]
+                if flow is None:
+                    flow = hashes
+                elif hashes != flow:
+                    raise AssertionError('Baseline arms received different request streams')
+                baseline_bounds(cfg,env,scene,split,rows)
+                for row in rows:
+                    file.write(line(dict(arm=label,d_gs=None if d_episode is None else d_episode*periods,
+                                         s_gs=None if s_episode is None else s_episode*periods,
+                                         initial_cpu_load_target=pressure,baseline_source=provenance,**row)))
+            print(f'Baseline scene={scene} pressure={pressure} matched across {len(arms)} arms',flush=True)
+
+    atomic(path,write)
+    print(path.resolve(),flush=True)
 
 
 @torch.no_grad()

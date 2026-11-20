@@ -5,7 +5,7 @@ import traceback
 
 
 def add_arguments(parser):
-    parser.add_argument('action', choices=('train', 'evaluate', 'verify'))
+    parser.add_argument('action', choices=('train', 'evaluate', 'verify', 'baseline'))
     parser.add_argument('--seed', type=int, choices=(20261113, 20261114), required=True)
     parser.add_argument('--prefix', type=Path,
                         help='filename prefix in runs/results/EXP019, e.g. instant.learned.seed20261113')
@@ -28,7 +28,8 @@ def run(parser, args):
     if (args.episodes<1 or args.periods<2 or not 0<args.period_seconds<float('inf') or
             args.eval_every<1 or not 1<=args.s_batch<=25000):
         parser.error('Invalid adaptive training parameters')
-    if (args.action!='train' and args.resume) or (args.action=='evaluate' and args.init_checkpoint):
+    if (args.action!='train' and args.resume) or (
+            args.action in ('evaluate','baseline') and args.init_checkpoint):
         parser.error('Invalid adaptive checkpoint flags for this action')
     if args.action!='train' and args.macro_mode!='learned':
         parser.error('--macro-mode is a training setting. Evaluation reads it from the run.')
@@ -37,7 +38,7 @@ def run(parser, args):
                 or args.replay_from is None or args.replay_gs is None):
             parser.error('Use --replay-from and --replay-gs together with verify and no --init-checkpoint.')
     import torch
-    from .adaptive_runner import evaluate, replay_blocked, train, verify
+    from .adaptive_runner import baseline, evaluate, replay_blocked, train, verify
     from .adaptive_storage import RunFiles, run_lock
     from .adaptive_training import Config
 
@@ -65,9 +66,12 @@ def run(parser, args):
                  freeze_ds=args.freeze_ds, macro_mode=args.macro_mode)
     torch.set_num_threads(1)
     try:
-        with run_lock(out):
+        lock = RunFiles(prefix.with_name(prefix.name+'.baseline')) if args.action=='baseline' else out
+        with run_lock(lock):
             if args.action=='train':
                 train(cfg, out, args.episodes, resume=args.resume, init=args.init_checkpoint)
+            elif args.action=='baseline':
+                baseline(out, args.seed)
             elif original is not None:
                 replay_blocked(args.seed, original, out, args.replay_gs)
             elif args.action=='verify':
@@ -78,7 +82,7 @@ def run(parser, args):
         message = traceback.format_exc()
         sys.stderr.write(message)
         try:
-            with (out/'errors.log').open('a', encoding='utf8') as file:
+            with (lock/'errors.log').open('a', encoding='utf8') as file:
                 file.write(message+'\n')
         except OSError:
             pass

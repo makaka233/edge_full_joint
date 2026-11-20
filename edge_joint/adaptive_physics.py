@@ -20,6 +20,21 @@ def switch_cost(env, old, new):
                                         env.cost['removal_ratio'] * footprint(env, old & ~new))
 
 
+def solo_delay_bounds(world, available):
+    """Minimum uncontended serial-chain time by access node and service."""
+    service_bounds = []
+    for chain in world.c.services:
+        remaining = np.zeros(world.c.n)
+        for stage in reversed(chain):
+            compute = world.stages[stage, 0] / world.nodes[:, 0]
+            transfer = world.stages[stage, 1] * world.path_seconds_per_mbit
+            choices = np.where(available[stage], compute + remaining, np.inf)
+            remaining = np.min(transfer + choices[None, :], axis=1)
+        initial_upload = world.stages[chain[0], 1] / world.nodes[:, 3]
+        service_bounds.append(initial_upload + remaining)
+    return np.stack(service_bounds, axis=1)
+
+
 class PeriodSimulator(Simulator):
     def __init__(self, env, initial, scheduler, step, version, collect):
         super().__init__(env.w, initial, scheduler, start=env.w.t, version=version, collection_step=step,

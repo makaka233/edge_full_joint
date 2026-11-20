@@ -1,5 +1,6 @@
 """Isolated EXP019 continuity, probability credit and recoverability checks."""
 import json
+from itertools import product
 from pathlib import Path
 import tempfile
 import unittest
@@ -11,7 +12,7 @@ from edge_d._engine.edge_rl.model import Arrival
 from edge_d.placement import decode
 from edge_d.world import make_world
 from edge_joint.adaptive_training import Config, components, credit_targets
-from edge_joint.adaptive_physics import PeriodSimulator, capacity_ok
+from edge_joint.adaptive_physics import PeriodSimulator, capacity_ok, solo_delay_bounds
 from edge_joint.adaptive_runner import evaluate, train
 from edge_joint.adaptive_storage import RunFiles
 
@@ -19,6 +20,33 @@ from edge_joint.adaptive_storage import RunFiles
 class ContinuousDeploymentTests(unittest.TestCase):
     def setUp(self):
         torch.set_num_threads(1)
+
+    def test_solo_bound_matches_brute_force_and_ideal_physics(self):
+        env = make_world(20261113,0,'fixed')
+        masks = np.zeros((env.K,env.N),dtype=bool)
+        masks[:,:3] = True
+        world = env.w
+        service, access = 0, 4
+        chain = env.c.services[service]
+
+        def time_for(destinations):
+            previous = (access,*destinations[:-1])
+            elapsed = world.stages[chain[0],1]/world.nodes[access,3]
+            for stage,src,dst in zip(chain,previous,destinations,strict=True):
+                elapsed += world.stages[stage,0]/world.nodes[dst,0]
+                elapsed += world.stages[stage,1]*world.path_seconds_per_mbit[src,dst]
+            return elapsed
+
+        enumeration = min(time_for(path) for path in product(range(3),repeat=len(chain)))
+        self.assertAlmostEqual(solo_delay_bounds(world,masks)[access,service],enumeration)
+        placement = decode(env,np.zeros(8),8,True,include_optional=False).matrix
+        destinations = [int(np.flatnonzero(placement[k])[0]) for k in chain]
+        scheduled = iter(destinations)
+        sim = PeriodSimulator(env,placement,lambda obs,mask:next(scheduled),1,0,False)
+        sim.add_arrivals([Arrival(0.,0,access,service)])
+        sim.run_until(20.)
+        self.assertAlmostEqual(sim.requests[0].finish,time_for(destinations),places=7)
+        self.assertLessEqual(solo_delay_bounds(world,placement)[access,service],sim.requests[0].finish+1e-8)
 
     def test_legal_matrices_switch_both_directions_despite_infeasible_union(self):
         env = make_world(20261113, 0, 'fixed')

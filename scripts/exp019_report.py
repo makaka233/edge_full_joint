@@ -927,7 +927,7 @@ def tail_holdout_figure(prefix, result):
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     fig,axs = plt.subplots(2,3,figsize=(11,6),layout='constrained')
-    cases = ('Natural','Sustained 0.55','Sustained 0.70')
+    cases = ('Natural','Sustained\n0.55','Sustained\n0.70')
     series = (('ddqn','best'),('quantile','best'),('ddqn','last'),('quantile','last'))
     for i,(seed,comparison) in enumerate(result.items()):
         for j,(title,fn) in enumerate((('Mean net Reward',lambda a:a['mean_net']),

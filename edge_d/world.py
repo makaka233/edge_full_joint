@@ -150,7 +150,7 @@ class ResourceFeatures:
             dynamic[:,:,6]=np.tanh(-comm_delta/.1)
         return torch.as_tensor(np.concatenate([common,dynamic],axis=-1),dtype=torch.float32)
 
-def cpu_lower_bound(e,X,*,certificate=False):
+def cpu_lower_bound(e,X):
     K,N=e.K,e.N
     d=e.w.node_demand()[:,e.w.stage_service].sum(0)*e.w.stages[:,0]
     ij=np.argwhere(X);count=len(ij)
@@ -160,30 +160,4 @@ def cpu_lower_bound(e,X,*,certificate=False):
     fit=linprog(np.r_[np.zeros(count),1.],A_ub=ub,b_ub=np.zeros(N),A_eq=eq,b_eq=d,
                 bounds=[(0,None)]*(count+1),method='highs')
     if not fit.success:raise RuntimeError(fit.message)
-    rho = float(fit.x[-1])
-    if not certificate:
-        return rho
-    # A tight Hall set follows by closing from a positive-dual stage.
-    # Include every legal neighbor and every stage currently sending work there.
-    assignments = np.zeros((K,N),dtype=float)
-    assignments[tuple(ij.T)] = fit.x[:-1]
-    best = (0.,np.ones(K,dtype=bool),X.any(0))
-    for root in np.flatnonzero(d>0):
-        stages = np.arange(K)==root
-        while True:
-            nodes = X[stages].any(0)
-            expanded = stages | (assignments[:,nodes]>1e-8).any(1)
-            if np.array_equal(stages,expanded):
-                break
-            stages = expanded
-        ratio = float(d[stages].sum()/e.w.nodes[nodes,0].sum())
-        if ratio>best[0]:
-            best = (ratio,stages,nodes)
-    bound,stages,nodes = best
-    if not np.isclose(bound,rho,rtol=1e-6,atol=1e-8):
-        raise RuntimeError(f'CPU bottleneck certificate disagrees with LP: {bound} vs {rho}')
-    single = X.sum(1)==1
-    return dict(rho=rho,unsustainable=rho>1.+1e-8,global_rho=float(d.sum()/e.w.nodes[:,0].sum()),
-                stages=np.flatnonzero(stages).tolist(),nodes=np.flatnonzero(nodes).tolist(),
-                stage_demand_cu_s=d.tolist(),reachable_cu_s=(X@e.w.nodes[:,0]).tolist(),
-                single_stage_pressure=float((d[single]/(X[single]@e.w.nodes[:,0])).max(initial=0.)))
+    return float(fit.x[-1])

@@ -1,6 +1,6 @@
 """Run and resume EXP019 episodes and evaluate model projections."""
 from copy import deepcopy
-from dataclasses import asdict, replace
+from dataclasses import asdict
 from itertools import islice
 import json
 import platform
@@ -11,24 +11,17 @@ import numpy as np
 import torch
 
 from edge_d.physical import hasharr
-from edge_d.placement import decode
 from edge_d.world import LoadAwareHeuristic, make_world, stable_seed
 from edge_joint.inventory_joint import load_scale, recover_ledgers, replay_snapshot, restore_replay
 
 from .adaptive_physics import DEPLOYMENT_MODEL, capacity_ok, solo_delay_bounds
-from .adaptive_training import Config, components, episode, load_model, matrix_hex, model, update
+from .adaptive_training import Config, components, episode, load_model, model, update
 from .adaptive_storage import append, atomic, line, publish, random_state, restore_random
 
 
 FIXED = (19001, 19002)
 HOLDOUT = (19101, 19102, 19103)
-SUSTAINED = ((19301,.55),(19302,.55),(19303,.70),(19304,.70))
 FORM = 2
-SPIKE_POINTS = {20261113:1308, 20261114:7}
-D_SAMPLING_POINTS = {20261113:1308, 20261114:2576}
-D_SAMPLING_DRAWS = 24
-D_KL_TRIAL_GS = 3000
-D_RANDOMNESS_DRAWS = 12
 
 
 def read_checkpoint(path):
@@ -55,8 +48,6 @@ def source():
 
 
 def seed_weights(path, cfg, d, s):
-    if cfg.s_algorithm != 'ddqn' or cfg.d_update != 'adam' or cfg.d_policy!='gaussian':
-        raise ValueError('Experimental optimizers require random initialization')
     data = torch.load(path, weights_only=True, map_location='cpu')
     if data['config']['seed'] != cfg.seed:
         raise ValueError('The EXP018 initialization checkpoint belongs to another seed')
@@ -84,9 +75,7 @@ def train(cfg, out, target, *, resume=False, init=None):
             raise ValueError('Resume requires the same seed and training configuration')
         if target < state['episode']:
             raise ValueError('--episodes is an absolute target and precedes the current checkpoint')
-        offsets = dict(state['offsets'])
-        offsets.setdefault('s_updates.jsonl',0)
-        recover_ledgers(out, dict(offsets=offsets, gs=state['episode']*cfg.periods))
+        recover_ledgers(out, dict(offsets=state['offsets'], gs=state['episode']*cfg.periods))
         d.load_state_dict(state['d'])
         s.load_state_dict(state['s'])
         s.actions = state['s_actions']
@@ -94,20 +83,15 @@ def train(cfg, out, target, *, resume=False, init=None):
         gate.load_state_dict(state['gate'])
         gate_opt.load_state_dict(state['gate_optimizer'])
         restore_replay(replay, state['replay'])
-        if 'stage_timings' in state['replay']:
-            for transition,timing in zip(replay.data,state['replay']['stage_timings'],strict=True):
-                if timing is not None:
-                    transition.stage_timing = timing
         restore_random(state['rng'])
         index, d_updates, best = state['episode'], state['d_updates'], state['best']
-        origin, wall = state['origin'], state['wall_seconds']
+        origin, offsets, wall = state['origin'], state['offsets'], state['wall_seconds']
         history = state.get('source_history', [])
     else:
-        if any((out / name).exists() for name in ('resume_latest.pt', 'train.jsonl', 'fixed.jsonl',
-                                                  'updates.jsonl', 's_updates.jsonl')):
+        if any((out / name).exists() for name in ('resume_latest.pt', 'train.jsonl', 'fixed.jsonl', 'updates.jsonl')):
             raise ValueError('Existing run evidence found. Use --resume or choose a fresh prefix.')
         index, d_updates, wall = 0, 0, 0.
-        offsets = dict.fromkeys(('train.jsonl', 'updates.jsonl', 'fixed.jsonl', 's_updates.jsonl'), 0)
+        offsets = dict.fromkeys(('train.jsonl', 'updates.jsonl', 'fixed.jsonl'), 0)
         origin = seed_weights(init, cfg, d, s) if init is not None else dict(kind='random')
         best = None
         history = []
@@ -123,10 +107,8 @@ def train(cfg, out, target, *, resume=False, init=None):
             score = float(np.mean([r['reward_net'] for r in rows]))
             if best is None or score > best['fixed_reward_net']:
                 best = deepcopy(dict(fixed_reward_net=score, **current))
-        replay_state = replay_snapshot(replay)
-        replay_state['stage_timings'] = [getattr(t,'stage_timing',None) for t in replay.data]
         full = dict(**current, s=s.state_dict(), s_actions=s.actions, d_optimizer=opt.state_dict(),
-                    gate_optimizer=gate_opt.state_dict(), replay=replay_state, d_updates=d_updates,
+                    gate_optimizer=gate_opt.state_dict(), replay=replay_snapshot(replay), d_updates=d_updates,
                     rng=random_state(), best=best, offsets=offsets, wall_seconds=elapsed, source_history=history)
         publish(resume_path, full)
         publish(out/'last.pt', current)
@@ -148,14 +130,10 @@ def train(cfg, out, target, *, resume=False, init=None):
     for index in range(index+1, target+1):
         scene = stable_seed('EXP019', cfg.seed, 'train-scene', index)
         ledger, credit, transitions = episode(cfg, make_world(cfg.seed, scene), d, s, gate, scene, 'train', index)
-        s_update_rows = []
-        change = update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, index, d_updates,
-                        s_update_rows=s_update_rows)
+        change = update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, index, d_updates)
         d_updates = change['d_updates']
         offsets['train.jsonl'] = append(out/'train.jsonl', ledger)
         offsets['updates.jsonl'] = append(out/'updates.jsonl', [change])
-        if s_update_rows:
-            offsets['s_updates.jsonl'] = append(out/'s_updates.jsonl',s_update_rows)
         snapshot(index % cfg.eval_every == 0 or index == target, wall+time.perf_counter()-start)
         print(f'episode={index}/{target} gs={change["gs"]} D_updates={d_updates} S_updates={s.updates} '
               f'net_reward={np.mean([r["reward_net"] for r in ledger]):.6f}', flush=True)
@@ -170,34 +148,30 @@ def repair_projections(out, state):
 
 
 @torch.no_grad()
-def evaluate(out, seed, *, sustained=False):
+def evaluate(out, seed):
     state = read_checkpoint(out/'resume_latest.pt')
     if state['config']['seed'] != seed:
         raise ValueError('The evaluation prefix belongs to another seed')
     if state['best'] is None:
         raise ValueError('Resume training to complete the initial fixed evaluation')
+    repair_projections(out, state)
     cfg = Config(**state['config'])
     d, s, _, _, gate, _ = components(cfg)
-    scenarios = SUSTAINED if sustained else tuple((scene,None) for scene in HOLDOUT)
-    suite = 'Sustained holdout' if sustained else 'Natural holdout'
-
     def write(file):
         flows = {}
-        for label,current,mode in (('best',state['best'],cfg.macro_mode), ('last',state,cfg.macro_mode),
-                                   ('keep',state,'keep'), ('redeploy',state,'redeploy')):
+        for label, filename, mode in (('best','best.pt',cfg.macro_mode), ('last','last.pt',cfg.macro_mode),
+                                      ('keep','last.pt','keep'), ('redeploy','last.pt','redeploy')):
+            current = torch.load(out/filename, weights_only=True, map_location='cpu')
             load_model(current, d, s, gate)
-            for scene,load in scenarios:
-                print(f'{suite}: seed={seed} model={label} scene={scene}',flush=True)
+            for scene in HOLDOUT:
                 rows = episode(cfg, make_world(cfg.seed, scene, 'holdout'), d, s, gate,
-                               scene, 'holdout', current['episode'], mode,offered_load=load)[0]
+                               scene, 'holdout', current['episode'], mode)[0]
                 trace = tuple(r['trace_sha256'] for r in rows)
                 if flows.setdefault(scene, trace) != trace:
                     raise AssertionError('Holdout strategies received different request streams')
                 for row in rows:
-                    if load is not None:
-                        row['offered_cpu_target'] = load
-                    file.write(line(dict(model=label,**row)))
-    path = out/('holdout-sustained.jsonl' if sustained else 'holdout.jsonl')
+                    file.write(line(dict(model=label, **row)))
+    path = out/'holdout.jsonl'
     atomic(path, write)
     print(path.resolve(), flush=True)
 
@@ -289,324 +263,6 @@ def baseline(out, seed, *, fixed_only=False):
                                          s_gs=None if s_episode is None else s_episode*periods,
                                          initial_cpu_load_target=pressure,baseline_source=provenance,**row)))
             print(f'Baseline scene={scene} pressure={pressure} matched across {len(arms)} arms',flush=True)
-
-    atomic(path,write)
-    print(path.resolve(),flush=True)
-
-
-class SpikeProbe:
-    """Trace scheduling and service components for one focal business period."""
-    def __init__(self, period, previous_scheduler, focal_scheduler, greedy):
-        self.period = period
-        self.previous_scheduler = previous_scheduler
-        self.focal_scheduler = focal_scheduler
-        self.greedy = greedy
-        self.actions = []
-
-    def scheduler(self, sim, index, rng, epsilon):
-        if index != self.period:
-            return self.previous_scheduler.scheduler(rng,epsilon)
-        epsilon = 0. if self.greedy else epsilon
-        draw = None
-
-        class ObservedRng:
-            def random(self):
-                nonlocal draw
-                draw = float(rng.random())
-                return draw
-
-            def choice(self, values):
-                return rng.choice(values)
-
-        select = self.focal_scheduler.scheduler(ObservedRng(),epsilon)
-
-        def trace(obs, mask):
-            nonlocal draw
-            draw = None
-            action = select(obs,mask)
-            legal = np.flatnonzero(mask)
-            self.actions.append(dict(time=sim.now, stage=int(round(float(obs[0,11])*(sim.c.k-1))),
-                                     action=action, legal=legal.tolist(), epsilon=epsilon, draw=draw,
-                                     exploratory=None if draw is None else draw<epsilon,
-                                     node_cpu_work=float(obs[action,2])*20.,
-                                     node_path_time=float(obs[action,5])))
-            return action
-
-        return trace
-
-    def capture(self, sim, cohorts):
-        self.requests = []
-        for request in cohorts[self.period]:
-            stages = {}
-            for index,event,time_s,node in request.trace:
-                stage = stages.setdefault(index,dict(node=node))
-                stage[event] = time_s
-            self.requests.append(dict(id=request.id, arrival=request.arrival.time,
-                                      service=request.arrival.service, access=request.arrival.access,
-                                      first_ready=request.first_ready, finish=request.finish,
-                                      stages=list(stages.values())))
-
-
-@torch.no_grad()
-def diagnose_spike(out, seed):
-    """Paired interventions after a shared prelude, including exact GS7 replay."""
-    gs = SPIKE_POINTS[seed]
-    manifest = json.loads((out/'manifest.json').read_text(encoding='utf8'))
-    cfg = Config(**manifest['config'])
-    if (cfg.seed!=seed or cfg.macro_mode!='redeploy' or cfg.s_algorithm!='ddqn'
-            or manifest['origin']['kind']!='random'
-            or manifest['deployment_model']!=DEPLOYMENT_MODEL):
-        raise ValueError('Spike diagnosis requires the original from-zero instantaneous REDEPLOY run')
-    index,period = divmod(gs-1,cfg.periods)
-    with (out/'train.jsonl').open(encoding='utf8') as file:
-        history = [json.loads(line) for line in islice(file,index*cfg.periods,(index+1)*cfg.periods)]
-    focal = history[period]
-    scene = focal['scene']
-    env = make_world(seed,scene)
-    if (focal['gs']!=gs or [r['period'] for r in history]!=list(range(1,cfg.periods+1))
-            or len({r['scene'] for r in history})!=1):
-        raise ValueError('Missing original episode for spike diagnosis')
-
-    def matrix(field):
-        return np.unpackbits(np.frombuffer(bytes.fromhex(field),dtype=np.uint8),
-                             count=env.K*env.N).reshape(env.K,env.N).astype(bool)
-
-    placements = [matrix(r['active_matrix']) for r in history]
-    for _ in range(period):
-        env.w.advance()
-    env.w.t = focal['start']
-    env.old = matrix(focal['old_matrix'])
-    rng_seed = stable_seed('EXP019',seed,'train',scene,period,'decode')
-    draw = np.asarray(focal['d_latent'],dtype=np.float32)
-    mean = np.asarray(focal['d_mean'],dtype=np.float32)
-    if not np.array_equal(decode(env,draw,rng_seed,True).matrix,placements[period]):
-        raise AssertionError('Historical deployment did not reproduce')
-    d,initial_s,_,_,gate,_ = components(cfg)
-    d_best,s_best,s_last = deepcopy(d),deepcopy(initial_s),deepcopy(initial_s)
-    best,last = (read_checkpoint(out/name) for name in ('best.pt','last.pt'))
-    load_model(best,d_best,s_best,gate)
-    s_last.online.load_state_dict(last['s_online'])
-    frozen_d = d_best(env).numpy()
-    exact_initial = focal['s_policy_version']==0
-    base_s = initial_s if exact_initial else s_last
-    heuristic = LoadAwareHeuristic()
-    arms = (
-        ('recorded_explore',draw,base_s,False),
-        ('recorded_greedy',draw,base_s,True),
-        ('recorded_best_greedy',draw,s_best,True),
-        ('recorded_heuristic',draw,heuristic,True),
-        ('mean_explore',mean,base_s,False),
-        ('mean_heuristic',mean,heuristic,True),
-        ('best_d_mean_greedy',frozen_d,s_best,True),
-        ('best_d_sample_greedy',frozen_d+(draw-mean),s_best,True),
-        ('best_d_mean_explore',frozen_d,s_best,False),
-        ('best_d_sample_explore',frozen_d+(draw-mean),s_best,False),
-    )
-    data = dict(gs=gs, source_history=manifest['source_history'], evaluation_source=source(),
-                base_s_gs=0 if exact_initial else last['episode']*cfg.periods,
-                best_gs=best['episode']*cfg.periods, historical=history, arms={})
-    prelude = None
-    for label,latent,focal_s,greedy in arms:
-        layouts = placements.copy()
-        layouts[period] = decode(env,latent,rng_seed,True).matrix
-        probe = SpikeProbe(period,base_s,focal_s,greedy)
-        ledger = episode(cfg,make_world(seed,scene),d,base_s,gate,scene,'train',index+1,
-                         recorded_matrices=layouts,probe=probe)[0]
-        if any(a['trace_sha256'] != b['trace_sha256'] for a,b in zip(ledger,history,strict=True)):
-            raise AssertionError('Spike diagnostic received different request streams')
-        state = [(r['backlog_in'],r['dispatched_in'],r['old_matrix']) for r in ledger[:period+1]]
-        if prelude is None:
-            prelude = state
-        elif state != prelude:
-            raise AssertionError('Spike diagnostic arms do not share the same focal state')
-        equivalent = all(a[k]==b[k] for a,b in zip(ledger,history,strict=True)
-                         for k in ('reward_raw','penalized_delays','backlog_in','backlog_out','s_decisions',
-                                   'active_matrix','cpu','wired'))
-        if label=='recorded_explore' and exact_initial and not equivalent:
-            raise AssertionError('Initial S diagnostic did not reproduce historical physical results')
-        data['arms'][label] = dict(history_exact=equivalent, focal_d_latent=latent.tolist(),
-                                 epsilon=0. if greedy else focal['epsilon'], ledger=ledger,
-                                 actions=probe.actions, requests=probe.requests)
-    path = out/f'spike.gs{gs}.json'
-    atomic(path,lambda file:file.write(line(data)))
-    print(path.resolve(),flush=True)
-
-
-@torch.no_grad()
-def sample_deployments(out, evidence, seed, *, policies=None):
-    """Isolate Gaussian variation with fixed forecast, queue prelude and DDQN weights."""
-    manifest = json.loads((out/'manifest.json').read_text(encoding='utf8'))
-    cfg = Config(**manifest['config'])
-    if cfg.seed!=seed or cfg.macro_mode!='redeploy' or cfg.s_algorithm!='ddqn':
-        raise ValueError('Sampling diagnosis expects the same-seed fixed-REDEPLOY DDQN run')
-    gs = D_SAMPLING_POINTS[seed]
-    with (out/'train.jsonl').open(encoding='utf8') as file:
-        previous,focal = map(json.loads,islice(file,gs-2,gs))
-    if focal['gs']!=gs or focal['episode']!=previous['episode'] or focal['period']<=1:
-        raise ValueError('Missing adjacent periods for the sampling diagnosis')
-    scene = focal['scene']
-    env = make_world(seed,scene)
-    for _ in range(focal['period']-2):
-        env.w.advance()
-    context = deepcopy(env)
-    context.w.advance()
-    context.w.t = cfg.period_seconds
-    context.old = np.unpackbits(np.frombuffer(bytes.fromhex(previous['active_matrix']),dtype=np.uint8),
-                               count=env.K*env.N).reshape(env.K,env.N).astype(bool)
-    d,s,_,_,gate,_ = components(cfg)
-    scheduler = read_checkpoint(out/'last.pt')
-    load_model(scheduler,d,s,gate)
-    policies = out if policies is None else policies
-    best,last = [read_checkpoint(policies/name) for name in ('best.pt','last.pt')]
-    other = Config(**last['config'])
-    if (other.seed,other.sigma,other.macro_mode,other.s_algorithm,other.periods,other.period_seconds)!=(
-            seed,cfg.sigma,'redeploy','ddqn',cfg.periods,cfg.period_seconds):
-        raise ValueError('Diagnostic D checkpoints must share the original seed, sigma and physical time')
-    if best['config']!=last['config'] or (policies!=out and last['episode']*other.periods!=D_KL_TRIAL_GS):
-        raise ValueError(f'EXP020 sampling requires completed compatible {D_KL_TRIAL_GS}-GS D checkpoints')
-    noise_rng = np.random.default_rng(stable_seed('EXP019-D-KL',seed,gs,'sampling'))
-    offsets = np.vstack((np.zeros((1,d.dimensions)),noise_rng.standard_normal((D_SAMPLING_DRAWS,d.dimensions))))
-    decoder_seed = stable_seed('EXP019',seed,'train',scene,focal['period']-1,'decode')
-    stage_work = context.w.node_demand().sum(0)[context.w.stage_service]*context.w.stages[:,0]
-    short = replace(cfg,periods=2,freeze_ds=True)
-    path = evidence/'jsonl'
-    provenance = source()
-
-    def write(file):
-        paired = None
-        for label,state in (('best',best),('last',last)):
-            d.load_state_dict(state['d'])
-            mean = d(context).numpy()
-            reference = decode(context,mean,decoder_seed,True).matrix
-            for draw,offset in enumerate(offsets):
-                latent = mean+np.float32(cfg.sigma)*offset.astype(np.float32)
-                target = decode(context,latent,decoder_seed,True).matrix
-                ledger = episode(short,deepcopy(env),d,s,gate,scene,'train',1,
-                                 recorded_matrices=(context.old,target))[0]
-                first,row = ledger
-                identity = (first['trace_sha256'],row['trace_sha256'],row['backlog_in'],row['dispatched_in'])
-                if paired is None:
-                    paired = identity
-                if identity!=paired:
-                    raise AssertionError('Sampling draws do not share the same queue and request flow')
-                row.update(d_model=label,d_gs=state['episode']*cfg.periods,s_gs=scheduler['episode']*cfg.periods,
-                           d_source=policies.prefix.name,d_update=other.d_update,
-                           historical_gs=gs,draw=draw,latent_mean=mean.tolist(),latent=latent.tolist(),
-                           perturbation=offset.tolist(),matrix_hamming=int((target^reference).sum()),
-                           stage_accessible_cpu=(target@env.w.nodes[:,0]).tolist(),
-                           stage_ideal_pressure=(stage_work/(target@env.w.nodes[:,0])).tolist(),
-                           mean_matrix=np.packbits(reference).tobytes().hex(),
-                           prelude_trace_sha256=first['trace_sha256'],evaluation_source=provenance)
-                file.write(line(row))
-            print(f'Seed {seed}: {label}, {D_SAMPLING_DRAWS} independent Gaussian draws and one mean.',flush=True)
-
-    atomic(path,write)
-    print(path.resolve(),flush=True)
-
-
-def randomness_contexts(historical, control, seed, periods):
-    gs = SPIKE_POINTS[seed]
-    start = (gs-1)//periods*periods
-    with (historical/'train.jsonl').open(encoding='utf8') as file:
-        rows = [json.loads(raw) for raw in islice(file,start,gs)]
-    if [row['gs'] for row in rows]!=list(range(start+1,gs+1)):
-        raise ValueError('Incomplete historical focal episode')
-    yield 'hotspot','train',None,rows
-    stress_scene = {20261113:19303,20261114:19304}[seed]
-    for case,suffix,scene,load in (
-            ('natural','holdout.jsonl',19101,None),('pressure','holdout-sustained.jsonl',stress_scene,.70)):
-        with (control/suffix).open(encoding='utf8') as file:
-            rows = [r for r in map(json.loads,file)
-                    if r['model']=='last' and r['scene']==scene and r['period']<=2]
-        if [row['period'] for row in rows]!=[1,2]:
-            raise ValueError(f'Missing ordered prelude for {case}')
-        yield case,'holdout',load,rows
-
-
-@torch.no_grad()
-def diagnose_deployment_randomness(historical, control, evidence, seed):
-    """Cross the two deployment random sources using a fixed causal request prelude."""
-    state = read_checkpoint(historical/'last.pt')
-    comparison = read_checkpoint(control/'last.pt')
-    cfg = Config(**state['config'])
-    if (cfg.seed,cfg.macro_mode,cfg.s_algorithm,cfg.d_update,state['episode']*cfg.periods)!=(
-            seed,'redeploy','ddqn','adam',3000):
-        raise ValueError('EXP021 requires the same-seed original GS3000 policies')
-    if Config(**comparison['config'])!=cfg or comparison['episode']!=state['episode'] or any(
-            not torch.equal(value,comparison[name][key])
-            for name in ('d','s_online','gate') for key,value in state[name].items()):
-        raise ValueError('Holdout prelude logs require matching EXP019 and EXP020 Adam checkpoints')
-    d,s,_,_,gate,_ = components(cfg)
-    load_model(state,d,s,gate)
-    provenance = source()
-    path = evidence/'jsonl'
-
-    def write(file):
-        for case,split,stress,history in randomness_contexts(historical,control,seed,cfg.periods):
-            focal = history[-1]
-            scene,periods = focal['scene'],focal['period']
-            env = make_world(seed,scene,split)
-            old_matrices = [np.unpackbits(np.frombuffer(bytes.fromhex(r['active_matrix']),dtype=np.uint8),
-                            count=env.K*env.N).reshape(env.K,env.N).astype(bool) for r in history[:-1]]
-            context = deepcopy(env)
-            for _ in old_matrices:
-                context.w.advance()
-            context.w.t = (periods-1)*cfg.period_seconds
-            context.old = old_matrices[-1]
-            if stress is not None:
-                context.w.scale *= stress/load_scale(context)
-            mean = d(context).numpy()
-            fixed_seed = stable_seed('EXP019',seed,split,scene,periods-1,'decode')
-            reference = decode(context,mean,fixed_seed,True).matrix
-            if split=='holdout' and matrix_hex(reference)!=focal['active_matrix']:
-                raise AssertionError('Mean deployment does not reproduce the saved Holdout target')
-            stage_work = context.w.node_demand().sum(0)[context.w.stage_service]*context.w.stages[:,0]
-            trial = replace(cfg,periods=periods,freeze_ds=True)
-            rnd = np.random.default_rng(stable_seed('EXP021',seed,case,'factorial'))
-            offsets = rnd.standard_normal((D_RANDOMNESS_DRAWS,d.dimensions)).astype(np.float32)
-            diverse_seeds = rnd.integers(0,2**32,size=D_RANDOMNESS_DRAWS).tolist()
-            if len({fixed_seed,*diverse_seeds})!=D_RANDOMNESS_DRAWS+1:
-                raise AssertionError('Duplicate EXP021 decoder seeds')
-            arms = [('A',0,np.zeros_like(mean),fixed_seed,reference)]
-            for draw,(noise,decoder_seed) in enumerate(zip(offsets,diverse_seeds,strict=True),1):
-                arms.extend((('B',draw,noise,fixed_seed,None),('C',draw,np.zeros_like(noise),decoder_seed,None),
-                             ('D',draw,noise,decoder_seed,None)))
-            identity = None
-            match_fields = ('trace_sha256','active_matrix','backlog_in','backlog_out','dispatched_in',
-                            's_decisions','cpu','wired','wireless')
-            for label,draw,offset,decoder_seed,target in arms:
-                latent = mean+np.float32(cfg.sigma)*offset
-                if target is None:
-                    target = decode(context,latent,decoder_seed,True).matrix
-                ledger = episode(trial,deepcopy(env),d,s,gate,scene,split,focal['episode'],
-                                 recorded_matrices=(*old_matrices,target),offered_load=stress)[0]
-                if any((r['trace_sha256'],r['requests'],r['demand_by_service'])!=
-                       (old['trace_sha256'],old['requests'],old['demand_by_service'])
-                       for r,old in zip(ledger,history,strict=True)):
-                    raise AssertionError('EXP021 exogenous demand or request stream differs from archive')
-                prelude = [{k:r[k] for k in match_fields} for r in ledger[:-1]]
-                row = ledger[-1]
-                boundary = (prelude,row['backlog_in'],row['dispatched_in'])
-                if identity is None:
-                    identity = boundary
-                elif boundary!=identity:
-                    raise AssertionError('EXP021 pre-action queue differs across factors')
-                prefix_match = all(test[k]==archived[k] for test,archived in zip(prelude,history[:-1],strict=True)
-                                   for k in match_fields)
-                if split=='holdout' and not prefix_match:
-                    raise AssertionError('Saved Holdout prelude does not match reconstructed boundaries')
-                stage_cpu = target@env.w.nodes[:,0]
-                row.update(case=case,arm=label,draw=draw,d_gs=3000,s_gs=3000,
-                           checkpoint_source=state['config'],decoder_seed=decoder_seed,
-                           original_decoder_seed=fixed_seed,latent_mean=mean.tolist(),latent=latent.tolist(),
-                           gaussian_z=offset.tolist(),gaussian_delta=(latent-mean).tolist(),
-                           reference_matrix=matrix_hex(reference),matrix_hamming=int((target^reference).sum()),
-                           stage_accessible_cpu=stage_cpu.tolist(),stage_ideal_pressure=(stage_work/stage_cpu).tolist(),
-                           prelude=prelude,archived_prelude_matches=prefix_match,
-                           archived_focal_reward=focal['reward_raw'],archived_focal_gs=focal['gs'],
-                           pressure_target=stress,evaluation_source=provenance)
-                file.write(line(row))
-            print(f'Seed {seed}: {case}, {len(arms)} focal evaluations',flush=True)
 
     atomic(path,write)
     print(path.resolve(),flush=True)

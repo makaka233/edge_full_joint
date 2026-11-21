@@ -1,45 +1,31 @@
 # EXP019 瞬时矩阵切换运行指南
 
-## 固定 REDEPLOY 尾风险对照
+## 双种子固定 REDEPLOY 基线
 
-先前长训使用原 DDQN。新增的分位数 DDQN 只有显式设置 `--s-algorithm quantile` 才会使用。双种子、两算法各从随机初始化运行 16 个 episode，即 128 GS。两组的 D、需求、奖励、物理条件、探索及更新预算相同。固定验证间隔为两个 episode，固定验证净 Reward 决定 best。
+当前训练、物理、配置、测试和 EXP019 报告入口以 [EXP019 双种子长训审计提交](https://github.com/makaka233/edge_full_joint/commit/7681e015f0755f8dbbfd44b490f10d495f7cf130) 为源。正式基线使用原 Masked Dueling Double DQN、库存协调高斯 D 和 Adam。两个种子各从随机初始化执行 375 个 episode，每个 episode 8 个 24 秒业务期，共 3000 GS。固定验证每 8 个 episode 执行一次。CLI 的历史默认宏观模式为 `learned`，固定重部署须显式指定 `--macro-mode redeploy`。
 
 ```powershell
 Set-Location 'C:\Users\1\Desktop\edge_full_joint'
 foreach ($seed in 20261113, 20261114) {
-    foreach ($algo in 'ddqn', 'quantile') {
-        $prefix = ".\runs\results\EXP019\instant.tail.$algo.seed$seed"
-        python -m edge_d.cli adaptive train --seed $seed --macro-mode redeploy --s-algorithm $algo --episodes 16 --eval-every 2 --prefix $prefix
-        if ($LASTEXITCODE -ne 0) { throw "Tail trial training failed for $algo / $seed" }
-    }
+    $prefix = ".\runs\results\EXP019\instant.redeploy.baseline-rerun.seed$seed"
+    python -m edge_d.cli adaptive train --seed $seed --macro-mode redeploy --episodes 375 --periods 8 --period-seconds 24 --eval-every 8 --prefix $prefix
+    if ($LASTEXITCODE -ne 0) { throw "EXP019 baseline training failed for $seed" }
 }
 ```
 
-中断后只恢复相应种子和算法，保留所有参数和绝对 episode 目标。下例恢复 Seed13 分位数训练。
+恢复时对相同训练命令追加 `--resume`。评价使用本次运行前缀，宏观模式由检查点读取。以下是种子 20261113 的评价示例。
 
 ```powershell
-python -m edge_d.cli adaptive train --seed 20261113 --macro-mode redeploy --s-algorithm quantile --episodes 16 --eval-every 2 --prefix ".\runs\results\EXP019\instant.tail.quantile.seed20261113" --resume
+python -m edge_d.cli adaptive evaluate --seed 20261113 --prefix ".\runs\results\EXP019\instant.redeploy.baseline-rerun.seed20261113"
 ```
 
-独立评价先运行三场自然 Holdout，再运行四个从未参与训练和选模的持续压力场景。19301/19302 每期保持全网 CPU 提供负载 0.55，19303/19304 为 0.70，用原需求过程演化区域和服务组成。所有比较共享请求流。持续压力只用于独立评价。
+历史正式结果使用 `instant.redeploy.long3000.seed<seed>` 前缀。可用下列命令离线复算当时的双种子结果。
 
 ```powershell
-python -m scripts.exp019_report --tail-trial --evaluate-missing
+python -m scripts.exp019_report --long-redeploy
 ```
 
-此命令检查四组训练均已完成，只运行缺失的独立评价，显示当前模型和场景，最后生成报告。中断后再次执行同一行，已完整写出的评价文件会被跳过，未写完的该套评价从头计算。已有全部评价时，`python -m scripts.exp019_report --tail-trial` 只离线复算和绘图。
-
-报告入口对账真实训练提交、同流、部署、截尾、最差 1%/5% 并生成完整原始图。结果统一位于 `runs/results/EXP019/`，使用 `instant.tail.*` 前缀。请在训练和评价完成后明确告知 Codex 进行离线审核。
-
-如需重做两个历史诊断，只运行以下冻结入口。它读取已有长训文件，写入单独的 `.spike.gs*.json`。
-
-```powershell
-foreach ($seed in 20261113, 20261114) {
-    python -m edge_d.cli adaptive spike-audit --seed $seed --prefix ".\runs\results\EXP019\instant.redeploy.long3000.seed$seed"
-    if ($LASTEXITCODE -ne 0) { throw "Historical spike audit failed for $seed" }
-}
-python -m scripts.exp019_report --spike-review
-```
+后续候选按原历史分支复现。分位数 DDQN 和尖峰诊断见 [EXP019 后续对照](https://github.com/makaka233/edge_full_joint/blob/exp019-adaptive-deployment/research/EXP019/README_RUN.md)，其余见 [EXP020](https://github.com/makaka233/edge_full_joint/tree/exp020-deployment-kl/research/EXP020)、[EXP021](https://github.com/makaka233/edge_full_joint/tree/exp021-deployment-randomness/research/EXP021) 和 [EXP022](https://github.com/makaka233/edge_full_joint/tree/exp022-resource-placement/research/EXP022)。
 
 ## 环境与轻量验证
 

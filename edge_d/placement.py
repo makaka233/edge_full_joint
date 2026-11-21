@@ -17,11 +17,9 @@ class PlacementPolicy(nn.Module):
         super().__init__()
         self.net = nn.Sequential(nn.Linear(57, 32), nn.Tanh(), nn.Linear(32, self.dimensions))
 
-    def forward(self, env, *, record_state=False):
+    def forward(self, env):
         pairs = pair_features(env).flatten(0, 1)
-        state = torch.cat((pairs.mean(0), pairs.std(0, unbiased=False), pairs.amax(0)))
-        mean = self.net(state)
-        return (mean,state) if record_state else mean
+        return self.net(torch.cat((pairs.mean(0), pairs.std(0, unbiased=False), pairs.amax(0))))
 
 
 class PeriodicPlacementPolicy(PlacementPolicy):

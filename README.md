@@ -1,10 +1,16 @@
 # 协同边缘计算：原始物理系统 + 原始 Agent-S + 改进 Agent-D 的完整研究工程
 
+## 当前研究起点 · EXP019 固定重部署
+
+当前主工作区从 EXP019 双种子各 3000 GS 的瞬时矩阵切换版本继续研究。正式对照使用库存协调高斯 Agent-D、原 Adam 更新和原始 Masked Dueling Double DQN。每个业务期提交完整部署，训练时显式指定 `--macro-mode redeploy`。历史接口中的 KEEP 和学习门仍可用于各自的对照。
+
+运行入口为 `python -m edge_d.cli adaptive`。训练、恢复和评价命令见 [EXP019 运行指南](research/EXP019/README_RUN.md)，正式结果见 [双种子长训审核](research/EXP019/AI_RESEARCH_REVIEW.md#固定-redeploy-双种子-gs3000--完整日志审核)。项目目录规则见 [项目与实验管理](docs/RESEARCH_WORKFLOW.md)。
+
+## 其他已完成研究
+
 库存协调 Agent-D 与原始 DDQN 的 BUILD-only 联合训练见 [EXP016 单文件交接](research/EXP016/AI_RESEARCH_REVIEW.md) 与 [连续训练复现](research/EXP016/REPRODUCE.md)。训练需求分布对照见 [EXP015](research/EXP015/AI_RESEARCH_REVIEW.md)。
 
 初始调度探索与影子排空见 [EXP017 单文件交接](research/EXP017/AI_RESEARCH_REVIEW.md)。
-
-连续部署的本地入口为 `python -m edge_d.cli adaptive`。见 [EXP019 运行指南](research/EXP019/README_RUN.md)及[项目与实验管理](docs/RESEARCH_WORKFLOW.md)。
 
 低约束资源感知探索、双种子验收与 EXP016 续训见 [EXP018 单文件交接](research/EXP018/AI_RESEARCH_REVIEW.md)及[复现命令](research/EXP018/REPRODUCE.md)。
 

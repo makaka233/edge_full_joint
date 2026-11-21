@@ -1,5 +1,7 @@
 # EXP019 研究交接
 
+当前研究起点是[固定 REDEPLOY 双种子 GS3000](#固定-redeploy-双种子-gs3000--完整日志审核)。基线源码已从 `7681e015f0755f8dbbfd44b490f10d495f7cf130` 恢复。恢复后，两种子首个 episode 的 16 个业务期均与原日志逐期对齐，核对了请求流、矩阵、Reward、逐请求时延和积压。相关 10 项回归通过。[基线运行指南](README_RUN.md)
+
 ## 分位数 Double DQN · 双种子 128 GS 最终验收
 
 **本轮候选未通过。保留原 Masked Dueling Double DQN 作为正式 Agent-S。** 分位数候选完成了真实 D/S 更新，Seed13 的 best 在持续 0.70 下取得局部收益。两种子的 last 在全部八个持续压力场景上的净 Reward 和 P99 均退化，Seed14 last 也未达到自然 Holdout 非劣门槛。

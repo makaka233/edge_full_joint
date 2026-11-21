@@ -22,6 +22,7 @@ class Config(BaseConfig):
     eval_every: int = 16
     freeze_ds: bool = False
     macro_mode: str = 'learned'
+    s_algorithm: str = 'ddqn'
 
 
 class Gate(nn.Module):
@@ -38,6 +39,13 @@ class Gate(nn.Module):
 
 def components(cfg):
     d, s, opt, replay = initialize(cfg)
+    if cfg.s_algorithm == 'quantile':
+        if cfg.macro_mode != 'redeploy' or cfg.freeze_ds:
+            raise ValueError('Quantile DDQN is a fixed-REDEPLOY joint-training candidate')
+        from edge_s.agent import QuantileSchedulingAgent
+        s = QuantileSchedulingAgent(cfg.seed)
+    elif cfg.s_algorithm != 'ddqn':
+        raise ValueError(f'Unknown scheduling algorithm: {cfg.s_algorithm}')
     torch.manual_seed(stable_seed('EXP019', cfg.seed, 'macro-initial'))
     gate = Gate()
     if cfg.macro_mode != 'learned':
@@ -98,13 +106,16 @@ def request_metrics(requests, deadline, penalty):
                 completed_delays=completed, penalized_delays=penalized, censored_requests=censored)
 
 
-def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_matrices=None, probe=None):
+def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_matrices=None, probe=None,
+            offered_load=None):
     """One event queue and one S parameter version across all its business periods."""
     started = time.perf_counter()
     online = split == 'train'
     collect = online and not cfg.freeze_ds and recorded_matrices is None
     if probe is not None and recorded_matrices is None:
         raise ValueError('Event probes require a frozen deployment trace')
+    if offered_load is not None and split!='holdout':
+        raise ValueError('Sustained load normalization is only for independent evaluation')
     mode = cfg.macro_mode if mode is None else mode
     # Natively evolving regimes retain the original parameters. Simulated periods are compact.
     if env.w.amplitude != 0. or env.cost['latency_objective'] != 'period_mean':
@@ -118,6 +129,8 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
         start, end = i * cfg.period_seconds, (i + 1) * cfg.period_seconds
         period = i + 1
         gs = (index - 1) * cfg.periods + period if online else None
+        if offered_load is not None:
+            env.w.scale *= offered_load/load_scale(env)
         demand = env.w.node_demand()
         if sim is not None:
             env.old = sim.deployment.copy()

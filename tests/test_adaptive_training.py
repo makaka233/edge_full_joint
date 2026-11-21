@@ -11,10 +11,11 @@ import torch
 from edge_d._engine.edge_rl.model import Arrival
 from edge_d.placement import decode
 from edge_d.world import make_world
-from edge_joint.adaptive_training import Config, components, credit_targets
+from edge_joint.adaptive_training import Config, components, credit_targets, episode
 from edge_joint.adaptive_physics import PeriodSimulator, capacity_ok, solo_delay_bounds
 from edge_joint.adaptive_runner import evaluate, train
 from edge_joint.adaptive_storage import RunFiles
+from edge_s.agent import QUANTILES, QuantileSchedulingAgent, SchedulingAgent, quantile_huber, quantile_score, quantile_target
 
 
 class ContinuousDeploymentTests(unittest.TestCase):
@@ -47,6 +48,73 @@ class ContinuousDeploymentTests(unittest.TestCase):
         sim.run_until(20.)
         self.assertAlmostEqual(sim.requests[0].finish,time_for(destinations),places=7)
         self.assertLessEqual(solo_delay_bounds(world,placement)[access,service],sim.requests[0].finish+1e-8)
+
+    def test_quantile_target_uses_online_legal_risk_choice_and_terminal_reward(self):
+        online = torch.zeros((2,3,QUANTILES))
+        online[:,0] = 100.
+        online[:,1,:8] = -4.
+        online[:,1,8:] = 4./3.
+        self.assertLess(quantile_score(online)[0,1],quantile_score(online)[0,2])
+        target = torch.stack((torch.ones(QUANTILES)*90.,torch.ones(QUANTILES)*9.,
+                              torch.linspace(-2,2,QUANTILES))).repeat(2,1,1)
+        legal = torch.tensor([[False,True,True],[False,False,False]])
+        terminal = torch.tensor([False,True])
+        r = torch.tensor([-.75,-.375])
+        actual = quantile_target(online,target,legal,r,terminal,.99)
+        torch.testing.assert_close(actual[0],r[0]+.99*target[0,2])
+        torch.testing.assert_close(actual[1],r[1].expand(QUANTILES))
+        with self.assertRaisesRegex(ValueError,'nonterminal'):
+            quantile_target(online,target,legal,r,~terminal,.99)
+
+    def test_quantile_huber_weights_and_scale(self):
+        q = torch.zeros((1,2),requires_grad=True)
+        loss = quantile_huber(q,torch.full((1,2),2.))
+        torch.testing.assert_close(loss,torch.tensor(.75))
+        loss.backward()
+        torch.testing.assert_close(q.grad,torch.tensor([[-.125,-.375]]))
+
+    def test_quantile_initial_values_and_exploration_match_original(self):
+        original = SchedulingAgent(20261114)
+        candidate = QuantileSchedulingAgent(20261114)
+        mask = np.arange(original.c.n)%4==0
+        obs = np.random.default_rng(9).normal(size=(original.c.n,original.features)).astype(np.float32)
+        obs[:,7] = mask
+        features = torch.from_numpy(obs[None])
+        torch.testing.assert_close(original.team_q(features),candidate.team_q(features),rtol=0.,atol=0.)
+        for eps in (0.,.25,1.):
+            old = original.scheduler(np.random.default_rng(10),eps)
+            new = candidate.scheduler(np.random.default_rng(10),eps)
+            choices = [new(obs,mask) for _ in range(256)]
+            self.assertEqual(choices,[old(obs,mask) for _ in range(256)])
+            self.assertTrue(all(mask[a] for a in choices))
+            if eps==1.:
+                self.assertEqual(set(choices),set(np.flatnonzero(mask)))
+
+    def test_quantile_joint_resume_and_sustained_evaluation(self):
+        cfg = Config(seed=20261113,periods=2,period_seconds=.4,s_batch=1,s_updates_per_gs=1,
+                     macro_mode='redeploy',s_algorithm='quantile')
+        with tempfile.TemporaryDirectory(prefix='exp019-quantile-test-') as directory:
+            run = RunFiles(Path(directory)/'quantile')
+            train(cfg,run,1)
+            train(cfg,run,2,resume=True)
+            state = torch.load(run/'resume_latest.pt',weights_only=True)
+            updates = list(map(json.loads,(run/'updates.jsonl').read_text().splitlines()))
+            self.assertEqual((state['episode'],state['s']['updates'],state['d_updates']), (2,4,2))
+            self.assertTrue(all(r['s_change']>0 and r['d_change']>0 and np.isfinite(r['s_loss']) for r in updates))
+            self.assertTrue(torch.count_nonzero(state['s_online']['value_offset.weight']))
+            evaluate(run,cfg.seed,sustained=True)
+            heldout = list(map(json.loads,(run/'holdout-sustained.jsonl').read_text().splitlines()))
+            self.assertEqual(len(heldout),32)
+            self.assertEqual({r['offered_cpu_target'] for r in heldout},{.55,.70})
+            self.assertTrue(all(np.isclose(r['offered_cpu_load'],r['offered_cpu_target']) for r in heldout))
+        d,s,_,_,gate,_ = components(cfg)
+        with torch.no_grad():
+            rows,_,replay = episode(cfg,make_world(cfg.seed,19301,'holdout'),d,s,gate,19301,
+                                    'holdout',0,offered_load=.55)
+        self.assertFalse(replay)
+        for row in rows:
+            self.assertAlmostEqual(row['offered_cpu_load'],.55)
+            self.assertEqual(row['epsilon'],0.)
 
     def test_legal_matrices_switch_both_directions_despite_infeasible_union(self):
         env = make_world(20261113, 0, 'fixed')

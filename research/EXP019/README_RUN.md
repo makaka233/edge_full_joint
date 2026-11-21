@@ -1,5 +1,53 @@
 # EXP019 瞬时矩阵切换运行指南
 
+## 固定 REDEPLOY 尾风险对照
+
+先前长训使用原 DDQN。新增的分位数 DDQN 只有显式设置 `--s-algorithm quantile` 才会使用。双种子、两算法各从随机初始化运行 16 个 episode，即 128 GS。两组的 D、需求、奖励、物理条件、探索及更新预算相同。固定验证间隔为两个 episode，固定验证净 Reward 决定 best。
+
+```powershell
+Set-Location 'C:\Users\1\Desktop\edge_full_joint'
+foreach ($seed in 20261113, 20261114) {
+    foreach ($algo in 'ddqn', 'quantile') {
+        $prefix = ".\runs\results\EXP019\instant.tail.$algo.seed$seed"
+        python -m edge_d.cli adaptive train --seed $seed --macro-mode redeploy --s-algorithm $algo --episodes 16 --eval-every 2 --prefix $prefix
+        if ($LASTEXITCODE -ne 0) { throw "Tail trial training failed for $algo / $seed" }
+    }
+}
+```
+
+中断后只恢复相应种子和算法，保留所有参数和绝对 episode 目标。下例恢复 Seed13 分位数训练。
+
+```powershell
+python -m edge_d.cli adaptive train --seed 20261113 --macro-mode redeploy --s-algorithm quantile --episodes 16 --eval-every 2 --prefix ".\runs\results\EXP019\instant.tail.quantile.seed20261113" --resume
+```
+
+独立评价先运行三场自然 Holdout，再运行四个从未参与训练和选模的持续压力场景。19301/19302 每期保持全网 CPU 提供负载 0.55，19303/19304 为 0.70，用原需求过程演化区域和服务组成。所有比较共享请求流。持续压力只用于独立评价。
+
+```powershell
+foreach ($seed in 20261113, 20261114) {
+    foreach ($algo in 'ddqn', 'quantile') {
+        $prefix = ".\runs\results\EXP019\instant.tail.$algo.seed$seed"
+        python -m edge_d.cli adaptive evaluate --seed $seed --prefix $prefix
+        if ($LASTEXITCODE -ne 0) { throw "Natural Holdout failed for $algo / $seed" }
+        python -m edge_d.cli adaptive evaluate --seed $seed --prefix $prefix --sustained
+        if ($LASTEXITCODE -ne 0) { throw "Sustained Holdout failed for $algo / $seed" }
+    }
+}
+python -m scripts.exp019_report --tail-trial
+```
+
+报告入口对账真实训练提交、同流、部署、截尾、最差 1%/5% 并生成完整原始图。结果统一位于 `runs/results/EXP019/`，使用 `instant.tail.*` 前缀。已有长训权重和日志仍使用原前缀。请在训练和评价完成后明确告知 Codex 进行离线审核。
+
+如需重做两个历史诊断，只运行以下冻结入口。它读取已有长训文件，写入单独的 `.spike.gs*.json`。
+
+```powershell
+foreach ($seed in 20261113, 20261114) {
+    python -m edge_d.cli adaptive spike-audit --seed $seed --prefix ".\runs\results\EXP019\instant.redeploy.long3000.seed$seed"
+    if ($LASTEXITCODE -ne 0) { throw "Historical spike audit failed for $seed" }
+}
+python -m scripts.exp019_report --spike-review
+```
+
 ## 环境与轻量验证
 
 ```powershell

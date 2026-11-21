@@ -16,10 +16,13 @@ def add_arguments(parser):
     parser.add_argument('--s-batch', type=int, default=128, help='original DDQN replay minibatch size')
     parser.add_argument('--macro-mode', choices=('learned', 'keep', 'redeploy'), default='learned',
                         help='train the gate or fix the action at eligible periods')
+    parser.add_argument('--s-algorithm', choices=('ddqn','quantile'), default='ddqn',
+                        help='original scheduler or the fixed-REDEPLOY quantile candidate')
     parser.add_argument('--freeze-ds', action='store_true', help='learn the macro policy with fixed D and greedy S')
     parser.add_argument('--replay-from', type=Path, help='verify an archived run by filename prefix')
     parser.add_argument('--replay-gs', type=int, nargs='+', help='blocked GS to replay from episode one')
     parser.add_argument('--fixed-only', action='store_true', help='limit the baseline to the fixed scenarios')
+    parser.add_argument('--sustained', action='store_true', help='evaluate held-out sustained-load scenarios')
     initial = parser.add_mutually_exclusive_group()
     initial.add_argument('--init-checkpoint', type=Path, help='same-seed EXP018 D/S initialization')
     initial.add_argument('--resume', action='store_true', help='restore the complete episode checkpoint')
@@ -34,8 +37,13 @@ def run(parser, args):
         parser.error('Invalid adaptive checkpoint flags for this action')
     if args.action!='train' and args.macro_mode!='learned':
         parser.error('--macro-mode is a training setting. Evaluation reads it from the run.')
+    if args.s_algorithm=='quantile' and (args.action!='train' or args.macro_mode!='redeploy'
+                                        or args.freeze_ds or args.init_checkpoint is not None):
+        parser.error('Quantile DDQN requires from-zero joint train in fixed REDEPLOY.')
     if args.fixed_only and args.action!='baseline':
         parser.error('--fixed-only is a baseline setting.')
+    if args.sustained and args.action!='evaluate':
+        parser.error('--sustained is an independent evaluation setting.')
     if args.replay_from is not None or args.replay_gs is not None:
         if (args.action!='verify' or args.init_checkpoint is not None
                 or args.replay_from is None or args.replay_gs is None):
@@ -66,7 +74,7 @@ def run(parser, args):
             'For evaluation or resume pass the same --prefix as the training run.')
     cfg = Config(seed=args.seed, periods=args.periods, period_seconds=args.period_seconds,
                  eval_every=args.eval_every, s_batch=args.s_batch,
-                 freeze_ds=args.freeze_ds, macro_mode=args.macro_mode)
+                 freeze_ds=args.freeze_ds, macro_mode=args.macro_mode,s_algorithm=args.s_algorithm)
     torch.set_num_threads(1)
     try:
         lock = (RunFiles(prefix.with_name(f'{prefix.name}.{args.action}'))
@@ -83,7 +91,7 @@ def run(parser, args):
             elif args.action=='verify':
                 verify(cfg, out, args.init_checkpoint)
             else:
-                evaluate(out, args.seed)
+                evaluate(out,args.seed,sustained=args.sustained)
     except (Exception, KeyboardInterrupt) as error:
         message = traceback.format_exc()
         sys.stderr.write(message)

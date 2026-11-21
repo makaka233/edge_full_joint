@@ -40,10 +40,12 @@ def distributions(records, key):
 def aggregate(records):
     raw = np.sort([r['reward_raw'] for r in records])
     n_tail = max(1, int(np.ceil(raw.size*.05)))
+    n_extreme = max(1, int(np.ceil(raw.size*.01)))
     eligible = [r['redeploy_probability'] for r in records if r['redeploy_probability'] is not None]
     return dict(
         n=len(records), mean_raw=float(raw.mean()), mean_net=float(np.mean([r['reward_net'] for r in records])),
-        worst=float(raw[0]), worst5=float(raw[:n_tail].mean()), worst5_n=n_tail, spikes=int((raw<=-20).sum()),
+        worst=float(raw[0]), worst5=float(raw[:n_tail].mean()), worst5_n=n_tail,
+        worst1=float(raw[:n_extreme].mean()), worst1_n=n_extreme, spikes=int((raw<=-20).sum()),
         requests=sum(r['requests'] for r in records), completed=sum(r['completed'] for r in records),
         censored=sum(r['censored'] for r in records), drops=sum(r['drops'] for r in records),
         post_cutoff_finishes=sum(x['final_finish'] is not None for r in records for x in r['censored_requests']),
@@ -739,16 +741,187 @@ def long_holdout_figure(prefix, audited):
     plt.close(fig)
 
 
+def spike_review(*, render_figures):
+    from edge_joint.adaptive_runner import SPIKE_POINTS
+
+    audit = {}
+    for seed,gs in SPIKE_POINTS.items():
+        prefix = RESULTS/f'instant.redeploy.long3000.seed{seed}'
+        trial = json.loads(artifact(prefix,f'spike.gs{gs}.json').read_text(encoding='utf8'))
+        logged = next(r for r in trial['historical'] if r['gs']==gs)
+        env = make_world(seed,logged['scene'])
+        for _ in range(logged['period']-1):
+            env.w.advance()
+        active,old = (unpack(env,logged[key]) for key in ('active_matrix','old_matrix'))
+        work = env.w.node_demand().sum(0)[env.w.stage_service]*env.w.stages[:,0]
+        accessible = active@env.w.nodes[:,0]
+        stages = [dict(stage=k,nodes=np.flatnonzero(active[k]).tolist(),offered_work=float(work[k]),
+                       reachable_cpu=float(accessible[k]),ideal_ratio=float(work[k]/accessible[k]))
+                  for k in range(env.K)]
+        with artifact(prefix,'train.jsonl').open(encoding='utf8') as source:
+            similar = [r for r in map(json.loads,source) if r['gs']!=gs
+                       and abs(r['offered_cpu_load']-logged['offered_cpu_load'])<=.02
+                       and (r['gs']<=64)==(gs<=64)]
+        arms = {}
+        for name,arm in trial['arms'].items():
+            focal = arm['ledger'][logged['period']-1]
+            check_period(env,focal,True)
+            choices = arm['actions']
+            if len(choices)!=focal['s_decisions'] or any(a['action'] not in a['legal'] for a in choices):
+                raise ValueError('Spike action evidence is incomplete or invalid')
+            finished = [r for r in arm['requests'] if r['finish'] is not None]
+            finished.sort(key=lambda r:r['finish']-r['arrival'])
+            tail_count = max(1,int(np.ceil(.01*len(finished))))
+
+            def components(requests):
+                timing = [(r['first_ready']-r['arrival'],
+                           sum(x['compute']-x['ready'] for x in r['stages']),
+                           sum(x['finish']-x['compute'] for x in r['stages'])) for r in requests]
+                return dict(zip(('wireless','wired_residence','cpu_residence'),np.mean(timing,axis=0).tolist()))
+
+            arms[name] = dict(**spike_case(focal),history_exact=arm['history_exact'],epsilon=arm['epsilon'],
+                              s_actions=len(choices),exploratory=sum(a['exploratory'] is True for a in choices),
+                              forced_locations=sum(len(a['legal'])==1 for a in choices),
+                              choices_by_node=dict(Counter(a['action'] for a in choices)),
+                              mean_real_components=components(finished),
+                              slowest_1pct_components=components(finished[-tail_count:]))
+        audit[seed] = dict(gs=gs,base_s_gs=trial['base_s_gs'],best_gs=trial['best_gs'],
+                           actual=spike_case(logged),stages=stages,
+                           additions=int((active&~old).sum()),removals=int((old&~active).sum()),
+                           similar_periods=len(similar),similar_median_reward=float(np.median([r['reward_raw'] for r in similar])),
+                           similar_median_p99=float(np.median([r['p99'] for r in similar])),arms=arms)
+    path = RESULTS/'instant.tail.spike-review'
+    artifact(path,'json').write_text(json.dumps(audit,indent=2,allow_nan=False)+'\n',encoding='utf8')
+    if render_figures:
+        spike_review_figure(path,audit)
+
+
+def spike_review_figure(path, audit):
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    labels = ('Logged D / explore S','Logged D / greedy S','Logged D / best S','Logged D / heuristic S',
+              'Mean D / explore S','Mean D / heuristic S','Best mean D / greedy S','Best sample D / greedy S',
+              'Best mean D / explore S','Best sample D / explore S')
+    fig,axs = plt.subplots(2,2,figsize=(12,7),layout='constrained')
+    for i,(seed,case) in enumerate(audit.items()):
+        pos = np.arange(len(labels))
+        for j,(metric,title) in enumerate((('reward_raw','Focal raw Reward'),('p99','Focal P99 E2E (s)'))):
+            ax = axs[i,j]
+            ax.scatter([r[metric] for r in case['arms'].values()],pos,color='#305e88',s=29)
+            ax.axvline(case['actual'][metric],color='#ad542d',linestyle='--',label='Recorded historical value')
+            ax.set(yticks=pos,yticklabels=labels if j==0 else [],ylim=(len(pos)-.6,-.5),xlabel=title)
+            ax.grid(alpha=.22,axis='x')
+            if j==0:
+                history = 'exact replay' if case['base_s_gs']==0 else 'surrogate S at GS3000'
+                ax.set_title(f'Seed {seed} GS{case["gs"]}, {history}')
+            elif i==0:
+                ax.legend(loc='best',fontsize=8)
+    fig.suptitle('EXP019 | Same-flow historical spike interventions')
+    fig.savefig(artifact(path,'png'),dpi=108)
+    plt.close(fig)
+
+
+def tail_trial(*, render_figures):
+    from edge_joint.adaptive_runner import SUSTAINED
+
+    result = {}
+    for seed in (20261113,20261114):
+        pair = {}
+        reference = None
+        for algorithm in ('ddqn','quantile'):
+            prefix = RESULTS/f'instant.tail.{algorithm}.seed{seed}'
+            info,(train,fixed,holdout) = instant_run(seed,'redeploy',prefix=prefix)
+            config = dict(info['manifest']['config'])
+            if config.pop('s_algorithm',None)!=algorithm or info['online_gs']!=128:
+                raise ValueError('Tail trial needs the two configured 128-GS runs')
+            info['online_after_first_episode'] = aggregate(train[config['periods']:])
+            world = make_world(seed,0,'holdout')
+            stress = rows(prefix,'holdout-sustained.jsonl')
+            grouped = defaultdict(list)
+            for r in stress:
+                check_period(world,r,True)
+                grouped[(r['model'],r['scene'])].append(r)
+            if set(grouped)!={(label,scene) for label in INSTANT_MODELS for scene,_ in SUSTAINED}:
+                raise ValueError('Sustained holdout has missing scenarios')
+            all_stress = {}
+            for label in INSTANT_MODELS:
+                checkpoint = info['best_gs'] if label=='best' else info['online_gs']
+                for scene,load in SUSTAINED:
+                    arm = grouped[label,scene]
+                    if any(r['episode']*config['periods']!=checkpoint or r['mode']!=('keep' if label=='keep' else 'redeploy')
+                           or not np.isclose(r['offered_cpu_load'],load,rtol=0.,atol=1e-8) for r in arm):
+                        raise ValueError('Sustained load or checkpoint does not match the protocol')
+                    check_continuous_episode(arm,config['periods'],config['period_seconds'])
+                all_stress[label] = {f'{load:.2f}':aggregate([r for r in stress if r['model']==label
+                                                            and r['offered_cpu_target']==load])
+                                     for load in sorted({load for _,load in SUSTAINED})}
+            info['sustained_holdout'] = all_stress
+            common = ('episode','scene','period','trace_sha256','requests')
+            inputs = [tuple(r[k] for k in common) for r in train+fixed]
+            inputs.extend(tuple(r[k] for k in ('model','scene','period','trace_sha256','requests'))
+                          for r in holdout+stress)
+            if reference is None:
+                reference = (config,inputs)
+            elif (config,inputs)!=reference:
+                raise ValueError('Candidate and baseline must have identical configured budgets and request streams')
+            if render_figures:
+                figures(prefix,train,{gs//config['periods']:v for gs,v in info['fixed'].items()},config['periods'])
+            pair[algorithm] = info
+        result[seed] = pair
+    prefix = RESULTS/'instant.tail'
+    artifact(prefix,'comparison.json').write_text(json.dumps(result,indent=2,allow_nan=False)+'\n',encoding='utf8')
+    if render_figures:
+        tail_holdout_figure(prefix,result)
+
+
+def tail_holdout_figure(prefix, result):
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    fig,axs = plt.subplots(2,3,figsize=(11,6),layout='constrained')
+    cases = ('Natural','Sustained 0.55','Sustained 0.70')
+    series = (('ddqn','best'),('quantile','best'),('ddqn','last'),('quantile','last'))
+    for i,(seed,comparison) in enumerate(result.items()):
+        for j,(title,fn) in enumerate((('Mean net Reward',lambda a:a['mean_net']),
+                                      ('Mean E2E (s)',lambda a:a['adjusted_e2e']['mean']),
+                                      ('P99 E2E (s)',lambda a:a['adjusted_e2e']['p99']))):
+            ax = axs[i,j]
+            for k,(algorithm,model) in enumerate(series):
+                arm = comparison[algorithm]
+                stats = (arm['holdout'][model],*(arm['sustained_holdout'][model][load] for load in ('0.55','0.70')))
+                ax.scatter(np.arange(3)+(k-1.5)*.11,[fn(a) for a in stats],
+                           color='#315d8a' if algorithm=='ddqn' else '#277755',
+                           marker='o' if model=='best' else '^',s=31,label=f'{algorithm} {model}')
+            ax.set(xticks=range(3),xticklabels=cases,ylabel=title)
+            if j==1:
+                ax.set_title(f'Seed {seed}')
+            ax.grid(alpha=.2,axis='y')
+    axs[0,0].legend(loc='best',fontsize=8)
+    fig.suptitle('EXP019 | Independent tail-risk evaluation')
+    fig.savefig(artifact(prefix,'holdout.png'),dpi=113)
+    plt.close(fig)
+
+
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--prefix',default=PREFIX,help='a run filename prefix within runs/results/EXP019')
     parser.add_argument('--compare',help='filename prefix of the learned-gate reference run')
     parser.add_argument('--instant-trial',action='store_true',help='audit and plot the six instantaneous-deployment runs')
     parser.add_argument('--long-redeploy',action='store_true',help='audit both GS3000 fixed-REDEPLOY runs')
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('--spike-review',action='store_true',help='summarize the two frozen historical spike diagnostics')
+    group.add_argument('--tail-trial',action='store_true',help='audit the four predeclared 128-GS tail-risk runs')
     parser.add_argument('--baseline-gs',type=int,help='audit and plot a named frozen baseline snapshot')
     parser.add_argument('--baseline-fixed',action='store_true',help='read a fixed-only frozen baseline')
     parser.add_argument('--no-figures',action='store_true')
     args=parser.parse_args()
+    if args.spike_review or args.tail_trial:
+        if args.prefix!=PREFIX or args.compare or args.instant_trial or args.long_redeploy or args.baseline_gs is not None:
+            parser.error('Tail-risk reviews use the protocol prefixes')
+        review = spike_review if args.spike_review else tail_trial
+        review(render_figures=not args.no_figures)
+        raise SystemExit(0)
     if args.baseline_fixed and args.baseline_gs is None:
         parser.error('--baseline-fixed requires --baseline-gs')
     if args.long_redeploy:

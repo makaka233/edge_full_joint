@@ -22,6 +22,7 @@ from .adaptive_storage import append, atomic, line, publish, random_state, resto
 
 FIXED = (19001, 19002)
 HOLDOUT = (19101, 19102, 19103)
+SUSTAINED = ((19301,.55),(19302,.55),(19303,.70),(19304,.70))
 FORM = 2
 SPIKE_POINTS = {20261113:1308, 20261114:7}
 
@@ -50,6 +51,8 @@ def source():
 
 
 def seed_weights(path, cfg, d, s):
+    if cfg.s_algorithm != 'ddqn':
+        raise ValueError('Quantile DDQN starts from its own random initialization')
     data = torch.load(path, weights_only=True, map_location='cpu')
     if data['config']['seed'] != cfg.seed:
         raise ValueError('The EXP018 initialization checkpoint belongs to another seed')
@@ -150,7 +153,7 @@ def repair_projections(out, state):
 
 
 @torch.no_grad()
-def evaluate(out, seed):
+def evaluate(out, seed, *, sustained=False):
     state = read_checkpoint(out/'resume_latest.pt')
     if state['config']['seed'] != seed:
         raise ValueError('The evaluation prefix belongs to another seed')
@@ -159,21 +162,24 @@ def evaluate(out, seed):
     repair_projections(out, state)
     cfg = Config(**state['config'])
     d, s, _, _, gate, _ = components(cfg)
+    scenarios = SUSTAINED if sustained else tuple((scene,None) for scene in HOLDOUT)
     def write(file):
         flows = {}
         for label, filename, mode in (('best','best.pt',cfg.macro_mode), ('last','last.pt',cfg.macro_mode),
                                       ('keep','last.pt','keep'), ('redeploy','last.pt','redeploy')):
             current = torch.load(out/filename, weights_only=True, map_location='cpu')
             load_model(current, d, s, gate)
-            for scene in HOLDOUT:
+            for scene,load in scenarios:
                 rows = episode(cfg, make_world(cfg.seed, scene, 'holdout'), d, s, gate,
-                               scene, 'holdout', current['episode'], mode)[0]
+                               scene, 'holdout', current['episode'], mode,offered_load=load)[0]
                 trace = tuple(r['trace_sha256'] for r in rows)
                 if flows.setdefault(scene, trace) != trace:
                     raise AssertionError('Holdout strategies received different request streams')
                 for row in rows:
-                    file.write(line(dict(model=label, **row)))
-    path = out/'holdout.jsonl'
+                    if load is not None:
+                        row['offered_cpu_target'] = load
+                    file.write(line(dict(model=label,**row)))
+    path = out/('holdout-sustained.jsonl' if sustained else 'holdout.jsonl')
     atomic(path, write)
     print(path.resolve(), flush=True)
 
@@ -329,7 +335,8 @@ def diagnose_spike(out, seed):
     gs = SPIKE_POINTS[seed]
     manifest = json.loads((out/'manifest.json').read_text(encoding='utf8'))
     cfg = Config(**manifest['config'])
-    if (cfg.seed!=seed or cfg.macro_mode!='redeploy' or manifest['origin']['kind']!='random'
+    if (cfg.seed!=seed or cfg.macro_mode!='redeploy' or cfg.s_algorithm!='ddqn'
+            or manifest['origin']['kind']!='random'
             or manifest['deployment_model']!=DEPLOYMENT_MODEL):
         raise ValueError('Spike diagnosis requires the original from-zero instantaneous REDEPLOY run')
     index,period = divmod(gs-1,cfg.periods)

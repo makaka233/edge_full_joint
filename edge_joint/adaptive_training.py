@@ -231,7 +231,7 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
         events = sim.events
         if action == 'REDEPLOY':
             switch = sim.redeploy(target)
-        if cfg.capacity_diagnostics:
+        if cfg.capacity_diagnostics or cfg.d_policy=='resource':
             deployment_info['d_capacity'] = cpu_lower_bound(env,sim.deployment,certificate=True)
         arrivals = env.w.arrivals(start, end,
                                   np.random.default_rng(stable_seed('EXP019', cfg.seed, split, scene, i, 'traffic')))

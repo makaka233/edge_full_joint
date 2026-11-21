@@ -845,7 +845,7 @@ def prepare_tail_trial(runs, *, evaluate_missing, expected_gs=128, variant='s_al
         return
     if not evaluate_missing:
         names = '\n  '.join(artifact(prefix,suffix).name for _,prefix,suffix,_ in pending)
-        command = '--d-kl-trial' if variant=='d_update' else '--tail-trial'
+        command = {'d_update':'--d-kl-trial','d_policy':'--d-resource-trial'}.get(variant,'--tail-trial')
         raise SystemExit(f'Missing evaluation files in {directory}:\n  {names}\n'
                          'To evaluate the saved models and build the report, run on a new line:\n'
                          f'  python -m scripts.exp019_report {command} --evaluate-missing')
@@ -855,7 +855,7 @@ def prepare_tail_trial(runs, *, evaluate_missing, expected_gs=128, variant='s_al
         config = state['config']
         if (config['seed']!=seed or config.get(variant)!=algorithm or config['macro_mode']!='redeploy'
                 or state['episode']*config['periods']!=expected_gs or state['best'] is None
-                or (variant=='d_update' and config['s_algorithm']!='ddqn')):
+                or (variant in ('d_update','d_policy') and config['s_algorithm']!='ddqn')):
             raise SystemExit(f'{prefix.name}: expected a completed {expected_gs}-GS trial checkpoint')
         del state
     torch.set_num_threads(1)
@@ -871,12 +871,16 @@ def prepare_tail_trial(runs, *, evaluate_missing, expected_gs=128, variant='s_al
         raise SystemExit(130) from None
 
 
-def tail_trial(*, render_figures, evaluate_missing=False, deployment_kl=False):
+def tail_trial(*, render_figures, evaluate_missing=False, deployment_kl=False, resource=False):
     from edge_joint.adaptive_runner import D_KL_TRIAL_GS, SUSTAINED
 
     directory,stem = (D_KL_RESULTS,'instant') if deployment_kl else (RESULTS,'instant.tail')
     algorithms = ('adam','kl') if deployment_kl else ('ddqn','quantile')
     variant,expected_gs = ('d_update',D_KL_TRIAL_GS) if deployment_kl else ('s_algorithm',128)
+    if resource:
+        directory,stem = RESULTS.with_name('EXP022'),'instant'
+        algorithms = ('gaussian','resource')
+        variant,expected_gs = 'd_policy',512
     runs = [(seed,algorithm,directory/f'{stem}.{algorithm}.seed{seed}')
             for seed in (20261113,20261114) for algorithm in algorithms]
     prepare_tail_trial(runs,evaluate_missing=evaluate_missing,expected_gs=expected_gs,variant=variant)
@@ -913,6 +917,19 @@ def tail_trial(*, render_figures, evaluate_missing=False, deployment_kl=False):
                                                             and r['offered_cpu_target']==load])
                                      for load in sorted({load for _,load in SUSTAINED})}
             info['sustained_holdout'] = all_stress
+            if resource:
+                if config['s_algorithm']!='ddqn' or config['d_update']!='adam' or not config['capacity_diagnostics']:
+                    raise ValueError('EXP022 requires original DDQN/Adam and the same capacity diagnostics')
+                info['capacity'] = {'online':resource_capacity_metrics(train),
+                                   'online_last_128':resource_capacity_metrics(train[-128:])}
+                info['online_last_128'] = aggregate(train[-128:])
+                for label in ('best','last'):
+                    info['capacity'][label] = {
+                        load:resource_capacity_metrics(group) for load,group in (
+                            ('natural',[r for r in holdout if r['model']==label]),
+                            *[(f'{load:.2f}',[r for r in stress if r['model']==label and r['offered_cpu_target']==load])
+                              for load in sorted({load for _,load in SUSTAINED})])}
+                scheduling_update_review(prefix,render_figures)
             if deployment_kl:
                 if config['s_algorithm']!='ddqn':
                     raise ValueError('EXP020 requires original DDQN on both deployment arms')
@@ -1193,6 +1210,76 @@ def randomness_figure(seed,cases,path):
     plt.close(fig)
 
 
+def resource_capacity_metrics(records):
+    capacity = [r['d_capacity'] for r in records]
+    solves = [r for r in records if r.get('d_solver') or r.get('decoder_status')]
+    return dict(rho_mean=float(np.mean([c['rho'] for c in capacity])),
+                rho_max=max(c['rho'] for c in capacity),
+                rho_over_one=sum(c['unsustainable'] for c in capacity),
+                single_stage_pressure_max=max(c['single_stage_pressure'] for c in capacity),
+                decoder_status=dict(Counter(r.get('d_solver') or r['decoder_status'] for r in solves)),
+                decoder_seconds_mean=float(np.mean([r.get('d_decode_seconds') or r['decoder_seconds']
+                                                    for r in solves])) if solves else None,
+                **{f'{name}_peak_{metric}':max(q[metric] for r in records for q in r[name])
+                   for name in ('cpu','wired') for metric in ('utilization','peak_jobs','work_pending')})
+
+
+def resource_frozen_review(render_figures):
+    from edge_joint.resource_audit import DRAWS
+    directory = RESULTS.with_name('EXP022')
+    study,raw_curves = {},{}
+    for seed in (20261113,20261114):
+        raw = rows(directory/f'frozen.seed{seed}','jsonl')
+        results = [r for r in raw if r['type']=='physical']
+        cases = {}
+        raw_curves[seed] = results
+        for case in ('hotspot','natural','pressure'):
+            matched = [r for r in results if r['case']==case]
+            identity = ('trace_sha256','requests','backlog_in','dispatched_in','old_matrix','prelude_flows')
+            if len({json.dumps([r[k] for k in identity]) for r in matched})!=1:
+                raise ValueError('EXP022 frozen arms do not share the same input')
+            world = make_world(seed,matched[0]['scene'],matched[0]['split'])
+            for r in matched:
+                check_period(world,r,True)
+            grouped = defaultdict(list)
+            for r in matched:
+                grouped[r['arm']].append(r)
+            expected = dict.fromkeys(('gaussian','resource','inventory_only'),DRAWS)
+            if case=='hotspot':
+                expected.update(historical=1,historical_mean=1)
+            if {k:len(v) for k,v in grouped.items()}!=expected:
+                raise ValueError('EXP022 frozen draw count disagrees with registered protocol')
+            cases[case] = {arm:dict(**aggregate(group),capacity=resource_capacity_metrics(group))
+                           for arm,group in grouped.items()}
+        study[seed] = dict(historical=[r for r in raw if r['type']=='capacity'],cases=cases)
+    (directory/'frozen.review.json').write_text(json.dumps(study,indent=2,allow_nan=False)+'\n',encoding='utf8')
+    if not render_figures:
+        return
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
+    fig,axes = plt.subplots(2,3,figsize=(12,6),layout='constrained')
+    tabs = ('hotspot','natural','pressure')
+    labels = ('gaussian','resource','inventory_only','historical','historical_mean')
+    for i,(seed,raw) in enumerate(raw_curves.items()):
+        for j,(name,metric) in enumerate((('Raw Reward','reward_raw'),('Adjusted mean E2E (s)','e2e_penalized'),
+                                          ('Adjusted P99 E2E (s)','p99'))):
+            ax = axes[i,j]
+            for arm,label in enumerate(labels):
+                matches = [r for r in raw if r['arm']==label]
+                x = [tabs.index(r['case'])+(arm-1)*.13+(r['draw']-1.5)*.025 for r in matches]
+                ax.scatter(x,[r[metric] for r in matches],s=24,label=label,marker=('o','^','s','x','D')[arm])
+            if j==1:
+                ax.set_title(f'Seed {seed}')
+            ax.set(xticks=range(3),xticklabels=tabs,ylabel=name)
+            ax.grid(alpha=.25,axis='y')
+    axes[0,0].legend(fontsize=8)
+    fig.suptitle('EXP022 | Frozen physical outcomes | Gaussian D mature, resource D random')
+    fig.savefig(directory/'frozen.png',dpi=116)
+    plt.close(fig)
+
+
 def scheduling_update_review(prefix, render_figures):
     updates = rows(prefix,'s_updates.jsonl')
     if not updates:
@@ -1243,6 +1330,8 @@ if __name__=='__main__':
     group.add_argument('--d-sampling-trained-review',action='store_true',
                        help='compare the GS3000 EXP020 D policies under the same saved S and Gaussian draws')
     group.add_argument('--d-randomness-review',action='store_true',help='audit the four EXP021 randomness arms')
+    group.add_argument('--d-resource-review',action='store_true',help='replicate the EXP022 frozen analysis from logs')
+    group.add_argument('--d-resource-trial',action='store_true',help='compare the four EXP022 512-GS joint runs')
     group.add_argument('--s-update-review',action='store_true',help='plot the S optimizer ledger for --prefix')
     parser.add_argument('--evaluate-missing',action='store_true',
                         help='with --tail-trial or --d-kl-trial, evaluate saved models for missing holdout files')
@@ -1250,18 +1339,21 @@ if __name__=='__main__':
     parser.add_argument('--baseline-fixed',action='store_true',help='read a fixed-only frozen baseline')
     parser.add_argument('--no-figures',action='store_true')
     args=parser.parse_args()
-    if args.evaluate_missing and not (args.tail_trial or args.d_kl_trial):
-        parser.error('--evaluate-missing requires --tail-trial or --d-kl-trial')
+    if args.evaluate_missing and not (args.tail_trial or args.d_kl_trial or args.d_resource_trial):
+        parser.error('--evaluate-missing requires a formal comparison')
+    if args.d_resource_review:
+        resource_frozen_review(render_figures=not args.no_figures)
+        raise SystemExit(0)
     if args.s_update_review:
         if args.prefix==PREFIX:
             parser.error('--s-update-review requires a run --prefix')
         prefix = Path(args.prefix).resolve()
-        if prefix.parent not in {RESULTS.with_name(name).resolve() for name in ('EXP019','EXP020','EXP021')}:
-            parser.error('The S optimizer ledger must be under runs/results/EXP019, EXP020, or EXP021')
+        if prefix.parent not in {RESULTS.with_name(f'EXP{i:03d}').resolve() for i in range(19,23)}:
+            parser.error('The S optimizer ledger must be under runs/results/EXP019–EXP022')
         scheduling_update_review(prefix,not args.no_figures)
         raise SystemExit(0)
     if (args.spike_review or args.tail_trial or args.d_kl_trial or args.d_sampling_review
-            or args.d_sampling_trained_review or args.d_randomness_review):
+            or args.d_sampling_trained_review or args.d_randomness_review or args.d_resource_trial):
         if args.prefix!=PREFIX or args.compare or args.instant_trial or args.long_redeploy or args.baseline_gs is not None:
             parser.error('Tail-risk reviews use the protocol prefixes')
         if args.d_randomness_review:
@@ -1272,7 +1364,7 @@ if __name__=='__main__':
             sampling_review(render_figures=not args.no_figures,trained=args.d_sampling_trained_review)
         else:
             tail_trial(render_figures=not args.no_figures,evaluate_missing=args.evaluate_missing,
-                       deployment_kl=args.d_kl_trial)
+                       deployment_kl=args.d_kl_trial,resource=args.d_resource_trial)
         raise SystemExit(0)
     if args.baseline_fixed and args.baseline_gs is None:
         parser.error('--baseline-fixed requires --baseline-gs')

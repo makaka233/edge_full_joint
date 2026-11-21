@@ -27,6 +27,7 @@ FORM = 2
 SPIKE_POINTS = {20261113:1308, 20261114:7}
 D_SAMPLING_POINTS = {20261113:1308, 20261114:2576}
 D_SAMPLING_DRAWS = 24
+D_KL_TRIAL_GS = 3000
 
 
 def read_checkpoint(path):
@@ -447,8 +448,8 @@ def sample_deployments(out, evidence, seed, *, policies=None):
     if (other.seed,other.sigma,other.macro_mode,other.s_algorithm,other.periods,other.period_seconds)!=(
             seed,cfg.sigma,'redeploy','ddqn',cfg.periods,cfg.period_seconds):
         raise ValueError('Diagnostic D checkpoints must share the original seed, sigma and physical time')
-    if best['config']!=last['config'] or (policies!=out and last['episode']*other.periods!=512):
-        raise ValueError('EXP020 sampling requires completed compatible 512-GS D checkpoints')
+    if best['config']!=last['config'] or (policies!=out and last['episode']*other.periods!=D_KL_TRIAL_GS):
+        raise ValueError(f'EXP020 sampling requires completed compatible {D_KL_TRIAL_GS}-GS D checkpoints')
     noise_rng = np.random.default_rng(stable_seed('EXP019-D-KL',seed,gs,'sampling'))
     offsets = np.vstack((np.zeros((1,d.dimensions)),noise_rng.standard_normal((D_SAMPLING_DRAWS,d.dimensions))))
     decoder_seed = stable_seed('EXP019',seed,'train',scene,focal['period']-1,'decode')

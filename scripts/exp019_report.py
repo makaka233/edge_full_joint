@@ -872,11 +872,11 @@ def prepare_tail_trial(runs, *, evaluate_missing, expected_gs=128, variant='s_al
 
 
 def tail_trial(*, render_figures, evaluate_missing=False, deployment_kl=False):
-    from edge_joint.adaptive_runner import SUSTAINED
+    from edge_joint.adaptive_runner import D_KL_TRIAL_GS, SUSTAINED
 
     directory,stem = (D_KL_RESULTS,'instant') if deployment_kl else (RESULTS,'instant.tail')
     algorithms = ('adam','kl') if deployment_kl else ('ddqn','quantile')
-    variant,expected_gs = ('d_update',512) if deployment_kl else ('s_algorithm',128)
+    variant,expected_gs = ('d_update',D_KL_TRIAL_GS) if deployment_kl else ('s_algorithm',128)
     runs = [(seed,algorithm,directory/f'{stem}.{algorithm}.seed{seed}')
             for seed in (20261113,20261114) for algorithm in algorithms]
     prepare_tail_trial(runs,evaluate_missing=evaluate_missing,expected_gs=expected_gs,variant=variant)
@@ -917,6 +917,7 @@ def tail_trial(*, render_figures, evaluate_missing=False, deployment_kl=False):
                 if config['s_algorithm']!='ddqn':
                     raise ValueError('EXP020 requires original DDQN on both deployment arms')
                 info['deployment_update'] = deployment_update_audit(prefix,algorithm,world,train,fixed)
+                info['online_last_512'] = aggregate(train[-512:])
                 first_episode = [tuple(r[k] for k in ('active_matrix','reward_raw','penalized_delays'))
                                  for r in train[:config['periods']]]
                 if initial is None:
@@ -1099,12 +1100,12 @@ if __name__=='__main__':
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--spike-review',action='store_true',help='summarize the two frozen historical spike diagnostics')
     group.add_argument('--tail-trial',action='store_true',help='audit the four predeclared 128-GS tail-risk runs')
-    group.add_argument('--d-kl-trial',action='store_true',help='audit EXP020 fixed-DDQN 512-GS comparisons')
+    group.add_argument('--d-kl-trial',action='store_true',help='audit EXP020 fixed-DDQN GS3000 comparisons')
     group.add_argument('--d-sampling-review',action='store_true',help='summarize the EXP020 frozen Gaussian sample draws')
     group.add_argument('--d-sampling-trained-review',action='store_true',
-                       help='compare the 512-GS EXP020 D policies under the same saved S and Gaussian draws')
+                       help='compare the GS3000 EXP020 D policies under the same saved S and Gaussian draws')
     parser.add_argument('--evaluate-missing',action='store_true',
-                        help='with --tail-trial, evaluate saved models for missing holdout files before reporting')
+                        help='with --tail-trial or --d-kl-trial, evaluate saved models for missing holdout files')
     parser.add_argument('--baseline-gs',type=int,help='audit and plot a named frozen baseline snapshot')
     parser.add_argument('--baseline-fixed',action='store_true',help='read a fixed-only frozen baseline')
     parser.add_argument('--no-figures',action='store_true')

@@ -28,6 +28,7 @@ SPIKE_POINTS = {20261113:1308, 20261114:7}
 D_SAMPLING_POINTS = {20261113:1308, 20261114:2576}
 D_SAMPLING_DRAWS = 24
 D_KL_TRIAL_GS = 3000
+D_RANDOMNESS_DRAWS = 12
 
 
 def read_checkpoint(path):
@@ -485,6 +486,115 @@ def sample_deployments(out, evidence, seed, *, policies=None):
                            prelude_trace_sha256=first['trace_sha256'],evaluation_source=provenance)
                 file.write(line(row))
             print(f'Seed {seed}: {label}, {D_SAMPLING_DRAWS} independent Gaussian draws and one mean.',flush=True)
+
+    atomic(path,write)
+    print(path.resolve(),flush=True)
+
+
+def randomness_contexts(historical, control, seed, periods):
+    gs = SPIKE_POINTS[seed]
+    start = (gs-1)//periods*periods
+    with (historical/'train.jsonl').open(encoding='utf8') as file:
+        rows = [json.loads(raw) for raw in islice(file,start,gs)]
+    if [row['gs'] for row in rows]!=list(range(start+1,gs+1)):
+        raise ValueError('Incomplete historical focal episode')
+    yield 'hotspot','train',None,rows
+    stress_scene = {20261113:19303,20261114:19304}[seed]
+    for case,suffix,scene,load in (
+            ('natural','holdout.jsonl',19101,None),('pressure','holdout-sustained.jsonl',stress_scene,.70)):
+        with (control/suffix).open(encoding='utf8') as file:
+            rows = [r for r in map(json.loads,file)
+                    if r['model']=='last' and r['scene']==scene and r['period']<=2]
+        if [row['period'] for row in rows]!=[1,2]:
+            raise ValueError(f'Missing ordered prelude for {case}')
+        yield case,'holdout',load,rows
+
+
+@torch.no_grad()
+def diagnose_deployment_randomness(historical, control, evidence, seed):
+    """Cross the two deployment random sources using a fixed causal request prelude."""
+    state = read_checkpoint(historical/'last.pt')
+    comparison = read_checkpoint(control/'last.pt')
+    cfg = Config(**state['config'])
+    if (cfg.seed,cfg.macro_mode,cfg.s_algorithm,cfg.d_update,state['episode']*cfg.periods)!=(
+            seed,'redeploy','ddqn','adam',3000):
+        raise ValueError('EXP021 requires the same-seed original GS3000 policies')
+    if Config(**comparison['config'])!=cfg or comparison['episode']!=state['episode'] or any(
+            not torch.equal(value,comparison[name][key])
+            for name in ('d','s_online','gate') for key,value in state[name].items()):
+        raise ValueError('Holdout prelude logs require matching EXP019 and EXP020 Adam checkpoints')
+    d,s,_,_,gate,_ = components(cfg)
+    load_model(state,d,s,gate)
+    provenance = source()
+    path = evidence/'jsonl'
+
+    def write(file):
+        for case,split,stress,history in randomness_contexts(historical,control,seed,cfg.periods):
+            focal = history[-1]
+            scene,periods = focal['scene'],focal['period']
+            env = make_world(seed,scene,split)
+            old_matrices = [np.unpackbits(np.frombuffer(bytes.fromhex(r['active_matrix']),dtype=np.uint8),
+                            count=env.K*env.N).reshape(env.K,env.N).astype(bool) for r in history[:-1]]
+            context = deepcopy(env)
+            for _ in old_matrices:
+                context.w.advance()
+            context.w.t = (periods-1)*cfg.period_seconds
+            context.old = old_matrices[-1]
+            if stress is not None:
+                context.w.scale *= stress/load_scale(context)
+            mean = d(context).numpy()
+            fixed_seed = stable_seed('EXP019',seed,split,scene,periods-1,'decode')
+            reference = decode(context,mean,fixed_seed,True).matrix
+            matrix_hex = lambda a: np.packbits(a).tobytes().hex()
+            if split=='holdout' and matrix_hex(reference)!=focal['active_matrix']:
+                raise AssertionError('Mean deployment does not reproduce the saved Holdout target')
+            stage_work = context.w.node_demand().sum(0)[context.w.stage_service]*context.w.stages[:,0]
+            trial = replace(cfg,periods=periods,freeze_ds=True)
+            rnd = np.random.default_rng(stable_seed('EXP021',seed,case,'factorial'))
+            offsets = rnd.standard_normal((D_RANDOMNESS_DRAWS,d.dimensions)).astype(np.float32)
+            diverse_seeds = rnd.integers(0,2**32,size=D_RANDOMNESS_DRAWS).tolist()
+            if len({fixed_seed,*diverse_seeds})!=D_RANDOMNESS_DRAWS+1:
+                raise AssertionError('Duplicate EXP021 decoder seeds')
+            arms = [('A',0,np.zeros_like(mean),fixed_seed,reference)]
+            for draw,(noise,decoder_seed) in enumerate(zip(offsets,diverse_seeds,strict=True),1):
+                arms.extend((('B',draw,noise,fixed_seed,None),('C',draw,np.zeros_like(noise),decoder_seed,None),
+                             ('D',draw,noise,decoder_seed,None)))
+            identity = None
+            match_fields = ('trace_sha256','active_matrix','backlog_in','backlog_out','dispatched_in',
+                            's_decisions','cpu','wired','wireless')
+            for label,draw,offset,decoder_seed,target in arms:
+                latent = mean+np.float32(cfg.sigma)*offset
+                if target is None:
+                    target = decode(context,latent,decoder_seed,True).matrix
+                ledger = episode(trial,deepcopy(env),d,s,gate,scene,split,focal['episode'],
+                                 recorded_matrices=(*old_matrices,target),offered_load=stress)[0]
+                if any((r['trace_sha256'],r['requests'],r['demand_by_service'])!=
+                       (old['trace_sha256'],old['requests'],old['demand_by_service'])
+                       for r,old in zip(ledger,history,strict=True)):
+                    raise AssertionError('EXP021 exogenous demand or request stream differs from archive')
+                prelude = [{k:r[k] for k in match_fields} for r in ledger[:-1]]
+                row = ledger[-1]
+                boundary = (prelude,row['backlog_in'],row['dispatched_in'])
+                if identity is None:
+                    identity = boundary
+                elif boundary!=identity:
+                    raise AssertionError('EXP021 pre-action queue differs across factors')
+                prefix_match = all(test[k]==archived[k] for test,archived in zip(prelude,history[:-1],strict=True)
+                                   for k in match_fields)
+                if split=='holdout' and not prefix_match:
+                    raise AssertionError('Saved Holdout prelude does not match reconstructed boundaries')
+                stage_cpu = target@env.w.nodes[:,0]
+                row.update(case=case,arm=label,draw=draw,d_gs=3000,s_gs=3000,
+                           checkpoint_source=state['config'],decoder_seed=decoder_seed,
+                           original_decoder_seed=fixed_seed,latent_mean=mean.tolist(),latent=latent.tolist(),
+                           gaussian_z=offset.tolist(),gaussian_delta=(latent-mean).tolist(),
+                           reference_matrix=matrix_hex(reference),matrix_hamming=int((target^reference).sum()),
+                           stage_accessible_cpu=stage_cpu.tolist(),stage_ideal_pressure=(stage_work/stage_cpu).tolist(),
+                           prelude=prelude,archived_prelude_matches=prefix_match,
+                           archived_focal_reward=focal['reward_raw'],archived_focal_gs=focal['gs'],
+                           pressure_target=stress,evaluation_source=provenance)
+                file.write(line(row))
+            print(f'Seed {seed}: {case}, {len(arms)} focal evaluations',flush=True)
 
     atomic(path,write)
     print(path.resolve(),flush=True)

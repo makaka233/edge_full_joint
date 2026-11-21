@@ -5,10 +5,11 @@ import traceback
 
 
 def add_arguments(parser):
-    parser.add_argument('action', choices=('train', 'evaluate', 'verify', 'baseline', 'spike-audit','d-sampling'))
+    parser.add_argument('action', choices=('train', 'evaluate', 'verify', 'baseline', 'spike-audit',
+                                          'd-sampling', 'd-randomness'))
     parser.add_argument('--seed', type=int, choices=(20261113, 20261114), required=True)
     parser.add_argument('--prefix', type=Path,
-                        help='filename prefix in runs/results/EXP019 or runs/results/EXP020')
+                        help='filename prefix in runs/results/EXP019, EXP020, or EXP021')
     parser.add_argument('--episodes', type=int, default=128, help='absolute training target')
     parser.add_argument('--periods', type=int, default=8, help='periods per continuous episode')
     parser.add_argument('--period-seconds', type=float, default=24.)
@@ -52,24 +53,28 @@ def run(parser, args):
         parser.error('--sustained is an independent evaluation setting.')
     if args.sampling_models is not None and args.action!='d-sampling':
         parser.error('--sampling-models requires d-sampling.')
+    if args.action=='d-randomness' and args.prefix is not None:
+        parser.error('EXP021 randomness diagnosis uses the archived GS3000 prefixes.')
     if args.replay_from is not None or args.replay_gs is not None:
         if (args.action!='verify' or args.init_checkpoint is not None
                 or args.replay_from is None or args.replay_gs is None):
             parser.error('Use --replay-from and --replay-gs together with verify and no --init-checkpoint.')
     import torch
-    from .adaptive_runner import baseline, diagnose_spike, evaluate, replay_blocked, sample_deployments, train, verify
+    from .adaptive_runner import (baseline, diagnose_deployment_randomness, diagnose_spike, evaluate,
+                                  replay_blocked, sample_deployments, train, verify)
     from .adaptive_storage import RunFiles, run_lock
     from .adaptive_training import Config
 
     checkout = Path(__file__).resolve().parents[1]
     results = (checkout/'runs/results/EXP019').resolve()
     kl_results = results.with_name('EXP020').resolve()
+    randomness_results = results.with_name('EXP021').resolve()
     default_mode = 'verify' if args.action=='verify' else args.macro_mode
     default_prefix = (kl_results/f'instant.kl.seed{args.seed}' if args.d_update=='kl'
                       else results/f'instant.{default_mode}.seed{args.seed}')
     prefix = (args.prefix or default_prefix).resolve()
-    if prefix.parent not in (results,kl_results):
-        parser.error(f'Adaptive results must use a filename prefix inside {results} or {kl_results}')
+    if prefix.parent not in (results,kl_results,randomness_results):
+        parser.error('Adaptive results must use a filename prefix inside runs/results/EXP019, EXP020, or EXP021')
     original = None
     if args.replay_from is not None:
         archived = args.replay_from.resolve()
@@ -102,6 +107,8 @@ def run(parser, args):
                 if args.action in ('baseline','spike-audit') else out)
         if args.action=='d-sampling':
             lock = RunFiles(kl_results/sampling_name)
+        elif args.action=='d-randomness':
+            lock = RunFiles(randomness_results/f'randomness.seed{args.seed}')
         with run_lock(lock):
             if args.action=='train':
                 train(cfg, out, args.episodes, resume=args.resume, init=args.init_checkpoint)
@@ -111,6 +118,10 @@ def run(parser, args):
                 diagnose_spike(out,args.seed)
             elif args.action=='d-sampling':
                 sample_deployments(out,lock,args.seed,policies=policies)
+            elif args.action=='d-randomness':
+                historical = RunFiles(results/f'instant.redeploy.long3000.seed{args.seed}')
+                control = RunFiles(kl_results/f'instant.adam.seed{args.seed}')
+                diagnose_deployment_randomness(historical,control,lock,args.seed)
             elif original is not None:
                 replay_blocked(args.seed, original, out, args.replay_gs)
             elif args.action=='verify':

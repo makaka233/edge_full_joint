@@ -1,8 +1,24 @@
 # EXP019 瞬时矩阵切换运行指南
 
+## 五种子各 10000 GS
+
+在项目根目录执行下列命令。五个种子依次运行，各从随机参数初始化。每个种子训练 1250 个 episode，每个 episode 包含 8 个 24 秒业务期。固定验证每 8 个 episode 进行一次，并在 GS10000 再评价一次。
+
+```powershell
+python -m edge_d.cli adaptive train --seeds 20261113 20261114 20261115 20261116 20261117 --macro-mode redeploy --episodes 1250 --periods 8 --period-seconds 24 --eval-every 8 --prefix ".\runs\results\EXP019\instant.redeploy.long10000"
+```
+
+中断后在同一训练指令末尾追加 `--resume`。批量恢复会跳过已完成的种子，从已有检查点继续未完的种子，并以随机初始化启动尚未开始的种子。训练后用一条命令评价所有种子的 `best` 和 `last`，以及相同 `last` 权重的固定动作对照。检查点必须达到 1250 个 episode。
+
+```powershell
+python -m edge_d.cli adaptive evaluate --seeds 20261113 20261114 20261115 20261116 20261117 --episodes 1250 --prefix ".\runs\results\EXP019\instant.redeploy.long10000"
+```
+
+日志、模型和独立自然负载评价均位于 `runs/results/EXP019/`，按 `instant.redeploy.long10000.seed<seed>` 前缀区分。
+
 ## 双种子固定 REDEPLOY 基线
 
-当前训练、物理、配置、测试和 EXP019 报告入口以 [EXP019 双种子长训审计提交](https://github.com/makaka233/edge_full_joint/commit/7681e015f0755f8dbbfd44b490f10d495f7cf130) 为源。正式基线使用原 Masked Dueling Double DQN、库存协调高斯 D 和 Adam。两个种子各从随机初始化执行 375 个 episode，每个 episode 8 个 24 秒业务期，共 3000 GS。固定验证每 8 个 episode 执行一次。CLI 的历史默认宏观模式为 `learned`，固定重部署须显式指定 `--macro-mode redeploy`。
+训练算法、物理配置和 EXP019 历史报告入口以 [EXP019 双种子长训审计提交](https://github.com/makaka233/edge_full_joint/commit/7681e015f0755f8dbbfd44b490f10d495f7cf130) 为源。正式基线使用原 Masked Dueling Double DQN、库存协调高斯 D 和 Adam。两个种子各从随机初始化执行 375 个 episode，每个 episode 8 个 24 秒业务期，共 3000 GS。固定验证每 8 个 episode 执行一次。CLI 的历史默认宏观模式为 `learned`，固定重部署须显式指定 `--macro-mode redeploy`。
 
 ```powershell
 Set-Location 'C:\Users\1\Desktop\edge_full_joint'

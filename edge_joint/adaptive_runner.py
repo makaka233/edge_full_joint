@@ -76,6 +76,10 @@ def train(cfg, out, target, *, resume=False, init=None):
         if target < state['episode']:
             raise ValueError('--episodes is an absolute target and precedes the current checkpoint')
         recover_ledgers(out, dict(offsets=state['offsets'], gs=state['episode']*cfg.periods))
+        if target == state['episode']:
+            repair_projections(out, state)
+            print(f'Seed {cfg.seed} already complete: episode={target}, gs={target*cfg.periods}', flush=True)
+            return
         d.load_state_dict(state['d'])
         s.load_state_dict(state['s'])
         s.actions = state['s_actions']
@@ -148,10 +152,13 @@ def repair_projections(out, state):
 
 
 @torch.no_grad()
-def evaluate(out, seed):
+def evaluate(out, seed, *, expected_episodes=None):
     state = read_checkpoint(out/'resume_latest.pt')
     if state['config']['seed'] != seed:
         raise ValueError('The evaluation prefix belongs to another seed')
+    if expected_episodes is not None and state['episode'] != expected_episodes:
+        raise ValueError(f'Seed {seed}: expected {expected_episodes} completed episodes before evaluation, '
+                         f'found {state["episode"]}')
     if state['best'] is None:
         raise ValueError('Resume training to complete the initial fixed evaluation')
     repair_projections(out, state)

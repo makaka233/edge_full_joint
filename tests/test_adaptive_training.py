@@ -1,9 +1,13 @@
 """Isolated EXP019 continuity, probability credit and recoverability checks."""
+import argparse
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 import json
 from itertools import product
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 import torch
@@ -11,6 +15,7 @@ import torch
 from edge_d._engine.edge_rl.model import Arrival
 from edge_d.placement import decode
 from edge_d.world import make_world
+from edge_joint import adaptive_cli
 from edge_joint.adaptive_training import Config, components, credit_targets
 from edge_joint.adaptive_physics import PeriodSimulator, capacity_ok, solo_delay_bounds
 from edge_joint.adaptive_runner import evaluate, train
@@ -20,6 +25,40 @@ from edge_joint.adaptive_storage import RunFiles
 class ContinuousDeploymentTests(unittest.TestCase):
     def setUp(self):
         torch.set_num_threads(1)
+
+    def test_batch_train_resume_and_evaluate(self):
+        parser = argparse.ArgumentParser()
+        adaptive_cli.add_arguments(parser)
+        seeds = [str(seed) for seed in range(20261113, 20261118)]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            prefix = root/'runs/results/EXP019/instant.redeploy.batch'
+            training = '--macro-mode redeploy --periods 2 --period-seconds 1 --eval-every 1 --s-batch 1'.split()
+
+            def run(action, selector, out, episodes, *options):
+                args = parser.parse_args([action, *selector, '--prefix', str(out),
+                                          '--episodes', str(episodes), *options])
+                return adaptive_cli.run(parser, args)
+
+            with patch.object(adaptive_cli, '__file__', str(root/'edge_joint/adaptive_cli.py')), redirect_stdout(StringIO()):
+                first = RunFiles(prefix.with_name(f'{prefix.name}.seed{seeds[0]}'))
+                self.assertEqual(run('train', ['--seed', seeds[0]], first.prefix, 1, *training), 0)
+                previous = (first/'manifest.json').read_bytes()
+                selector = ['--seeds', *seeds]
+                self.assertEqual(run('train', selector, prefix, 1, *training, '--resume'), 0)
+                self.assertEqual((first/'manifest.json').read_bytes(), previous)
+                with redirect_stderr(StringIO()) as stderr:
+                    self.assertEqual(run('evaluate', selector, prefix, 2), 1)
+                self.assertIn('expected 2 completed episodes', stderr.getvalue())
+                self.assertFalse((first/'holdout.jsonl').exists())
+                self.assertEqual(run('evaluate', selector, prefix, 1), 0)
+                for seed in seeds:
+                    out = RunFiles(prefix.with_name(f'{prefix.name}.seed{seed}'))
+                    manifest = json.loads((out/'manifest.json').read_text(encoding='utf8'))
+                    self.assertEqual(manifest['config']['seed'], int(seed))
+                    self.assertEqual(manifest['origin']['kind'], 'random')
+                    self.assertEqual(len((out/'train.jsonl').read_text(encoding='utf8').splitlines()), 2)
+                    self.assertEqual(len((out/'holdout.jsonl').read_text(encoding='utf8').splitlines()), 24)
 
     def test_solo_bound_matches_brute_force_and_ideal_physics(self):
         env = make_world(20261113,0,'fixed')

@@ -6,10 +6,13 @@ import traceback
 
 def add_arguments(parser):
     parser.add_argument('action', choices=('train', 'evaluate', 'verify', 'baseline'))
-    parser.add_argument('--seed', type=int, choices=(20261113, 20261114), required=True)
+    seed = parser.add_mutually_exclusive_group(required=True)
+    seed.add_argument('--seed', type=int, help='single run seed')
+    seed.add_argument('--seeds', type=int, nargs='+', help='run multiple distinct seeds in order')
     parser.add_argument('--prefix', type=Path,
-                        help='filename prefix in runs/results/EXP019, e.g. instant.learned.seed20261113')
-    parser.add_argument('--episodes', type=int, default=128, help='absolute training target')
+                        help='filename prefix inside runs/results/EXP019; --seeds appends .seed<seed>')
+    parser.add_argument('--episodes', type=int,
+                        help='absolute training target (default: 128), or required checkpoint length for evaluation')
     parser.add_argument('--periods', type=int, default=8, help='periods per continuous episode')
     parser.add_argument('--period-seconds', type=float, default=24.)
     parser.add_argument('--eval-every', type=int, default=16, help='fixed validation interval in episodes')
@@ -26,9 +29,17 @@ def add_arguments(parser):
 
 
 def run(parser, args):
-    if (args.episodes<1 or args.periods<2 or not 0<args.period_seconds<float('inf') or
+    target = args.episodes if args.episodes is not None else 128
+    if (target<1 or args.periods<2 or not 0<args.period_seconds<float('inf') or
             args.eval_every<1 or not 1<=args.s_batch<=25000):
         parser.error('Invalid adaptive training parameters')
+    batch = args.seeds is not None
+    seeds = args.seeds if batch else [args.seed]
+    if len(seeds) != len(set(seeds)) or any(not 0 <= seed < 2**32 for seed in seeds):
+        parser.error('Seeds must be distinct integers from 0 to 4294967295.')
+    if batch and (args.action not in ('train', 'evaluate') or args.prefix is None
+                  or args.init_checkpoint is not None):
+        parser.error('--seeds requires train or evaluate, an explicit --prefix, and no --init-checkpoint.')
     if (args.action!='train' and args.resume) or (
             args.action in ('evaluate','baseline') and args.init_checkpoint):
         parser.error('Invalid adaptive checkpoint flags for this action')
@@ -40,47 +51,65 @@ def run(parser, args):
         if (args.action!='verify' or args.init_checkpoint is not None
                 or args.replay_from is None or args.replay_gs is None):
             parser.error('Use --replay-from and --replay-gs together with verify and no --init-checkpoint.')
+    checkout = Path(__file__).resolve().parents[1]
+    results = (checkout/'runs/results/EXP019').resolve()
+    default_mode = 'verify' if args.action=='verify' else args.macro_mode
+    base = (args.prefix or results/f'instant.{default_mode}.seed{args.seed}').resolve()
+    if base.parent != results:
+        parser.error(f'EXP019 results must use a filename prefix inside {results}')
+    prefixes = [base.with_name(f'{base.name}.seed{seed}') if batch else base for seed in seeds]
+    original = None
+    if args.replay_from is not None:
+        archived = args.replay_from.resolve()
+        if archived.parent != results or archived == base:
+            parser.error('Historical replay needs a distinct source prefix inside runs/results/EXP019.')
+        original = archived
+
     import torch
+    from .adaptive_storage import RunFiles
+
+    runs = [RunFiles(prefix) for prefix in prefixes]
+    if args.action == 'evaluate' or (args.resume and not batch):
+        for out in runs:
+            checkpoint = out/'resume_latest.pt'
+            if not checkpoint.is_file():
+                parser.error(
+                    f'No EXP019 resume checkpoint at {checkpoint}. '
+                    'Start a fresh run with train and no --resume. '
+                    'For evaluation or resume pass the same --prefix as the training run.')
+    torch.set_num_threads(1)
+    for seed, out in zip(seeds, runs, strict=True):
+        if batch:
+            print(f'{args.action}: seed={seed} prefix={out.prefix}', flush=True)
+        code = run_one(args, seed, out, target, RunFiles(original) if original is not None else None)
+        if code:
+            return code
+    return 0
+
+
+def run_one(args, seed, out, target, original):
     from .adaptive_runner import baseline, evaluate, replay_blocked, train, verify
     from .adaptive_storage import RunFiles, run_lock
     from .adaptive_training import Config
 
-    checkout = Path(__file__).resolve().parents[1]
-    results = (checkout/'runs/results/EXP019').resolve()
-    default_mode = 'verify' if args.action=='verify' else args.macro_mode
-    prefix = (args.prefix or results/f'instant.{default_mode}.seed{args.seed}').resolve()
-    if prefix.parent != results:
-        parser.error(f'EXP019 results must use a filename prefix inside {results}')
-    original = None
-    if args.replay_from is not None:
-        archived = args.replay_from.resolve()
-        if archived.parent != results or archived == prefix:
-            parser.error('Historical replay needs a distinct source prefix inside runs/results/EXP019.')
-        original = RunFiles(archived)
-    out = RunFiles(prefix)
-    checkpoint = out/'resume_latest.pt'
-    if (args.resume or args.action=='evaluate') and not checkpoint.is_file():
-        parser.error(
-            f'No EXP019 resume checkpoint at {checkpoint}. '
-            'Start a fresh run with train and no --resume. '
-            'For evaluation or resume pass the same --prefix as the training run.')
-    cfg = Config(seed=args.seed, periods=args.periods, period_seconds=args.period_seconds,
+    cfg = Config(seed=seed, periods=args.periods, period_seconds=args.period_seconds,
                  eval_every=args.eval_every, s_batch=args.s_batch,
                  freeze_ds=args.freeze_ds, macro_mode=args.macro_mode)
-    torch.set_num_threads(1)
+    prefix = out.prefix
+    lock = RunFiles(prefix.with_name(prefix.name+'.baseline')) if args.action=='baseline' else out
     try:
-        lock = RunFiles(prefix.with_name(prefix.name+'.baseline')) if args.action=='baseline' else out
         with run_lock(lock):
             if args.action=='train':
-                train(cfg, out, args.episodes, resume=args.resume, init=args.init_checkpoint)
+                resume = args.resume and (args.seeds is None or (out/'resume_latest.pt').is_file())
+                train(cfg, out, target, resume=resume, init=args.init_checkpoint)
             elif args.action=='baseline':
-                baseline(out, args.seed, fixed_only=args.fixed_only)
+                baseline(out, seed, fixed_only=args.fixed_only)
             elif original is not None:
-                replay_blocked(args.seed, original, out, args.replay_gs)
+                replay_blocked(seed, original, out, args.replay_gs)
             elif args.action=='verify':
                 verify(cfg, out, args.init_checkpoint)
             else:
-                evaluate(out, args.seed)
+                evaluate(out, seed, expected_episodes=args.episodes)
     except (Exception, KeyboardInterrupt) as error:
         message = traceback.format_exc()
         sys.stderr.write(message)

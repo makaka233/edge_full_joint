@@ -1,5 +1,6 @@
 """Expose continuous deployment through the project's main CLI."""
 from pathlib import Path
+import re
 import sys
 import traceback
 
@@ -9,8 +10,10 @@ def add_arguments(parser):
     seed = parser.add_mutually_exclusive_group(required=True)
     seed.add_argument('--seed', type=int, help='single run seed')
     seed.add_argument('--seeds', type=int, nargs='+', help='run multiple distinct seeds in order')
+    parser.add_argument('--experiment', type=str.upper, default='EXP019',
+                        help='results directory ID under runs/results (default: EXP019)')
     parser.add_argument('--prefix', type=Path,
-                        help='filename prefix inside runs/results/EXP019; --seeds appends .seed<seed>')
+                        help='filename prefix inside the selected experiment directory; --seeds appends .seed<seed>')
     parser.add_argument('--episodes', type=int,
                         help='absolute training target (default: 128), or required checkpoint length for evaluation')
     parser.add_argument('--periods', type=int, default=8, help='periods per continuous episode')
@@ -55,17 +58,20 @@ def run(parser, args):
         if (args.action!='verify' or args.init_checkpoint is not None
                 or args.replay_from is None or args.replay_gs is None):
             parser.error('Use --replay-from and --replay-gs together with verify and no --init-checkpoint.')
+    if re.fullmatch(r'EXP[0-9]{3}', args.experiment) is None:
+        parser.error('--experiment must be an ID such as EXP023.')
     checkout = Path(__file__).resolve().parents[1]
-    results = (checkout/'runs/results/EXP019').resolve()
+    results_root = checkout/'runs/results'
+    results = (results_root/args.experiment).resolve()
     default_mode = 'verify' if args.action=='verify' else args.macro_mode
     base = (args.prefix or results/f'instant.{default_mode}.seed{args.seed}').resolve()
     if base.parent != results:
-        parser.error(f'EXP019 results must use a filename prefix inside {results}')
+        parser.error(f'{args.experiment} results must use a filename prefix inside {results}')
     prefixes = [base.with_name(f'{base.name}.seed{seed}') if batch else base for seed in seeds]
     original = None
     if args.replay_from is not None:
         archived = args.replay_from.resolve()
-        if archived.parent != results or archived == base:
+        if archived.parent != (results_root/'EXP019').resolve() or archived == base:
             parser.error('Historical replay needs a distinct source prefix inside runs/results/EXP019.')
         original = archived
 
@@ -78,9 +84,9 @@ def run(parser, args):
             checkpoint = out/'resume_latest.pt'
             if not checkpoint.is_file():
                 parser.error(
-                    f'No EXP019 resume checkpoint at {checkpoint}. '
+                    f'No {args.experiment} resume checkpoint at {checkpoint}. '
                     'Start a fresh run with train and no --resume. '
-                    'For evaluation or resume pass the same --prefix as the training run.')
+                    'For evaluation or resume pass the same --experiment and --prefix as the training run.')
     torch.set_num_threads(1)
     source = RunFiles(original) if original is not None else None
     actions = (args.action, 'evaluate') if args.evaluate_after else (args.action,)

@@ -6,6 +6,8 @@
 
 运行入口为 `python -m edge_d.cli adaptive`。训练、恢复和评价命令见 [EXP019 运行指南](research/EXP019/README_RUN.md)，正式结果见 [双种子长训审核](research/EXP019/AI_RESEARCH_REVIEW.md#固定-redeploy-双种子-gs3000--完整日志审核)。项目目录规则见 [项目与实验管理](docs/RESEARCH_WORKFLOW.md)。
 
+当前五种子 5000 GS 复验使用 [EXP023 运行与交接说明](research/EXP023/AI_RESEARCH_REVIEW.md)。
+
 ## 其他已完成研究
 
 库存协调 Agent-D 与原始 DDQN 的 BUILD-only 联合训练见 [EXP016 单文件交接](research/EXP016/AI_RESEARCH_REVIEW.md) 与 [连续训练复现](research/EXP016/REPRODUCE.md)。训练需求分布对照见 [EXP015](research/EXP015/AI_RESEARCH_REVIEW.md)。

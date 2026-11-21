@@ -32,11 +32,11 @@ class ContinuousDeploymentTests(unittest.TestCase):
         seeds = [str(seed) for seed in range(20261113, 20261118)]
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            prefix = root/'runs/results/EXP019/instant.redeploy.batch'
+            prefix = root/'runs/results/EXP023/instant.redeploy.batch'
             training = '--macro-mode redeploy --periods 2 --period-seconds 1 --eval-every 1 --s-batch 1'.split()
 
             def run(action, selector, out, episodes, *options):
-                args = parser.parse_args([action, *selector, '--prefix', str(out),
+                args = parser.parse_args([action, *selector, '--experiment', 'EXP023', '--prefix', str(out),
                                           '--episodes', str(episodes), *options])
                 return adaptive_cli.run(parser, args)
 
@@ -56,6 +56,7 @@ class ContinuousDeploymentTests(unittest.TestCase):
                     self.assertEqual(run('evaluate', selector, prefix, 2), 1)
                 self.assertIn('expected 2 completed episodes', stderr.getvalue())
                 self.assertEqual((first/'holdout.jsonl').read_bytes(), holdout)
+                self.assertFalse((root/'runs/results/EXP019').exists())
                 for seed in seeds:
                     out = RunFiles(prefix.with_name(f'{prefix.name}.seed{seed}'))
                     manifest = json.loads((out/'manifest.json').read_text(encoding='utf8'))

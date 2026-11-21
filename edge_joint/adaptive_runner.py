@@ -1,6 +1,6 @@
 """Run and resume EXP019 episodes and evaluate model projections."""
 from copy import deepcopy
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from itertools import islice
 import json
 import platform
@@ -25,6 +25,8 @@ HOLDOUT = (19101, 19102, 19103)
 SUSTAINED = ((19301,.55),(19302,.55),(19303,.70),(19304,.70))
 FORM = 2
 SPIKE_POINTS = {20261113:1308, 20261114:7}
+D_SAMPLING_POINTS = {20261113:1308, 20261114:2576}
+D_SAMPLING_DRAWS = 24
 
 
 def read_checkpoint(path):
@@ -412,6 +414,70 @@ def diagnose_spike(out, seed):
                                  actions=probe.actions, requests=probe.requests)
     path = out/f'spike.gs{gs}.json'
     atomic(path,lambda file:file.write(line(data)))
+    print(path.resolve(),flush=True)
+
+
+@torch.no_grad()
+def sample_deployments(out, evidence, seed):
+    """Isolate Gaussian variation with fixed forecast, queue prelude and DDQN weights."""
+    manifest = json.loads((out/'manifest.json').read_text(encoding='utf8'))
+    cfg = Config(**manifest['config'])
+    if cfg.seed!=seed or cfg.macro_mode!='redeploy' or cfg.s_algorithm!='ddqn':
+        raise ValueError('Sampling diagnosis expects the same-seed fixed-REDEPLOY DDQN run')
+    gs = D_SAMPLING_POINTS[seed]
+    with (out/'train.jsonl').open(encoding='utf8') as file:
+        previous,focal = map(json.loads,islice(file,gs-2,gs))
+    if focal['gs']!=gs or focal['episode']!=previous['episode'] or focal['period']<=1:
+        raise ValueError('Missing adjacent periods for the sampling diagnosis')
+    scene = focal['scene']
+    env = make_world(seed,scene)
+    for _ in range(focal['period']-2):
+        env.w.advance()
+    context = deepcopy(env)
+    context.w.advance()
+    context.w.t = cfg.period_seconds
+    context.old = np.unpackbits(np.frombuffer(bytes.fromhex(previous['active_matrix']),dtype=np.uint8),
+                               count=env.K*env.N).reshape(env.K,env.N).astype(bool)
+    d,s,_,_,gate,_ = components(cfg)
+    last = read_checkpoint(out/'last.pt')
+    best = read_checkpoint(out/'best.pt')
+    load_model(last,d,s,gate)
+    noise_rng = np.random.default_rng(stable_seed('EXP019-D-KL',seed,gs,'sampling'))
+    offsets = np.vstack((np.zeros((1,d.dimensions)),noise_rng.standard_normal((D_SAMPLING_DRAWS,d.dimensions))))
+    decoder_seed = stable_seed('EXP019',seed,'train',scene,focal['period']-1,'decode')
+    stage_work = context.w.node_demand().sum(0)[context.w.stage_service]*context.w.stages[:,0]
+    short = replace(cfg,periods=2,freeze_ds=True)
+    path = evidence/'jsonl'
+    provenance = source()
+
+    def write(file):
+        paired = None
+        for label,state in (('best',best),('last',last)):
+            d.load_state_dict(state['d'])
+            mean = d(context).numpy()
+            reference = decode(context,mean,decoder_seed,True).matrix
+            for draw,offset in enumerate(offsets):
+                latent = mean+cfg.sigma*offset
+                target = decode(context,latent,decoder_seed,True).matrix
+                ledger = episode(short,deepcopy(env),d,s,gate,scene,'train',1,
+                                 recorded_matrices=(context.old,target))[0]
+                first,row = ledger
+                identity = (first['trace_sha256'],row['trace_sha256'],row['backlog_in'],row['dispatched_in'])
+                if paired is None:
+                    paired = identity
+                if identity!=paired:
+                    raise AssertionError('Sampling draws do not share the same queue and request flow')
+                row.update(d_model=label,d_gs=state['episode']*cfg.periods,s_gs=last['episode']*cfg.periods,
+                           historical_gs=gs,draw=draw,latent_mean=mean.tolist(),latent=latent.tolist(),
+                           perturbation=offset.tolist(),matrix_hamming=int((target^reference).sum()),
+                           stage_accessible_cpu=(target@env.w.nodes[:,0]).tolist(),
+                           stage_ideal_pressure=(stage_work/(target@env.w.nodes[:,0])).tolist(),
+                           mean_matrix=np.packbits(reference).tobytes().hex(),
+                           prelude_trace_sha256=first['trace_sha256'],evaluation_source=provenance)
+                file.write(line(row))
+            print(f'Seed {seed}: {label}, {D_SAMPLING_DRAWS} independent Gaussian draws and one mean.',flush=True)
+
+    atomic(path,write)
     print(path.resolve(),flush=True)
 
 

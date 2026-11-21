@@ -18,11 +18,14 @@ def add_arguments(parser):
                         help='train the gate or fix the action at eligible periods')
     parser.add_argument('--s-algorithm', choices=('ddqn','quantile'), default='ddqn',
                         help='original scheduler or the fixed-REDEPLOY quantile candidate')
+    parser.add_argument('--d-update', choices=('adam','kl'), default='adam',
+                        help='original Adam or the EXP020 statewise KL trust region')
     parser.add_argument('--freeze-ds', action='store_true', help='learn the macro policy with fixed D and greedy S')
     parser.add_argument('--replay-from', type=Path, help='verify an archived run by filename prefix')
     parser.add_argument('--replay-gs', type=int, nargs='+', help='blocked GS to replay from episode one')
     parser.add_argument('--fixed-only', action='store_true', help='limit the baseline to the fixed scenarios')
     parser.add_argument('--sustained', action='store_true', help='evaluate held-out sustained-load scenarios')
+    parser.add_argument('--sampling-models', type=Path, help='EXP020 trained D prefix for the frozen sampling diagnostic')
     initial = parser.add_mutually_exclusive_group()
     initial.add_argument('--init-checkpoint', type=Path, help='same-seed EXP018 D/S initialization')
     initial.add_argument('--resume', action='store_true', help='restore the complete episode checkpoint')
@@ -40,10 +43,15 @@ def run(parser, args):
     if args.s_algorithm=='quantile' and (args.action!='train' or args.macro_mode!='redeploy'
                                         or args.freeze_ds or args.init_checkpoint is not None):
         parser.error('Quantile DDQN requires from-zero joint train in fixed REDEPLOY.')
+    if args.d_update=='kl' and (args.action!='train' or args.macro_mode!='redeploy'
+                               or args.s_algorithm!='ddqn' or args.freeze_ds or args.init_checkpoint is not None):
+        parser.error('Deployment KL requires from-zero fixed REDEPLOY joint train with DDQN.')
     if args.fixed_only and args.action!='baseline':
         parser.error('--fixed-only is a baseline setting.')
     if args.sustained and args.action!='evaluate':
         parser.error('--sustained is an independent evaluation setting.')
+    if args.sampling_models is not None and args.action!='d-sampling':
+        parser.error('--sampling-models requires d-sampling.')
     if args.replay_from is not None or args.replay_gs is not None:
         if (args.action!='verify' or args.init_checkpoint is not None
                 or args.replay_from is None or args.replay_gs is None):
@@ -57,7 +65,9 @@ def run(parser, args):
     results = (checkout/'runs/results/EXP019').resolve()
     kl_results = results.with_name('EXP020').resolve()
     default_mode = 'verify' if args.action=='verify' else args.macro_mode
-    prefix = (args.prefix or results/f'instant.{default_mode}.seed{args.seed}').resolve()
+    default_prefix = (kl_results/f'instant.kl.seed{args.seed}' if args.d_update=='kl'
+                      else results/f'instant.{default_mode}.seed{args.seed}')
+    prefix = (args.prefix or default_prefix).resolve()
     if prefix.parent not in (results,kl_results):
         parser.error(f'Adaptive results must use a filename prefix inside {results} or {kl_results}')
     original = None
@@ -67,6 +77,15 @@ def run(parser, args):
             parser.error('Historical replay needs a distinct source prefix inside runs/results/EXP019.')
         original = RunFiles(archived)
     out = RunFiles(prefix)
+    policies = None
+    sampling_name = f'sampling.seed{args.seed}'
+    if args.sampling_models is not None:
+        d_prefix = args.sampling_models.resolve()
+        names = {f'instant.{arm}.seed{args.seed}':arm for arm in ('adam','kl')}
+        if d_prefix.parent!=kl_results or d_prefix.name not in names:
+            parser.error('--sampling-models must specify the matching EXP020 adam or kl prefix.')
+        policies = RunFiles(d_prefix)
+        sampling_name = f'sampling.{names[d_prefix.name]}.seed{args.seed}'
     checkpoint = out/'resume_latest.pt'
     if (args.resume or args.action=='evaluate') and not checkpoint.is_file():
         parser.error(
@@ -75,13 +94,14 @@ def run(parser, args):
             'For evaluation or resume pass the same --prefix as the training run.')
     cfg = Config(seed=args.seed, periods=args.periods, period_seconds=args.period_seconds,
                  eval_every=args.eval_every, s_batch=args.s_batch,
-                 freeze_ds=args.freeze_ds, macro_mode=args.macro_mode,s_algorithm=args.s_algorithm)
+                 freeze_ds=args.freeze_ds, macro_mode=args.macro_mode,s_algorithm=args.s_algorithm,
+                 d_update=args.d_update)
     torch.set_num_threads(1)
     try:
         lock = (RunFiles(prefix.with_name(f'{prefix.name}.{args.action}'))
                 if args.action in ('baseline','spike-audit') else out)
         if args.action=='d-sampling':
-            lock = RunFiles(kl_results/f'sampling.seed{args.seed}')
+            lock = RunFiles(kl_results/sampling_name)
         with run_lock(lock):
             if args.action=='train':
                 train(cfg, out, args.episodes, resume=args.resume, init=args.init_checkpoint)
@@ -90,7 +110,7 @@ def run(parser, args):
             elif args.action=='spike-audit':
                 diagnose_spike(out,args.seed)
             elif args.action=='d-sampling':
-                sample_deployments(out,lock,args.seed)
+                sample_deployments(out,lock,args.seed,policies=policies)
             elif original is not None:
                 replay_blocked(args.seed, original, out, args.replay_gs)
             elif args.action=='verify':

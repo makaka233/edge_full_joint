@@ -53,8 +53,8 @@ def source():
 
 
 def seed_weights(path, cfg, d, s):
-    if cfg.s_algorithm != 'ddqn':
-        raise ValueError('Quantile DDQN starts from its own random initialization')
+    if cfg.s_algorithm != 'ddqn' or cfg.d_update != 'adam':
+        raise ValueError('Experimental optimizers require random initialization')
     data = torch.load(path, weights_only=True, map_location='cpu')
     if data['config']['seed'] != cfg.seed:
         raise ValueError('The EXP018 initialization checkpoint belongs to another seed')
@@ -418,7 +418,7 @@ def diagnose_spike(out, seed):
 
 
 @torch.no_grad()
-def sample_deployments(out, evidence, seed):
+def sample_deployments(out, evidence, seed, *, policies=None):
     """Isolate Gaussian variation with fixed forecast, queue prelude and DDQN weights."""
     manifest = json.loads((out/'manifest.json').read_text(encoding='utf8'))
     cfg = Config(**manifest['config'])
@@ -439,9 +439,16 @@ def sample_deployments(out, evidence, seed):
     context.old = np.unpackbits(np.frombuffer(bytes.fromhex(previous['active_matrix']),dtype=np.uint8),
                                count=env.K*env.N).reshape(env.K,env.N).astype(bool)
     d,s,_,_,gate,_ = components(cfg)
-    last = read_checkpoint(out/'last.pt')
-    best = read_checkpoint(out/'best.pt')
-    load_model(last,d,s,gate)
+    scheduler = read_checkpoint(out/'last.pt')
+    load_model(scheduler,d,s,gate)
+    policies = out if policies is None else policies
+    best,last = [read_checkpoint(policies/name) for name in ('best.pt','last.pt')]
+    other = Config(**last['config'])
+    if (other.seed,other.sigma,other.macro_mode,other.s_algorithm,other.periods,other.period_seconds)!=(
+            seed,cfg.sigma,'redeploy','ddqn',cfg.periods,cfg.period_seconds):
+        raise ValueError('Diagnostic D checkpoints must share the original seed, sigma and physical time')
+    if best['config']!=last['config'] or (policies!=out and last['episode']*other.periods!=512):
+        raise ValueError('EXP020 sampling requires completed compatible 512-GS D checkpoints')
     noise_rng = np.random.default_rng(stable_seed('EXP019-D-KL',seed,gs,'sampling'))
     offsets = np.vstack((np.zeros((1,d.dimensions)),noise_rng.standard_normal((D_SAMPLING_DRAWS,d.dimensions))))
     decoder_seed = stable_seed('EXP019',seed,'train',scene,focal['period']-1,'decode')
@@ -457,7 +464,7 @@ def sample_deployments(out, evidence, seed):
             mean = d(context).numpy()
             reference = decode(context,mean,decoder_seed,True).matrix
             for draw,offset in enumerate(offsets):
-                latent = mean+cfg.sigma*offset
+                latent = mean+np.float32(cfg.sigma)*offset.astype(np.float32)
                 target = decode(context,latent,decoder_seed,True).matrix
                 ledger = episode(short,deepcopy(env),d,s,gate,scene,'train',1,
                                  recorded_matrices=(context.old,target))[0]
@@ -467,7 +474,8 @@ def sample_deployments(out, evidence, seed):
                     paired = identity
                 if identity!=paired:
                     raise AssertionError('Sampling draws do not share the same queue and request flow')
-                row.update(d_model=label,d_gs=state['episode']*cfg.periods,s_gs=last['episode']*cfg.periods,
+                row.update(d_model=label,d_gs=state['episode']*cfg.periods,s_gs=scheduler['episode']*cfg.periods,
+                           d_source=policies.prefix.name,d_update=other.d_update,
                            historical_gs=gs,draw=draw,latent_mean=mean.tolist(),latent=latent.tolist(),
                            perturbation=offset.tolist(),matrix_hamming=int((target^reference).sum()),
                            stage_accessible_cpu=(target@env.w.nodes[:,0]).tolist(),

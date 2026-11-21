@@ -1,4 +1,5 @@
 """Train the macro policy, inventory decoder and original DDQN on online rollouts."""
+from copy import deepcopy
 from dataclasses import dataclass
 import time
 
@@ -14,6 +15,10 @@ from edge_joint.inventory_joint import Config as BaseConfig, initialize, load_sc
 from .adaptive_physics import PeriodSimulator, switch_cost
 
 
+D_KL_LIMIT = .01
+D_KL_BACKTRACKS = 12
+
+
 @dataclass(frozen=True)
 class Config(BaseConfig):
     periods: int = 8
@@ -23,6 +28,16 @@ class Config(BaseConfig):
     freeze_ds: bool = False
     macro_mode: str = 'learned'
     s_algorithm: str = 'ddqn'
+    d_update: str = 'adam'
+
+
+@dataclass(frozen=True)
+class Credit:
+    gate_logp: torch.Tensor | None
+    d_logp: torch.Tensor | None
+    value: torch.Tensor
+    d_state: torch.Tensor | None
+    d_mean: torch.Tensor | None
 
 
 class Gate(nn.Module):
@@ -38,6 +53,10 @@ class Gate(nn.Module):
 
 
 def components(cfg):
+    if cfg.d_update not in ('adam','kl'):
+        raise ValueError(f'Unknown deployment update: {cfg.d_update}')
+    if cfg.d_update=='kl' and (cfg.macro_mode!='redeploy' or cfg.freeze_ds or cfg.s_algorithm!='ddqn'):
+        raise ValueError('Deployment KL requires fixed-REDEPLOY joint training with original DDQN')
     d, s, opt, replay = initialize(cfg)
     if cfg.s_algorithm == 'quantile':
         if cfg.macro_mode != 'redeploy' or cfg.freeze_ds:
@@ -140,6 +159,7 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
         p = float(logit.detach().sigmoid()) if mode == 'learned' else float(mode == 'redeploy')
         rng = np.random.default_rng(stable_seed('EXP019', cfg.seed, split, scene, i, 'policy'))
         gate_logp = d_logp = None
+        d_state = old_mean = None
         target = recorded_matrices[i] if recorded_matrices is not None else None
         fallback = None
         if sim is None:
@@ -160,7 +180,12 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
         schedule_rng = np.random.default_rng(stable_seed('EXP019', cfg.seed, split, scene, i, 'schedule'))
         scheduler = s.scheduler(schedule_rng, epsilon) if probe is None else None
         if recorded_matrices is None and action in ('BOOTSTRAP', 'REDEPLOY'):
-            mean = d(env)
+            if collect:
+                mean,d_state = d(env,record_state=True)
+                d_state = d_state.detach()
+                old_mean = mean.detach()
+            else:
+                mean = d(env)
             draw = mean.detach()
             if online and not cfg.freeze_ds:
                 draw = draw + cfg.sigma * torch.as_tensor(rng.normal(size=mean.shape), dtype=mean.dtype)
@@ -213,6 +238,8 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
                          proposed_matrix=matrix_hex(target) if target is not None else None,
                          coverage_fallback=fallback, active_matrix=matrix_hex(sim.deployment),
                          active_replicas=sim.deployment.sum(1).tolist(),
+                         replicas_added=int((sim.deployment&~old).sum()),
+                         replicas_removed=int((old&~sim.deployment).sum()),
                          backlog_in=backlog, backlog_out=sim.active_requests, dispatched_in=carried,
                          holding_cost=sim.holding_cost(),
                          trace_sha256=hasharr(arrivals), demand_rate=float(demand.sum()),
@@ -222,7 +249,7 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
                          wireless=resources[-len(sim.wireless):], conservation_error=error,
                          capacity_error=cap_error, events=sim.events-events, s_decisions=sim.decisions-decisions,
                          wall_seconds=time.perf_counter()-period_tick, **switch))
-        credit.append((gate_logp, d_logp, value))
+        credit.append(Credit(gate_logp,d_logp,value,d_state,old_mean))
         if period < cfg.periods:
             env.w.advance()
             env.w.t = end
@@ -260,6 +287,62 @@ def macro_parameters(gate, learned):
     return torch.cat((parameters(gate.hidden), parameters(gate.policy)))
 
 
+def gaussian_mean_kl(before, after, sigma):
+    return ((after-before).square().sum(dim=-1))/(2.*sigma**2)
+
+
+@torch.no_grad()
+def deployment_adam_step(policy, optimizer, states, old_mean, sigma, limit=None):
+    """Test Adam's proposal on sampled pre-action states, retrying from the same moments."""
+    def measure():
+        return gaussian_mean_kl(old_mean,torch.stack([policy.net(state) for state in states]),sigma)
+
+    before = measure()
+    if limit is not None:
+        params = list(policy.parameters())
+        old_params = [parameter.detach().clone() for parameter in params]
+        old_opt = deepcopy(optimizer.state_dict())
+        learning_rates = [group['lr'] for group in optimizer.param_groups]
+
+        def restore():
+            for parameter,value in zip(params,old_params,strict=True):
+                parameter.copy_(value)
+            optimizer.load_state_dict(deepcopy(old_opt))
+
+    optimizer.step()
+    proposal = applied = measure()
+    scale = 1.
+    attempts = 1
+    if limit is not None and not bool((proposal <= limit).all()):
+        try:
+            for retry in range(1,D_KL_BACKTRACKS+1):
+                restore()
+                scale = .5**retry
+                for group,rate in zip(optimizer.param_groups,learning_rates,strict=True):
+                    group['lr'] = rate*scale
+                optimizer.step()
+                attempts += 1
+                applied = measure()
+                if bool((applied <= limit).all()):
+                    break
+            else:
+                restore()
+                applied = before
+                scale = 0.
+        except Exception:
+            restore()
+            raise
+        finally:
+            for group,rate in zip(optimizer.param_groups,learning_rates,strict=True):
+                group['lr'] = rate
+    if not bool(torch.isfinite(applied).all()):
+        raise ValueError('Applied deployment KL is nonfinite')
+    return dict(d_kl_before_max=float(before.max()),
+                d_kl_proposed_max=float(proposal.max()) if bool(torch.isfinite(proposal).all()) else None,
+                d_kl_applied_max=float(applied.max()),d_kl_applied_mean=float(applied.mean()),
+                d_kl_lr_scale=scale,d_kl_attempts=attempts,d_kl_states=len(states),d_kl_limit=limit), applied.tolist()
+
+
 def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, index, d_updates):
     learned = cfg.macro_mode == 'learned'
     d_start, s_start = parameters(d), parameters(s.online)
@@ -267,13 +350,13 @@ def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, 
     value_start = parameters(gate.value)
     target_start = parameters(s.target)
     returns = credit_targets(ledger, cfg.gamma)
-    values = torch.stack([v for _, _, v in credit])
+    values = torch.stack([row.value for row in credit])
     advantages = returns - values.detach()
     discounts = cfg.gamma ** torch.arange(len(ledger))
-    gate_terms = [-logp * adv * weight for (logp, _, _), adv, weight in zip(credit, advantages, discounts)
-                  if logp is not None]
-    d_terms = [-logp * adv * weight for (_, logp, _), adv, weight in zip(credit, advantages, discounts)
-               if logp is not None]
+    gate_terms = [-row.gate_logp * adv * weight for row, adv, weight in zip(credit, advantages, discounts)
+                  if row.gate_logp is not None]
+    d_terms = [-row.d_logp * adv * weight for row, adv, weight in zip(credit, advantages, discounts)
+               if row.d_logp is not None]
     critic = torch.nn.functional.smooth_l1_loss(values, returns)
     gate_loss = critic + (torch.stack(gate_terms).sum() / len(ledger) if gate_terms else 0.)
     gate_opt.zero_grad(set_to_none=True)
@@ -281,12 +364,20 @@ def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, 
     gate_grad = float(torch.nn.utils.clip_grad_norm_(gate.parameters(), 5., error_if_nonfinite=True))
     gate_opt.step()
     d_grad = None
+    d_step = {}
     if d_terms:
         opt.zero_grad(set_to_none=True)
         (torch.stack(d_terms).sum() / len(ledger)).backward()
         d_grad = float(torch.nn.utils.clip_grad_norm_(d.parameters(), 5., error_if_nonfinite=True))
-        opt.step()
-        d_updates += 1
+        sampled = [row for row in credit if row.d_logp is not None]
+        states = [row.d_state for row in sampled]
+        means = torch.stack([row.d_mean for row in sampled])
+        limit = D_KL_LIMIT if cfg.d_update=='kl' else None
+        d_step, applied = deployment_adam_step(d,opt,states,means,cfg.sigma,limit)
+        d_updates += int(d_step['d_kl_lr_scale']>0.)
+        for physical,kl in zip((r for r,c in zip(ledger,credit,strict=True) if c.d_logp is not None),
+                               applied,strict=True):
+            physical['d_kl_applied'] = kl
     metrics = []
     if transitions:
         step = ledger[-1]['gs']
@@ -297,7 +388,7 @@ def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, 
             for _ in range(cfg.s_updates_per_gs * cfg.periods):
                 metrics.append(s.update(replay.sample(cfg.s_batch, step, rng)))
             s.version += 1
-    return dict(episode=index, gs=ledger[-1]['gs'], macro_mode=cfg.macro_mode,
+    return dict(episode=index, gs=ledger[-1]['gs'], macro_mode=cfg.macro_mode,d_update=cfg.d_update,
                 macro_updates=index if learned else 0, value_updates=index, d_updates=d_updates, s_updates=s.updates,
                 s_updates_this_episode=len(metrics), d_gradient=d_grad, macro_gradient=gate_grad if learned else None,
                 d_change=float((parameters(d)-d_start).norm()),
@@ -308,4 +399,4 @@ def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, 
                 admitted_to_replay=len(transitions), replay_size=len(replay), s_policy_version=s.version,
                 macro_decisions=sum(r['action'] in ('KEEP','REDEPLOY') for r in ledger),
                 macro_policy_samples=len(gate_terms), d_samples=len(d_terms), discounted_return=float(returns[0]),
-                s_loss=float(np.mean([r['s_loss'] for r in metrics])) if metrics else None)
+                s_loss=float(np.mean([r['s_loss'] for r in metrics])) if metrics else None,**d_step)

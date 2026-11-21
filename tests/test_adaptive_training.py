@@ -1,5 +1,6 @@
 """Isolated EXP019 continuity, probability credit and recoverability checks."""
 import json
+from copy import deepcopy
 from itertools import product
 from pathlib import Path
 import tempfile
@@ -10,9 +11,11 @@ import numpy as np
 import torch
 
 from edge_d._engine.edge_rl.model import Arrival
-from edge_d.placement import decode
+from edge_d.placement import PlacementPolicy, decode
 from edge_d.world import make_world
-from edge_joint.adaptive_training import Config, components, credit_targets, episode
+from edge_joint.adaptive_training import (
+    D_KL_LIMIT, Config, components, credit_targets, deployment_adam_step, episode, gaussian_mean_kl,
+)
 from edge_joint.adaptive_physics import PeriodSimulator, capacity_ok, solo_delay_bounds
 from edge_joint.adaptive_runner import evaluate, train
 from edge_joint.adaptive_storage import RunFiles
@@ -22,6 +25,68 @@ from edge_s.agent import QUANTILES, QuantileSchedulingAgent, SchedulingAgent, qu
 class ContinuousDeploymentTests(unittest.TestCase):
     def setUp(self):
         torch.set_num_threads(1)
+
+    def test_deployment_kl_backtracking_commits_one_consistent_adam_step(self):
+        torch.testing.assert_close(
+            gaussian_mean_kl(torch.tensor([[0.,0.],[1.,2.]]),torch.tensor([[.1,.2],[1.,2.]]),.5),
+            torch.tensor([.1,0.]))
+        torch.manual_seed(41)
+        policy = PlacementPolicy()
+        opt = torch.optim.Adam(policy.parameters(),lr=.2)
+        states = torch.linspace(-1.,1.,114).reshape(2,57)
+        policy.net(-states).square().mean().backward()
+        opt.step()
+        opt.zero_grad()
+        policy.net(states).square().mean().backward()
+        before = torch.stack([policy.net(x) for x in states]).detach()
+        reference = deepcopy(policy)
+        reference_opt = torch.optim.Adam(reference.parameters(),lr=.2)
+        reference_opt.load_state_dict(deepcopy(opt.state_dict()))
+        for src,dst in zip(policy.parameters(),reference.parameters(),strict=True):
+            dst.grad = src.grad.clone()
+        result,per_state = deployment_adam_step(policy,opt,states,before,.5,D_KL_LIMIT)
+        self.assertTrue(0.<result['d_kl_lr_scale']<1.)
+        self.assertGreater(result['d_kl_proposed_max'],D_KL_LIMIT)
+        self.assertEqual(result['d_kl_before_max'],0.)
+        self.assertLessEqual(max(per_state),D_KL_LIMIT)
+        reference_opt.param_groups[0]['lr'] *= result['d_kl_lr_scale']
+        reference_opt.step()
+        reference_opt.param_groups[0]['lr'] = .2
+        torch.testing.assert_close(policy.state_dict(),reference.state_dict(),rtol=0.,atol=0.)
+        torch.testing.assert_close(opt.state_dict(),reference_opt.state_dict(),rtol=0.,atol=0.)
+
+        rollback_params,rollback_adam = deepcopy(policy.state_dict()),deepcopy(opt.state_dict())
+        recent = torch.stack([policy.net(x) for x in states]).detach()
+        rejected,per_state = deployment_adam_step(policy,opt,states,recent,.5,0.)
+        self.assertEqual(rejected['d_kl_lr_scale'],0.)
+        self.assertEqual(per_state,[0.,0.])
+        torch.testing.assert_close(policy.state_dict(),rollback_params,rtol=0.,atol=0.)
+        torch.testing.assert_close(opt.state_dict(),rollback_adam,rtol=0.,atol=0.)
+
+    def test_deployment_kl_resume_matches_continuous_run(self):
+        cfg = Config(seed=20261113,periods=2,period_seconds=.4,s_batch=1,s_updates_per_gs=1,
+                     eval_every=1,macro_mode='redeploy',d_update='kl')
+        with tempfile.TemporaryDirectory(prefix='exp020-test-') as directory:
+            a,b = (RunFiles(Path(directory)/part) for part in ('continuous','resumed'))
+            train(cfg,a,2)
+            train(cfg,b,1)
+            train(cfg,b,2,resume=True)
+            left,right = (torch.load(p/'resume_latest.pt',weights_only=True) for p in (a,b))
+            for key in ('d','d_optimizer','s','gate','gate_optimizer','replay'):
+                torch.testing.assert_close(left[key],right[key],rtol=0.,atol=0.)
+            torch.testing.assert_close(left['rng']['torch'],right['rng']['torch'],rtol=0.,atol=0.)
+            self.assertEqual(left['rng']['python'],right['rng']['python'])
+            a_rng,b_rng = left['rng']['numpy'],right['rng']['numpy']
+            self.assertEqual((a_rng[0],a_rng[2:]),(b_rng[0],b_rng[2:]))
+            torch.testing.assert_close(a_rng[1],b_rng[1],rtol=0.,atol=0.)
+            self.assertEqual((right['d_updates'],right['s']['updates']),(2,4))
+            for filename,omitted in (('updates.jsonl',set()),('train.jsonl',{'wall_seconds','episode_wall_seconds'})):
+                records = [list(map(json.loads,(p/filename).read_text().splitlines())) for p in (a,b)]
+                for one,two in zip(*records,strict=True):
+                    self.assertEqual({k:v for k,v in one.items() if k not in omitted},
+                                     {k:v for k,v in two.items() if k not in omitted})
+                    if filename=='train.jsonl':
+                        self.assertLessEqual(one['d_kl_applied'],D_KL_LIMIT)
 
     def test_solo_bound_matches_brute_force_and_ideal_physics(self):
         env = make_world(20261113,0,'fixed')

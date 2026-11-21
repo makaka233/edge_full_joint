@@ -15,6 +15,7 @@ from edge_joint.adaptive_physics import DEPLOYMENT_MODEL, capacity_ok, footprint
 
 
 RESULTS = Path('runs/results/EXP019')
+D_KL_RESULTS = RESULTS.with_name('EXP020')
 PREFIX = 'from_zero.seed20261113'
 INSTANT_MODES = ('keep','redeploy','learned')
 INSTANT_MODELS = ('best','last','keep','redeploy')
@@ -236,6 +237,7 @@ def figures(prefix, train, fixed, periods):
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     plt.rcParams.update({'font.size':11,'path.simplify':False})
+    experiment = prefix.parent.name
     palette = ('#224d84','#a44720')
     labels = ('Physical raw','Net after migration')
     reward_keys = ('reward_raw','reward_net') if 'migration_cost' in train[0] else ('reward_raw',)
@@ -264,7 +266,7 @@ def figures(prefix, train, fixed, periods):
         block=train[start-1:]
         fig=plt.figure(figsize=(11,6),layout='constrained')
         axes(fig,training,[r['gs'] for r in block],block,'Online physical GS',points=True)
-        fig.suptitle(f'EXP019 | Seed {train[0]["seed"]} | Raw training GS {start}–{len(train)}')
+        fig.suptitle(f'{experiment} | Seed {train[0]["seed"]} | Raw training GS {start}–{len(train)}')
         fig.savefig(artifact(prefix,name),dpi=118)
         plt.close(fig)
 
@@ -275,7 +277,7 @@ def figures(prefix, train, fixed, periods):
     axes(fig,(('Mean net reward',('reward_net',),()),('Mean E2E (s)',('mean',),()),
               ('P99 E2E (s)',('p99',),()),('Mean active replicas',('replicas',),())),
          x,blocks,'Checkpoint GS')
-    fig.suptitle(f'EXP019 | Seed {train[0]["seed"]} | Fixed validation, 2 matched scenarios')
+    fig.suptitle(f'{experiment} | Seed {train[0]["seed"]} | Fixed validation, 2 matched scenarios')
     fig.savefig(artifact(prefix,'fixed.png'),dpi=118)
     plt.close(fig)
 
@@ -822,7 +824,7 @@ def spike_review_figure(path, audit):
     plt.close(fig)
 
 
-def prepare_tail_trial(runs, *, evaluate_missing):
+def prepare_tail_trial(runs, *, evaluate_missing, expected_gs=128, variant='s_algorithm'):
     from edge_joint.adaptive_runner import evaluate, read_checkpoint
     from edge_joint.adaptive_storage import RunFiles, run_lock
 
@@ -830,10 +832,11 @@ def prepare_tail_trial(runs, *, evaluate_missing):
         return path.is_file() and path.stat().st_size>0
 
     training_names = ('manifest.json','resume_latest.pt','best.pt','last.pt','train.jsonl','fixed.jsonl','updates.jsonl')
+    directory = runs[0][2].parent
     training_missing = [artifact(prefix,name).name for _,_,prefix in runs for name in training_names
                         if not present(artifact(prefix,name))]
     if training_missing:
-        raise SystemExit('Missing training files in runs/results/EXP019:\n  '+'\n  '.join(training_missing))
+        raise SystemExit(f'Missing training files in {directory}:\n  '+'\n  '.join(training_missing))
 
     suites = (('holdout.jsonl',False),('holdout-sustained.jsonl',True))
     pending = [(seed,prefix,suffix,sustained) for seed,_,prefix in runs for suffix,sustained in suites
@@ -842,16 +845,18 @@ def prepare_tail_trial(runs, *, evaluate_missing):
         return
     if not evaluate_missing:
         names = '\n  '.join(artifact(prefix,suffix).name for _,prefix,suffix,_ in pending)
-        raise SystemExit(f'Missing evaluation files in runs/results/EXP019:\n  {names}\n'
+        command = '--d-kl-trial' if variant=='d_update' else '--tail-trial'
+        raise SystemExit(f'Missing evaluation files in {directory}:\n  {names}\n'
                          'To evaluate the saved models and build the report, run on a new line:\n'
-                         '  python -m scripts.exp019_report --tail-trial --evaluate-missing')
+                         f'  python -m scripts.exp019_report {command} --evaluate-missing')
 
     for seed,algorithm,prefix in runs:
         state = read_checkpoint(artifact(prefix,'resume_latest.pt'))
         config = state['config']
-        if (config['seed']!=seed or config.get('s_algorithm')!=algorithm or config['macro_mode']!='redeploy'
-                or state['episode']*config['periods']!=128 or state['best'] is None):
-            raise SystemExit(f'{prefix.name}: expected a completed 128-GS tail-trial checkpoint')
+        if (config['seed']!=seed or config.get(variant)!=algorithm or config['macro_mode']!='redeploy'
+                or state['episode']*config['periods']!=expected_gs or state['best'] is None
+                or (variant=='d_update' and config['s_algorithm']!='ddqn')):
+            raise SystemExit(f'{prefix.name}: expected a completed {expected_gs}-GS trial checkpoint')
         del state
     torch.set_num_threads(1)
     try:
@@ -866,22 +871,26 @@ def prepare_tail_trial(runs, *, evaluate_missing):
         raise SystemExit(130) from None
 
 
-def tail_trial(*, render_figures, evaluate_missing=False):
+def tail_trial(*, render_figures, evaluate_missing=False, deployment_kl=False):
     from edge_joint.adaptive_runner import SUSTAINED
 
-    runs = [(seed,algorithm,RESULTS/f'instant.tail.{algorithm}.seed{seed}')
-            for seed in (20261113,20261114) for algorithm in ('ddqn','quantile')]
-    prepare_tail_trial(runs,evaluate_missing=evaluate_missing)
+    directory,stem = (D_KL_RESULTS,'instant') if deployment_kl else (RESULTS,'instant.tail')
+    algorithms = ('adam','kl') if deployment_kl else ('ddqn','quantile')
+    variant,expected_gs = ('d_update',512) if deployment_kl else ('s_algorithm',128)
+    runs = [(seed,algorithm,directory/f'{stem}.{algorithm}.seed{seed}')
+            for seed in (20261113,20261114) for algorithm in algorithms]
+    prepare_tail_trial(runs,evaluate_missing=evaluate_missing,expected_gs=expected_gs,variant=variant)
     result = {}
     for seed in (20261113,20261114):
         pair = {}
         reference = None
-        for algorithm in ('ddqn','quantile'):
-            prefix = RESULTS/f'instant.tail.{algorithm}.seed{seed}'
+        initial = None
+        for algorithm in algorithms:
+            prefix = directory/f'{stem}.{algorithm}.seed{seed}'
             info,(train,fixed,holdout) = instant_run(seed,'redeploy',prefix=prefix)
             config = dict(info['manifest']['config'])
-            if config.pop('s_algorithm',None)!=algorithm or info['online_gs']!=128:
-                raise ValueError('Tail trial needs the two configured 128-GS runs')
+            if config.pop(variant,None)!=algorithm or info['online_gs']!=expected_gs:
+                raise ValueError(f'Trial needs the two configured {expected_gs}-GS runs')
             info['online_after_first_episode'] = aggregate(train[config['periods']:])
             world = make_world(seed,0,'holdout')
             stress = rows(prefix,'holdout-sustained.jsonl')
@@ -904,6 +913,16 @@ def tail_trial(*, render_figures, evaluate_missing=False):
                                                             and r['offered_cpu_target']==load])
                                      for load in sorted({load for _,load in SUSTAINED})}
             info['sustained_holdout'] = all_stress
+            if deployment_kl:
+                if config['s_algorithm']!='ddqn':
+                    raise ValueError('EXP020 requires original DDQN on both deployment arms')
+                info['deployment_update'] = deployment_update_audit(prefix,algorithm,world,train,fixed)
+                first_episode = [tuple(r[k] for k in ('active_matrix','reward_raw','penalized_delays'))
+                                 for r in train[:config['periods']]]
+                if initial is None:
+                    initial = first_episode
+                elif first_episode!=initial:
+                    raise ValueError('EXP020 arms differ before the first Adam update')
             common = ('episode','scene','period','trace_sha256','requests')
             inputs = [tuple(r[k] for k in common) for r in train+fixed]
             inputs.extend(tuple(r[k] for k in ('model','scene','period','trace_sha256','requests'))
@@ -916,19 +935,63 @@ def tail_trial(*, render_figures, evaluate_missing=False):
                 figures(prefix,train,{gs//config['periods']:v for gs,v in info['fixed'].items()},config['periods'])
             pair[algorithm] = info
         result[seed] = pair
-    prefix = RESULTS/'instant.tail'
+    prefix = directory/stem
     artifact(prefix,'comparison.json').write_text(json.dumps(result,indent=2,allow_nan=False)+'\n',encoding='utf8')
     if render_figures:
-        tail_holdout_figure(prefix,result)
+        tail_holdout_figure(prefix,result,algorithms)
 
 
-def tail_holdout_figure(prefix, result):
+def deployment_update_audit(prefix, algorithm, world, train, fixed):
+    from edge_joint.adaptive_training import D_KL_LIMIT
+
+    updates = rows(prefix,'updates.jsonl')
+    if any(u['d_kl_states']!=u['d_samples'] or u['d_kl_before_max']>1e-12 for u in updates):
+        raise ValueError('KL diagnostics do not use the recorded pre-action states')
+    if algorithm=='kl' and any(u['d_kl_applied_max']>D_KL_LIMIT+1e-10 for u in updates):
+        raise ValueError('A committed deployment update exceeded the KL limit')
+    for update in updates:
+        trial = train[update['gs']-update['d_kl_states']:update['gs']]
+        if (max(r['d_kl_applied'] for r in trial)!=update['d_kl_applied_max']
+                or any(r['replicas_added']+r['replicas_removed'] !=
+                       int((unpack(world,r['active_matrix'])^unpack(world,r['old_matrix'])).sum()) for r in trial)):
+            raise ValueError('KL or matrix drift ledger does not reconcile')
+
+    periods = max(r['period'] for r in train)
+    last_gs = len(train)
+    halfway = last_gs//2
+    anchor_gs = max(r['episode']*periods for r in fixed if r['episode']*periods<=halfway)
+    checkpoint = {gs:[r for r in fixed if r['episode']*periods==gs] for gs in (anchor_gs,last_gs)}
+    pairs = [(unpack(world,a['active_matrix']),unpack(world,b['active_matrix']))
+             for a,b in zip(checkpoint[anchor_gs],checkpoint[last_gs],strict=True)]
+
+    def max_single_pressure(row):
+        matrix = unpack(world,row['active_matrix'])
+        single = matrix.sum(1)==1
+        work = np.asarray(row['demand_by_service'])[world.w.stage_service]*world.w.stages[:,0]
+        pressures = work/(matrix@world.w.nodes[:,0])
+        return float(pressures[single].max(initial=0.))
+
+    return dict(limit=D_KL_LIMIT if algorithm=='kl' else None,
+                proposed_max=max((u['d_kl_proposed_max'] for u in updates if u['d_kl_proposed_max'] is not None),
+                                 default=None),
+                applied_max=max(u['d_kl_applied_max'] for u in updates),
+                mean_applied_max=float(np.mean([u['d_kl_applied_max'] for u in updates])),
+                backtracked=sum(0.<u['d_kl_lr_scale']<1. for u in updates),
+                rejected=sum(u['d_kl_lr_scale']==0. for u in updates),
+                fixed_anchor_gs=anchor_gs,fixed_last_gs=last_gs,
+                fixed_mean_hamming=float(np.mean([(a^b).sum() for a,b in pairs])),
+                fixed_mean_jaccard=float(np.mean([(a&b).sum()/(a|b).sum() for a,b in pairs])),
+                online_second_half=aggregate(train[halfway:]),
+                second_half_single_stage_pressure_p95=float(np.quantile([max_single_pressure(r) for r in train[halfway:]],.95)))
+
+
+def tail_holdout_figure(prefix, result, algorithms=('ddqn','quantile')):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     fig,axs = plt.subplots(2,3,figsize=(11,6),layout='constrained')
     cases = ('Natural','Sustained\n0.55','Sustained\n0.70')
-    series = (('ddqn','best'),('quantile','best'),('ddqn','last'),('quantile','last'))
+    series = tuple((algorithm,model) for model in ('best','last') for algorithm in algorithms)
     for i,(seed,comparison) in enumerate(result.items()):
         for j,(title,fn) in enumerate((('Mean net Reward',lambda a:a['mean_net']),
                                       ('Mean E2E (s)',lambda a:a['adjusted_e2e']['mean']),
@@ -938,15 +1001,92 @@ def tail_holdout_figure(prefix, result):
                 arm = comparison[algorithm]
                 stats = (arm['holdout'][model],*(arm['sustained_holdout'][model][load] for load in ('0.55','0.70')))
                 ax.scatter(np.arange(3)+(k-1.5)*.11,[fn(a) for a in stats],
-                           color='#315d8a' if algorithm=='ddqn' else '#277755',
+                           color='#315d8a' if algorithm==algorithms[0] else '#277755',
                            marker='o' if model=='best' else '^',s=31,label=f'{algorithm} {model}')
             ax.set(xticks=range(3),xticklabels=cases,ylabel=title)
             if j==1:
                 ax.set_title(f'Seed {seed}')
             ax.grid(alpha=.2,axis='y')
     axs[0,0].legend(loc='best',fontsize=8)
-    fig.suptitle('EXP019 | Independent tail-risk evaluation')
+    fig.suptitle(f'{prefix.parent.name} | Independent tail-risk evaluation')
     fig.savefig(artifact(prefix,'holdout.png'),dpi=113)
+    plt.close(fig)
+
+
+def sampling_review(*, render_figures, trained=False):
+    from edge_joint.adaptive_runner import D_SAMPLING_DRAWS, D_SAMPLING_POINTS
+
+    summary, datasets = {}, {}
+    for seed,gs in D_SAMPLING_POINTS.items():
+        modes = ('adam','kl') if trained else ('',)
+        maps = {}
+        for mode in modes:
+            prefix = f'sampling.{mode}.seed{seed}' if mode else f'sampling.seed{seed}'
+            raw = rows(D_KL_RESULTS/prefix,'jsonl')
+            if mode and any(r['d_update']!=mode for r in raw):
+                raise ValueError('Sampling evidence does not match the deployment optimizer')
+            for label in ('best','last'):
+                maps[f'{mode}.{label}' if mode else label] = [r for r in raw if r['d_model']==label]
+        raw = [r for group in maps.values() for r in group]
+        identity = ('trace_sha256','prelude_trace_sha256','backlog_in','dispatched_in','scene','s_gs')
+        if len({tuple(r[k] for k in identity) for r in raw})!=1 or any(r['historical_gs']!=gs for r in raw):
+            raise ValueError('Sampling inputs differ across the frozen deployment draws')
+        env = make_world(seed,0)
+        stats = {}
+        for name,group in maps.items():
+            if [r['draw'] for r in group]!=list(range(D_SAMPLING_DRAWS+1)):
+                raise ValueError('Missing or duplicated Gaussian draw')
+            mean,*random = group
+            for r in group:
+                check_period(env,r,True)
+                if r['matrix_hamming']!=int((unpack(env,r['active_matrix'])^unpack(env,mean['active_matrix'])).sum()):
+                    raise ValueError('Sampling matrix difference does not reconcile')
+            stats[name] = dict(
+                d_gs=mean['d_gs'],s_gs=mean['s_gs'],scene=mean['scene'],
+                offered_cpu_load=mean['offered_cpu_load'],backlog_in=mean['backlog_in'],
+                reference=aggregate([mean]),gaussian=aggregate(random),
+                gaussian_hamming_mean=float(np.mean([r['matrix_hamming'] for r in random])),
+                unique_gaussian_matrices=len({r['active_matrix'] for r in random}),
+                gaussian_single_stage_pressure_p95=float(np.quantile([
+                    max((q for q,n in zip(r['stage_ideal_pressure'],r['active_replicas']) if n==1),default=0.)
+                    for r in random],.95)),
+                worst_draw=min(random,key=lambda r:r['reward_raw'])['draw'])
+        def difference(a,b):
+            first,second = (unpack(env,maps[name][0]['active_matrix']) for name in (a,b))
+            return int((first^second).sum())
+
+        delta = ({name:difference(f'adam.{name}',f'kl.{name}') for name in ('best','last')} if trained
+                 else difference('best','last'))
+        summary[seed] = dict(historical_gs=gs,checkpoint_mean_hamming=delta,models=stats)
+        datasets[seed] = maps
+    stem = 'sampling-trained' if trained else 'sampling'
+    (D_KL_RESULTS/f'{stem}-review.json').write_text(json.dumps(summary,indent=2,allow_nan=False)+'\n',encoding='utf8')
+    if render_figures:
+        sampling_figure(datasets,D_KL_RESULTS/f'{stem}.png')
+
+
+def sampling_figure(datasets, output):
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    fig,axes = plt.subplots(2,3,figsize=(12,6.5),layout='constrained')
+    for i,(seed,maps) in enumerate(datasets.items()):
+        for j,(key,ylabel) in enumerate((('reward_raw','Raw Reward'),('e2e_penalized','Mean E2E (s)'),
+                                         ('p99','P99 E2E (s)'))):
+            ax = axes[i,j]
+            for (model,group),color,marker in zip(maps.items(),('#315d8a','#6a8cab','#277755','#82a887'),
+                                                  ('o','^','s','v')):
+                mean,*draws = group
+                ax.scatter([r['draw'] for r in draws],[r[key] for r in draws],
+                           label=f'{model} Gaussian draws',color=color,marker=marker,s=19)
+                ax.scatter([0],[mean[key]],color=color,marker='D',s=40)
+            ax.set(ylabel=ylabel,xlabel='Draw ID (0 = mean)')
+            if j==1:
+                ax.set_title(f'Seed {seed}')
+            ax.grid(alpha=.2)
+    axes[0,0].legend(fontsize=8)
+    fig.suptitle('EXP020 | Gaussian deployment sampling with fixed requests and frozen DDQN')
+    fig.savefig(output,dpi=113)
     plt.close(fig)
 
 
@@ -959,21 +1099,28 @@ if __name__=='__main__':
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--spike-review',action='store_true',help='summarize the two frozen historical spike diagnostics')
     group.add_argument('--tail-trial',action='store_true',help='audit the four predeclared 128-GS tail-risk runs')
+    group.add_argument('--d-kl-trial',action='store_true',help='audit EXP020 fixed-DDQN 512-GS comparisons')
+    group.add_argument('--d-sampling-review',action='store_true',help='summarize the EXP020 frozen Gaussian sample draws')
+    group.add_argument('--d-sampling-trained-review',action='store_true',
+                       help='compare the 512-GS EXP020 D policies under the same saved S and Gaussian draws')
     parser.add_argument('--evaluate-missing',action='store_true',
                         help='with --tail-trial, evaluate saved models for missing holdout files before reporting')
     parser.add_argument('--baseline-gs',type=int,help='audit and plot a named frozen baseline snapshot')
     parser.add_argument('--baseline-fixed',action='store_true',help='read a fixed-only frozen baseline')
     parser.add_argument('--no-figures',action='store_true')
     args=parser.parse_args()
-    if args.evaluate_missing and not args.tail_trial:
-        parser.error('--evaluate-missing requires --tail-trial')
-    if args.spike_review or args.tail_trial:
+    if args.evaluate_missing and not (args.tail_trial or args.d_kl_trial):
+        parser.error('--evaluate-missing requires --tail-trial or --d-kl-trial')
+    if args.spike_review or args.tail_trial or args.d_kl_trial or args.d_sampling_review or args.d_sampling_trained_review:
         if args.prefix!=PREFIX or args.compare or args.instant_trial or args.long_redeploy or args.baseline_gs is not None:
             parser.error('Tail-risk reviews use the protocol prefixes')
         if args.spike_review:
             spike_review(render_figures=not args.no_figures)
+        elif args.d_sampling_review or args.d_sampling_trained_review:
+            sampling_review(render_figures=not args.no_figures,trained=args.d_sampling_trained_review)
         else:
-            tail_trial(render_figures=not args.no_figures,evaluate_missing=args.evaluate_missing)
+            tail_trial(render_figures=not args.no_figures,evaluate_missing=args.evaluate_missing,
+                       deployment_kl=args.d_kl_trial)
         raise SystemExit(0)
     if args.baseline_fixed and args.baseline_gs is None:
         parser.error('--baseline-fixed requires --baseline-gs')

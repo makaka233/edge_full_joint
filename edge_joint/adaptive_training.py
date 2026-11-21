@@ -9,7 +9,8 @@ from torch import nn
 
 from edge_d.physical import hasharr
 from edge_d.placement import decode
-from edge_d.world import stable_seed
+from edge_d.resource_placement import ResourcePlacementPolicy, eligible_locations, logistic_score, project
+from edge_d.world import cpu_lower_bound, stable_seed
 from edge_joint.inventory_joint import Config as BaseConfig, initialize, load_scale, parameters
 
 from .adaptive_physics import PeriodSimulator, switch_cost
@@ -29,6 +30,8 @@ class Config(BaseConfig):
     macro_mode: str = 'learned'
     s_algorithm: str = 'ddqn'
     d_update: str = 'adam'
+    d_policy: str = 'gaussian'
+    capacity_diagnostics: bool = False
 
 
 @dataclass(frozen=True)
@@ -57,7 +60,14 @@ def components(cfg):
         raise ValueError(f'Unknown deployment update: {cfg.d_update}')
     if cfg.d_update=='kl' and (cfg.macro_mode!='redeploy' or cfg.freeze_ds or cfg.s_algorithm!='ddqn'):
         raise ValueError('Deployment KL requires fixed-REDEPLOY joint training with original DDQN')
+    if cfg.d_policy not in ('gaussian','resource') or (cfg.d_policy=='resource' and
+            (cfg.macro_mode!='redeploy' or cfg.s_algorithm!='ddqn' or cfg.d_update!='adam')):
+        raise ValueError('Resource placement requires original DDQN and Adam in fixed REDEPLOY')
     d, s, opt, replay = initialize(cfg)
+    if cfg.d_policy=='resource':
+        torch.manual_seed(stable_seed('EXP022',cfg.seed,'resource-initial'))
+        d = ResourcePlacementPolicy()
+        opt = torch.optim.Adam(d.parameters(),lr=cfg.d_lr)
     if cfg.s_algorithm == 'quantile':
         if cfg.macro_mode != 'redeploy' or cfg.freeze_ds:
             raise ValueError('Quantile DDQN is a fixed-REDEPLOY joint-training candidate')
@@ -173,13 +183,24 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
                 gate_logp = torch.nn.functional.logsigmoid(logit if choose else -logit)
         switch = dict(status='idle', switch_cost=0., activated_at=None)
         latent = latent_mean = None
+        deployment_info = {}
         old = env.old.copy()
         backlog = sim.active_requests if sim is not None else 0
         carried = sum(r.pending is not None for r in sim.requests) if sim is not None else 0
         epsilon = max(.05, .25 - .20 * (gs - 1) / (cfg.epsilon_steps - 1)) if online and not cfg.freeze_ds else 0.
         schedule_rng = np.random.default_rng(stable_seed('EXP019', cfg.seed, split, scene, i, 'schedule'))
         scheduler = s.scheduler(schedule_rng, epsilon) if probe is None else None
-        if recorded_matrices is None and action in ('BOOTSTRAP', 'REDEPLOY'):
+        if recorded_matrices is None and action in ('BOOTSTRAP', 'REDEPLOY') and cfg.d_policy=='resource':
+            logits = d(env)
+            proposed = logits.detach()
+            if collect:
+                proposed = proposed+torch.as_tensor(rng.logistic(size=logits.shape),dtype=logits.dtype)
+                d_logp = logistic_score(logits,proposed,eligible_locations(env))
+            decoded = project(env,proposed.numpy())
+            target = decoded.matrix
+            deployment_info.update(d_pair_logits=logits.detach().tolist(),d_pair_scores=proposed.tolist(),
+                                   d_solver=decoded.status,d_mip_gap=decoded.gap,d_decode_seconds=decoded.seconds)
+        elif recorded_matrices is None and action in ('BOOTSTRAP', 'REDEPLOY'):
             if collect:
                 mean,d_state = d(env,record_state=True)
                 d_state = d_state.detach()
@@ -210,6 +231,8 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
         events = sim.events
         if action == 'REDEPLOY':
             switch = sim.redeploy(target)
+        if cfg.capacity_diagnostics:
+            deployment_info['d_capacity'] = cpu_lower_bound(env,sim.deployment,certificate=True)
         arrivals = env.w.arrivals(start, end,
                                   np.random.default_rng(stable_seed('EXP019', cfg.seed, split, scene, i, 'traffic')))
         first = len(sim.requests)
@@ -248,7 +271,7 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
                          cpu=resources[:len(sim.cpu)], wired=resources[len(sim.cpu):-len(sim.wireless)],
                          wireless=resources[-len(sim.wireless):], conservation_error=error,
                          capacity_error=cap_error, events=sim.events-events, s_decisions=sim.decisions-decisions,
-                         wall_seconds=time.perf_counter()-period_tick, **switch))
+                         wall_seconds=time.perf_counter()-period_tick, **switch, **deployment_info))
         credit.append(Credit(gate_logp,d_logp,value,d_state,old_mean))
         if period < cfg.periods:
             env.w.advance()
@@ -386,15 +409,19 @@ def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, 
         opt.zero_grad(set_to_none=True)
         (torch.stack(d_terms).sum() / len(ledger)).backward()
         d_grad = float(torch.nn.utils.clip_grad_norm_(d.parameters(), 5., error_if_nonfinite=True))
-        sampled = [row for row in credit if row.d_logp is not None]
-        states = [row.d_state for row in sampled]
-        means = torch.stack([row.d_mean for row in sampled])
-        limit = D_KL_LIMIT if cfg.d_update=='kl' else None
-        d_step, applied = deployment_adam_step(d,opt,states,means,cfg.sigma,limit)
-        d_updates += int(d_step['d_kl_lr_scale']>0.)
-        for physical,kl in zip((r for r,c in zip(ledger,credit,strict=True) if c.d_logp is not None),
-                               applied,strict=True):
-            physical['d_kl_applied'] = kl
+        if cfg.d_policy=='resource':
+            opt.step()
+            d_updates += 1
+        else:
+            sampled = [row for row in credit if row.d_logp is not None]
+            states = [row.d_state for row in sampled]
+            means = torch.stack([row.d_mean for row in sampled])
+            limit = D_KL_LIMIT if cfg.d_update=='kl' else None
+            d_step, applied = deployment_adam_step(d,opt,states,means,cfg.sigma,limit)
+            d_updates += int(d_step['d_kl_lr_scale']>0.)
+            for physical,kl in zip((r for r,c in zip(ledger,credit,strict=True) if c.d_logp is not None),
+                                   applied,strict=True):
+                physical['d_kl_applied'] = kl
     metrics = []
     if transitions:
         step = ledger[-1]['gs']

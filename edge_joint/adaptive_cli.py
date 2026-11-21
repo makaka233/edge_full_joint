@@ -6,10 +6,10 @@ import traceback
 
 def add_arguments(parser):
     parser.add_argument('action', choices=('train', 'evaluate', 'verify', 'baseline', 'spike-audit',
-                                          'd-sampling', 'd-randomness'))
+                                          'd-sampling', 'd-randomness', 'd-resource-audit'))
     parser.add_argument('--seed', type=int, choices=(20261113, 20261114), required=True)
     parser.add_argument('--prefix', type=Path,
-                        help='filename prefix in runs/results/EXP019, EXP020, or EXP021')
+                        help='filename prefix in runs/results/EXP019–EXP022')
     parser.add_argument('--episodes', type=int, default=128, help='absolute training target')
     parser.add_argument('--periods', type=int, default=8, help='periods per continuous episode')
     parser.add_argument('--period-seconds', type=float, default=24.)
@@ -21,6 +21,9 @@ def add_arguments(parser):
                         help='original scheduler or the fixed-REDEPLOY quantile candidate')
     parser.add_argument('--d-update', choices=('adam','kl'), default='adam',
                         help='original Adam or the EXP020 statewise KL trust region')
+    parser.add_argument('--d-policy', choices=('gaussian','resource'), default='gaussian',
+                        help='original Gaussian or EXP022 joint stage/node projection')
+    parser.add_argument('--capacity-diagnostics',action='store_true',help='log ideal CPU LP and bottleneck sets')
     parser.add_argument('--freeze-ds', action='store_true', help='learn the macro policy with fixed D and greedy S')
     parser.add_argument('--replay-from', type=Path, help='verify an archived run by filename prefix')
     parser.add_argument('--replay-gs', type=int, nargs='+', help='blocked GS to replay from episode one')
@@ -37,7 +40,8 @@ def run(parser, args):
             args.eval_every<1 or not 1<=args.s_batch<=25000):
         parser.error('Invalid adaptive training parameters')
     if (args.action!='train' and args.resume) or (
-            args.action in ('evaluate','baseline','spike-audit','d-sampling','d-randomness') and args.init_checkpoint):
+            args.action in ('evaluate','baseline','spike-audit','d-sampling','d-randomness','d-resource-audit')
+            and args.init_checkpoint):
         parser.error('Invalid adaptive checkpoint flags for this action')
     if args.action!='train' and args.macro_mode!='learned':
         parser.error('--macro-mode is a training setting. Evaluation reads it from the run.')
@@ -47,14 +51,18 @@ def run(parser, args):
     if args.d_update=='kl' and (args.action!='train' or args.macro_mode!='redeploy'
                                or args.s_algorithm!='ddqn' or args.freeze_ds or args.init_checkpoint is not None):
         parser.error('Deployment KL requires from-zero fixed REDEPLOY joint train with DDQN.')
+    if args.d_policy=='resource' and (args.action!='train' or args.macro_mode!='redeploy' or
+                                     args.s_algorithm!='ddqn' or args.d_update!='adam' or
+                                     args.init_checkpoint is not None or args.freeze_ds):
+        parser.error('Resource placement requires from-zero fixed REDEPLOY training with original DDQN and Adam.')
     if args.fixed_only and args.action!='baseline':
         parser.error('--fixed-only is a baseline setting.')
     if args.sustained and args.action!='evaluate':
         parser.error('--sustained is an independent evaluation setting.')
     if args.sampling_models is not None and args.action!='d-sampling':
         parser.error('--sampling-models requires d-sampling.')
-    if args.action=='d-randomness' and args.prefix is not None:
-        parser.error('EXP021 randomness diagnosis uses the archived GS3000 prefixes.')
+    if args.action in ('d-randomness','d-resource-audit') and args.prefix is not None:
+        parser.error('Frozen diagnosis uses the archived GS3000 prefixes.')
     if args.replay_from is not None or args.replay_gs is not None:
         if (args.action!='verify' or args.init_checkpoint is not None
                 or args.replay_from is None or args.replay_gs is None):
@@ -69,12 +77,17 @@ def run(parser, args):
     results = (checkout/'runs/results/EXP019').resolve()
     kl_results = results.with_name('EXP020').resolve()
     randomness_results = results.with_name('EXP021').resolve()
+    resource_results = results.with_name('EXP022').resolve()
     default_mode = 'verify' if args.action=='verify' else args.macro_mode
     default_prefix = (kl_results/f'instant.kl.seed{args.seed}' if args.d_update=='kl'
                       else results/f'instant.{default_mode}.seed{args.seed}')
+    if args.d_policy=='resource':
+        default_prefix = resource_results/f'instant.resource.seed{args.seed}'
     prefix = (args.prefix or default_prefix).resolve()
-    if prefix.parent not in (results,kl_results,randomness_results):
-        parser.error('Adaptive results must use a filename prefix inside runs/results/EXP019, EXP020, or EXP021')
+    if prefix.parent not in (results,kl_results,randomness_results,resource_results):
+        parser.error('Adaptive results must use a filename prefix inside runs/results/EXP019–EXP022')
+    if args.d_policy=='resource' and prefix.parent!=resource_results:
+        parser.error('Resource placement requires the EXP022 results directory.')
     original = None
     if args.replay_from is not None:
         archived = args.replay_from.resolve()
@@ -94,13 +107,13 @@ def run(parser, args):
     checkpoint = out/'resume_latest.pt'
     if (args.resume or args.action=='evaluate') and not checkpoint.is_file():
         parser.error(
-            f'No EXP019 resume checkpoint at {checkpoint}. '
+            f'No resume checkpoint at {checkpoint}. '
             'Start a fresh run with train and no --resume. '
             'For evaluation or resume pass the same --prefix as the training run.')
     cfg = Config(seed=args.seed, periods=args.periods, period_seconds=args.period_seconds,
                  eval_every=args.eval_every, s_batch=args.s_batch,
                  freeze_ds=args.freeze_ds, macro_mode=args.macro_mode,s_algorithm=args.s_algorithm,
-                 d_update=args.d_update)
+                 d_update=args.d_update,d_policy=args.d_policy,capacity_diagnostics=args.capacity_diagnostics)
     torch.set_num_threads(1)
     try:
         lock = (RunFiles(prefix.with_name(f'{prefix.name}.{args.action}'))
@@ -109,6 +122,8 @@ def run(parser, args):
             lock = RunFiles(kl_results/sampling_name)
         elif args.action=='d-randomness':
             lock = RunFiles(randomness_results/f'randomness.seed{args.seed}')
+        elif args.action=='d-resource-audit':
+            lock = RunFiles(resource_results/f'frozen.seed{args.seed}')
         with run_lock(lock):
             if args.action=='train':
                 train(cfg, out, args.episodes, resume=args.resume, init=args.init_checkpoint)
@@ -122,6 +137,11 @@ def run(parser, args):
                 historical = RunFiles(results/f'instant.redeploy.long3000.seed{args.seed}')
                 control = RunFiles(kl_results/f'instant.adam.seed{args.seed}')
                 diagnose_deployment_randomness(historical,control,lock,args.seed)
+            elif args.action=='d-resource-audit':
+                from .resource_audit import frozen_placements
+                historical = RunFiles(results/f'instant.redeploy.long3000.seed{args.seed}')
+                control = RunFiles(kl_results/f'instant.adam.seed{args.seed}')
+                frozen_placements(historical,control,lock,args.seed)
             elif original is not None:
                 replay_blocked(args.seed, original, out, args.replay_gs)
             elif args.action=='verify':

@@ -55,7 +55,7 @@ def source():
 
 
 def seed_weights(path, cfg, d, s):
-    if cfg.s_algorithm != 'ddqn' or cfg.d_update != 'adam':
+    if cfg.s_algorithm != 'ddqn' or cfg.d_update != 'adam' or cfg.d_policy!='gaussian':
         raise ValueError('Experimental optimizers require random initialization')
     data = torch.load(path, weights_only=True, map_location='cpu')
     if data['config']['seed'] != cfg.seed:

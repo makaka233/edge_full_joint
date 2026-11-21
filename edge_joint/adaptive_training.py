@@ -98,11 +98,13 @@ def request_metrics(requests, deadline, penalty):
                 completed_delays=completed, penalized_delays=penalized, censored_requests=censored)
 
 
-def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_matrices=None):
+def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_matrices=None, probe=None):
     """One event queue and one S parameter version across all its business periods."""
     started = time.perf_counter()
     online = split == 'train'
     collect = online and not cfg.freeze_ds and recorded_matrices is None
+    if probe is not None and recorded_matrices is None:
+        raise ValueError('Event probes require a frozen deployment trace')
     mode = cfg.macro_mode if mode is None else mode
     # Natively evolving regimes retain the original parameters. Simulated periods are compact.
     if env.w.amplitude != 0. or env.cost['latency_objective'] != 'period_mean':
@@ -142,8 +144,8 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
         backlog = sim.active_requests if sim is not None else 0
         carried = sum(r.pending is not None for r in sim.requests) if sim is not None else 0
         epsilon = max(.05, .25 - .20 * (gs - 1) / (cfg.epsilon_steps - 1)) if online and not cfg.freeze_ds else 0.
-        scheduler = s.scheduler(np.random.default_rng(stable_seed('EXP019', cfg.seed, split, scene, i, 'schedule')),
-                                epsilon)
+        schedule_rng = np.random.default_rng(stable_seed('EXP019', cfg.seed, split, scene, i, 'schedule'))
+        scheduler = s.scheduler(schedule_rng, epsilon) if probe is None else None
         if recorded_matrices is None and action in ('BOOTSTRAP', 'REDEPLOY'):
             mean = d(env)
             draw = mean.detach()
@@ -158,6 +160,9 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
             switch.update(status='bootstrap', switch_cost=switch_cost(env, old, sim.deployment))
         else:
             sim.scheduler = scheduler
+        if probe is not None:
+            sim.trace_enabled = True
+            sim.scheduler = probe.scheduler(sim,i,schedule_rng,epsilon)
         sim.window_index = i
         sim.collection_step = gs if online else 0
         served = np.array([r.served for r in sim.resources])
@@ -222,6 +227,8 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
         row.update(request_metrics(requests, row['end']+env.tail, env.failure_penalty))
         raw = -(env.cost['delay_weight'] * (row['e2e_penalized'] or 0.) + row['holding_cost'] + row['switch_cost'])
         row.update(reward_raw=raw, reward_net=raw, score_deadline=row['end']+env.tail)
+    if probe is not None:
+        probe.capture(sim,cohort)
     return rows, credit, sim.transitions
 
 

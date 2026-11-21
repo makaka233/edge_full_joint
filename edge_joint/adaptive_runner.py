@@ -11,6 +11,7 @@ import numpy as np
 import torch
 
 from edge_d.physical import hasharr
+from edge_d.placement import decode
 from edge_d.world import LoadAwareHeuristic, make_world, stable_seed
 from edge_joint.inventory_joint import load_scale, recover_ledgers, replay_snapshot, restore_replay
 
@@ -22,6 +23,7 @@ from .adaptive_storage import append, atomic, line, publish, random_state, resto
 FIXED = (19001, 19002)
 HOLDOUT = (19101, 19102, 19103)
 FORM = 2
+SPIKE_POINTS = {20261113:1308, 20261114:7}
 
 
 def read_checkpoint(path):
@@ -265,6 +267,143 @@ def baseline(out, seed, *, fixed_only=False):
             print(f'Baseline scene={scene} pressure={pressure} matched across {len(arms)} arms',flush=True)
 
     atomic(path,write)
+    print(path.resolve(),flush=True)
+
+
+class SpikeProbe:
+    """Trace scheduling and service components for one focal business period."""
+    def __init__(self, period, previous_scheduler, focal_scheduler, greedy):
+        self.period = period
+        self.previous_scheduler = previous_scheduler
+        self.focal_scheduler = focal_scheduler
+        self.greedy = greedy
+        self.actions = []
+
+    def scheduler(self, sim, index, rng, epsilon):
+        if index != self.period:
+            return self.previous_scheduler.scheduler(rng,epsilon)
+        epsilon = 0. if self.greedy else epsilon
+        draw = None
+
+        class ObservedRng:
+            def random(self):
+                nonlocal draw
+                draw = float(rng.random())
+                return draw
+
+            def choice(self, values):
+                return rng.choice(values)
+
+        select = self.focal_scheduler.scheduler(ObservedRng(),epsilon)
+
+        def trace(obs, mask):
+            nonlocal draw
+            draw = None
+            action = select(obs,mask)
+            legal = np.flatnonzero(mask)
+            self.actions.append(dict(time=sim.now, stage=int(round(float(obs[0,11])*(sim.c.k-1))),
+                                     action=action, legal=legal.tolist(), epsilon=epsilon, draw=draw,
+                                     exploratory=None if draw is None else draw<epsilon,
+                                     node_cpu_work=float(obs[action,2])*20.,
+                                     node_path_time=float(obs[action,5])))
+            return action
+
+        return trace
+
+    def capture(self, sim, cohorts):
+        self.requests = []
+        for request in cohorts[self.period]:
+            stages = {}
+            for index,event,time_s,node in request.trace:
+                stage = stages.setdefault(index,dict(node=node))
+                stage[event] = time_s
+            self.requests.append(dict(id=request.id, arrival=request.arrival.time,
+                                      service=request.arrival.service, access=request.arrival.access,
+                                      first_ready=request.first_ready, finish=request.finish,
+                                      stages=list(stages.values())))
+
+
+@torch.no_grad()
+def diagnose_spike(out, seed):
+    """Paired interventions after a shared prelude, including exact GS7 replay."""
+    gs = SPIKE_POINTS[seed]
+    manifest = json.loads((out/'manifest.json').read_text(encoding='utf8'))
+    cfg = Config(**manifest['config'])
+    if (cfg.seed!=seed or cfg.macro_mode!='redeploy' or manifest['origin']['kind']!='random'
+            or manifest['deployment_model']!=DEPLOYMENT_MODEL):
+        raise ValueError('Spike diagnosis requires the original from-zero instantaneous REDEPLOY run')
+    index,period = divmod(gs-1,cfg.periods)
+    with (out/'train.jsonl').open(encoding='utf8') as file:
+        history = [json.loads(line) for line in islice(file,index*cfg.periods,(index+1)*cfg.periods)]
+    focal = history[period]
+    scene = focal['scene']
+    env = make_world(seed,scene)
+    if (focal['gs']!=gs or [r['period'] for r in history]!=list(range(1,cfg.periods+1))
+            or len({r['scene'] for r in history})!=1):
+        raise ValueError('Missing original episode for spike diagnosis')
+
+    def matrix(field):
+        return np.unpackbits(np.frombuffer(bytes.fromhex(field),dtype=np.uint8),
+                             count=env.K*env.N).reshape(env.K,env.N).astype(bool)
+
+    placements = [matrix(r['active_matrix']) for r in history]
+    for _ in range(period):
+        env.w.advance()
+    env.w.t = focal['start']
+    env.old = matrix(focal['old_matrix'])
+    rng_seed = stable_seed('EXP019',seed,'train',scene,period,'decode')
+    draw = np.asarray(focal['d_latent'],dtype=np.float32)
+    mean = np.asarray(focal['d_mean'],dtype=np.float32)
+    if not np.array_equal(decode(env,draw,rng_seed,True).matrix,placements[period]):
+        raise AssertionError('Historical deployment did not reproduce')
+    d,initial_s,_,_,gate,_ = components(cfg)
+    d_best,s_best,s_last = deepcopy(d),deepcopy(initial_s),deepcopy(initial_s)
+    best,last = (read_checkpoint(out/name) for name in ('best.pt','last.pt'))
+    load_model(best,d_best,s_best,gate)
+    s_last.online.load_state_dict(last['s_online'])
+    frozen_d = d_best(env).numpy()
+    exact_initial = focal['s_policy_version']==0
+    base_s = initial_s if exact_initial else s_last
+    heuristic = LoadAwareHeuristic()
+    arms = (
+        ('recorded_explore',draw,base_s,False),
+        ('recorded_greedy',draw,base_s,True),
+        ('recorded_best_greedy',draw,s_best,True),
+        ('recorded_heuristic',draw,heuristic,True),
+        ('mean_explore',mean,base_s,False),
+        ('mean_heuristic',mean,heuristic,True),
+        ('best_d_mean_greedy',frozen_d,s_best,True),
+        ('best_d_sample_greedy',frozen_d+(draw-mean),s_best,True),
+        ('best_d_mean_explore',frozen_d,s_best,False),
+        ('best_d_sample_explore',frozen_d+(draw-mean),s_best,False),
+    )
+    data = dict(gs=gs, source_history=manifest['source_history'], evaluation_source=source(),
+                base_s_gs=0 if exact_initial else last['episode']*cfg.periods,
+                best_gs=best['episode']*cfg.periods, historical=history, arms={})
+    prelude = None
+    for label,latent,focal_s,greedy in arms:
+        layouts = placements.copy()
+        layouts[period] = decode(env,latent,rng_seed,True).matrix
+        probe = SpikeProbe(period,base_s,focal_s,greedy)
+        ledger = episode(cfg,make_world(seed,scene),d,base_s,gate,scene,'train',index+1,
+                         recorded_matrices=layouts,probe=probe)[0]
+        if any(a['trace_sha256'] != b['trace_sha256'] for a,b in zip(ledger,history,strict=True)):
+            raise AssertionError('Spike diagnostic received different request streams')
+        state = [(r['backlog_in'],r['dispatched_in'],r['old_matrix']) for r in ledger[:period+1]]
+        if prelude is None:
+            prelude = state
+        elif state != prelude:
+            raise AssertionError('Spike diagnostic arms do not share the same focal state')
+        equivalent = all(a[k]==b[k] for a,b in zip(ledger,history,strict=True)
+                         for k in ('reward_raw','penalized_delays','backlog_in','backlog_out','s_decisions',
+                                   'active_matrix','cpu','wired'))
+        if label=='recorded_explore' and exact_initial and not equivalent:
+            raise AssertionError('Initial S diagnostic did not reproduce historical physical results')
+        data['arms'][label] = dict(history_exact=equivalent, focal_d_latent=latent.tolist(),
+                                 epsilon=0. if greedy else focal['epsilon'], ledger=ledger,
+                                 actions=probe.actions, requests=probe.requests)
+    path = out/f'spike.gs{gs}.json'
+    atomic(path,lambda file:file.write(line(data)))
     print(path.resolve(),flush=True)
 
 

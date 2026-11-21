@@ -37,7 +37,7 @@ def run(parser, args):
             args.eval_every<1 or not 1<=args.s_batch<=25000):
         parser.error('Invalid adaptive training parameters')
     if (args.action!='train' and args.resume) or (
-            args.action in ('evaluate','baseline','spike-audit','d-sampling') and args.init_checkpoint):
+            args.action in ('evaluate','baseline','spike-audit','d-sampling','d-randomness') and args.init_checkpoint):
         parser.error('Invalid adaptive checkpoint flags for this action')
     if args.action!='train' and args.macro_mode!='learned':
         parser.error('--macro-mode is a training setting. Evaluation reads it from the run.')

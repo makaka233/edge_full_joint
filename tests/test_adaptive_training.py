@@ -4,6 +4,7 @@ from copy import deepcopy
 from itertools import product
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -15,6 +16,7 @@ from edge_d.placement import PlacementPolicy, decode
 from edge_d.world import make_world
 from edge_joint.adaptive_training import (
     D_KL_LIMIT, Config, components, credit_targets, deployment_adam_step, episode, gaussian_mean_kl,
+    scheduling_update_record,
 )
 from edge_joint.adaptive_physics import PeriodSimulator, capacity_ok, solo_delay_bounds
 from edge_joint.adaptive_runner import evaluate, train
@@ -25,6 +27,22 @@ from edge_s.agent import QUANTILES, QuantileSchedulingAgent, SchedulingAgent, qu
 class ContinuousDeploymentTests(unittest.TestCase):
     def setUp(self):
         torch.set_num_threads(1)
+
+    def test_s_update_log_separates_physical_latency_from_censor_penalty(self):
+        batch = [
+            SimpleNamespace(collection_step=1,reward=-1.,stage_timing=(.1,False)),
+            SimpleNamespace(collection_step=2,reward=-3.,stage_timing=(.3,False)),
+            SimpleNamespace(collection_step=3,reward=-105.,stage_timing=(.5,True)),
+            SimpleNamespace(collection_step=4,reward=-2.),
+        ]
+        logged = scheduling_update_record(batch,{'s_loss':.2},1,8,1,0)
+        self.assertEqual(logged['reward_mean'],-27.75)
+        self.assertAlmostEqual(logged['stage_delay_mean_s'],.2)
+        self.assertAlmostEqual(logged['stage_delay_p95_s'],.29)
+        self.assertEqual(logged['stage_observed_age_mean_s'],.5)
+        self.assertEqual((logged['stage_completed'],logged['stage_unfinished'],logged['stage_timing_unknown']),
+                         (2,1,1))
+        self.assertIsNone(scheduling_update_record(batch[-2:],{'s_loss':.2},1,8,1,0)['stage_delay_mean_s'])
 
     def test_deployment_kl_backtracking_commits_one_consistent_adam_step(self):
         torch.testing.assert_close(
@@ -80,7 +98,8 @@ class ContinuousDeploymentTests(unittest.TestCase):
             self.assertEqual((a_rng[0],a_rng[2:]),(b_rng[0],b_rng[2:]))
             torch.testing.assert_close(a_rng[1],b_rng[1],rtol=0.,atol=0.)
             self.assertEqual((right['d_updates'],right['s']['updates']),(2,4))
-            for filename,omitted in (('updates.jsonl',set()),('train.jsonl',{'wall_seconds','episode_wall_seconds'})):
+            for filename,omitted in (('updates.jsonl',set()),('s_updates.jsonl',set()),
+                                     ('train.jsonl',{'wall_seconds','episode_wall_seconds'})):
                 records = [list(map(json.loads,(p/filename).read_text().splitlines())) for p in (a,b)]
                 for one,two in zip(*records,strict=True):
                     self.assertEqual({k:v for k,v in one.items() if k not in omitted},
@@ -340,8 +359,17 @@ class ContinuousDeploymentTests(unittest.TestCase):
             train(cfg, b, 1)
             with (b/'train.jsonl').open('ab') as file:
                 file.write(b'{interrupted}\n')
+            with (b/'s_updates.jsonl').open('ab') as file:
+                file.write(b'{interrupted}\n')
             train(cfg, b, 2, resume=True)
             self.assertTrue(list(base.glob('resumed.train.jsonl.interrupted-*')))
+            self.assertTrue(list(base.glob('resumed.s_updates.jsonl.interrupted-*')))
+            def load_s_log(path):
+                return list(map(json.loads,(path/'s_updates.jsonl').read_text().splitlines()))
+            s_rows = load_s_log(a)
+            self.assertEqual(s_rows,load_s_log(b))
+            self.assertEqual([r['s_update'] for r in s_rows],[1,2,3,4])
+            self.assertTrue(all(r['stage_timing_unknown']==0 for r in s_rows))
             for projection in ('best.pt', 'last.pt', 'resume_latest.pt'):
                 self.assertTrue((b/projection).is_file())
             left, right = (torch.load(p/'resume_latest.pt', weights_only=True) for p in (a, b))

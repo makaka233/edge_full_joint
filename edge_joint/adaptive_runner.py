@@ -16,7 +16,7 @@ from edge_d.world import LoadAwareHeuristic, make_world, stable_seed
 from edge_joint.inventory_joint import load_scale, recover_ledgers, replay_snapshot, restore_replay
 
 from .adaptive_physics import DEPLOYMENT_MODEL, capacity_ok, solo_delay_bounds
-from .adaptive_training import Config, components, episode, load_model, model, update
+from .adaptive_training import Config, components, episode, load_model, matrix_hex, model, update
 from .adaptive_storage import append, atomic, line, publish, random_state, restore_random
 
 
@@ -84,7 +84,9 @@ def train(cfg, out, target, *, resume=False, init=None):
             raise ValueError('Resume requires the same seed and training configuration')
         if target < state['episode']:
             raise ValueError('--episodes is an absolute target and precedes the current checkpoint')
-        recover_ledgers(out, dict(offsets=state['offsets'], gs=state['episode']*cfg.periods))
+        offsets = dict(state['offsets'])
+        offsets.setdefault('s_updates.jsonl',0)
+        recover_ledgers(out, dict(offsets=offsets, gs=state['episode']*cfg.periods))
         d.load_state_dict(state['d'])
         s.load_state_dict(state['s'])
         s.actions = state['s_actions']
@@ -92,15 +94,20 @@ def train(cfg, out, target, *, resume=False, init=None):
         gate.load_state_dict(state['gate'])
         gate_opt.load_state_dict(state['gate_optimizer'])
         restore_replay(replay, state['replay'])
+        if 'stage_timings' in state['replay']:
+            for transition,timing in zip(replay.data,state['replay']['stage_timings'],strict=True):
+                if timing is not None:
+                    transition.stage_timing = timing
         restore_random(state['rng'])
         index, d_updates, best = state['episode'], state['d_updates'], state['best']
-        origin, offsets, wall = state['origin'], state['offsets'], state['wall_seconds']
+        origin, wall = state['origin'], state['wall_seconds']
         history = state.get('source_history', [])
     else:
-        if any((out / name).exists() for name in ('resume_latest.pt', 'train.jsonl', 'fixed.jsonl', 'updates.jsonl')):
+        if any((out / name).exists() for name in ('resume_latest.pt', 'train.jsonl', 'fixed.jsonl',
+                                                  'updates.jsonl', 's_updates.jsonl')):
             raise ValueError('Existing run evidence found. Use --resume or choose a fresh prefix.')
         index, d_updates, wall = 0, 0, 0.
-        offsets = dict.fromkeys(('train.jsonl', 'updates.jsonl', 'fixed.jsonl'), 0)
+        offsets = dict.fromkeys(('train.jsonl', 'updates.jsonl', 'fixed.jsonl', 's_updates.jsonl'), 0)
         origin = seed_weights(init, cfg, d, s) if init is not None else dict(kind='random')
         best = None
         history = []
@@ -116,8 +123,10 @@ def train(cfg, out, target, *, resume=False, init=None):
             score = float(np.mean([r['reward_net'] for r in rows]))
             if best is None or score > best['fixed_reward_net']:
                 best = deepcopy(dict(fixed_reward_net=score, **current))
+        replay_state = replay_snapshot(replay)
+        replay_state['stage_timings'] = [getattr(t,'stage_timing',None) for t in replay.data]
         full = dict(**current, s=s.state_dict(), s_actions=s.actions, d_optimizer=opt.state_dict(),
-                    gate_optimizer=gate_opt.state_dict(), replay=replay_snapshot(replay), d_updates=d_updates,
+                    gate_optimizer=gate_opt.state_dict(), replay=replay_state, d_updates=d_updates,
                     rng=random_state(), best=best, offsets=offsets, wall_seconds=elapsed, source_history=history)
         publish(resume_path, full)
         publish(out/'last.pt', current)
@@ -139,10 +148,14 @@ def train(cfg, out, target, *, resume=False, init=None):
     for index in range(index+1, target+1):
         scene = stable_seed('EXP019', cfg.seed, 'train-scene', index)
         ledger, credit, transitions = episode(cfg, make_world(cfg.seed, scene), d, s, gate, scene, 'train', index)
-        change = update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, index, d_updates)
+        s_update_rows = []
+        change = update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, index, d_updates,
+                        s_update_rows=s_update_rows)
         d_updates = change['d_updates']
         offsets['train.jsonl'] = append(out/'train.jsonl', ledger)
         offsets['updates.jsonl'] = append(out/'updates.jsonl', [change])
+        if s_update_rows:
+            offsets['s_updates.jsonl'] = append(out/'s_updates.jsonl',s_update_rows)
         snapshot(index % cfg.eval_every == 0 or index == target, wall+time.perf_counter()-start)
         print(f'episode={index}/{target} gs={change["gs"]} D_updates={d_updates} S_updates={s.updates} '
               f'net_reward={np.mean([r["reward_net"] for r in ledger]):.6f}', flush=True)
@@ -545,7 +558,6 @@ def diagnose_deployment_randomness(historical, control, evidence, seed):
             mean = d(context).numpy()
             fixed_seed = stable_seed('EXP019',seed,split,scene,periods-1,'decode')
             reference = decode(context,mean,fixed_seed,True).matrix
-            matrix_hex = lambda a: np.packbits(a).tobytes().hex()
             if split=='holdout' and matrix_hex(reference)!=focal['active_matrix']:
                 raise AssertionError('Mean deployment does not reproduce the saved Holdout target')
             stage_work = context.w.node_demand().sum(0)[context.w.stage_service]*context.w.stages[:,0]

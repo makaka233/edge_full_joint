@@ -343,7 +343,24 @@ def deployment_adam_step(policy, optimizer, states, old_mean, sigma, limit=None)
                 d_kl_lr_scale=scale,d_kl_attempts=attempts,d_kl_states=len(states),d_kl_limit=limit), applied.tolist()
 
 
-def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, index, d_updates):
+def scheduling_update_record(batch, metrics, index, gs, update_number, version):
+    rewards = np.asarray([t.reward for t in batch],dtype=float)
+    timings = [getattr(t,'stage_timing',None) for t in batch]
+    completed = np.asarray([t[0] for t in timings if t is not None and not t[1]],dtype=float)
+    unfinished = [t[0] for t in timings if t is not None and t[1]]
+    percentiles = np.quantile(completed,[.95,.99]).tolist() if completed.size else [None,None]
+    return dict(s_update=update_number,episode=index,gs=gs,s_policy_version=version,
+                batch_size=len(batch),sample_gs_min=min(int(t.collection_step) for t in batch),
+                sample_gs_max=max(int(t.collection_step) for t in batch),
+                reward_mean=float(rewards.mean()),reward_min=float(rewards.min()),reward_max=float(rewards.max()),
+                stage_delay_mean_s=float(completed.mean()) if completed.size else None,
+                stage_delay_p95_s=percentiles[0],stage_delay_p99_s=percentiles[1],
+                stage_completed=int(completed.size),stage_unfinished=len(unfinished),
+                stage_observed_age_mean_s=float(np.mean(unfinished)) if unfinished else None,
+                stage_timing_unknown=timings.count(None),s_loss=metrics['s_loss'])
+
+
+def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, index, d_updates, *, s_update_rows=None):
     learned = cfg.macro_mode == 'learned'
     d_start, s_start = parameters(d), parameters(s.online)
     gate_start = macro_parameters(gate, learned)
@@ -386,7 +403,11 @@ def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, 
         rng = np.random.default_rng(stable_seed('EXP019', cfg.seed, index, 'replay'))
         if len(replay) >= cfg.s_batch:
             for _ in range(cfg.s_updates_per_gs * cfg.periods):
-                metrics.append(s.update(replay.sample(cfg.s_batch, step, rng)))
+                batch = replay.sample(cfg.s_batch,step,rng)
+                metric = s.update(batch)
+                metrics.append(metric)
+                if s_update_rows is not None:
+                    s_update_rows.append(scheduling_update_record(batch,metric,index,step,s.updates,s.version))
             s.version += 1
     return dict(episode=index, gs=ledger[-1]['gs'], macro_mode=cfg.macro_mode,d_update=cfg.d_update,
                 macro_updates=index if learned else 0, value_updates=index, d_updates=d_updates, s_updates=s.updates,

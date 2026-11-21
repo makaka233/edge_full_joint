@@ -58,16 +58,27 @@ class PeriodSimulator(Simulator):
         self.change_deployment(target)
         return dict(status='activated', switch_cost=cost, activated_at=self.now)
 
+    def record(self, request, pending, next_obs, next_mask, terminated):
+        local = getattr(self.c,'s_local_auxiliary',False)
+        stream = self.local_transitions if local else self.transitions
+        before = len(stream)
+        super().record(request,pending,next_obs,next_mask,terminated)
+        if len(stream)>before:
+            # Physical residence from stage readiness through forwarding and execution.
+            stream[-1].stage_timing = (self.now-pending[3],False)
+
     def end_replay(self):
         """Apply original finite-cohort terminal semantics only at episode end."""
         if self.collect:
             for r in self.requests:
                 if r.finish is None and r.pending is not None:
                     obs, mask, action, ready, stage = r.pending
-                    self.transitions.append(STransition(
+                    transition = STransition(
                         obs, mask, action, -(self.now - ready + self.env.failure_penalty) / self.c.latency_ref_seconds,
                         np.zeros_like(obs), np.ones(self.c.n, bool), True, False, self.version,
-                        self.collection_step, r.id, stage, self.window_index))
+                        self.collection_step, r.id, stage, self.window_index)
+                    transition.stage_timing = (self.now-ready,True)
+                    self.transitions.append(transition)
 
     def verify(self):
         # Each live request is either uploading, in a link queue or in a CPU queue.

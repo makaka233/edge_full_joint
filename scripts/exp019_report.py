@@ -1091,6 +1091,144 @@ def sampling_figure(datasets, output):
     plt.close(fig)
 
 
+def deployment_randomness_review(render_figures):
+    from edge_joint.adaptive_runner import D_RANDOMNESS_DRAWS
+
+    directory = RESULTS.with_name('EXP021')
+    study = {}
+    for seed in (20261113,20261114):
+        raw = rows(directory/f'randomness.seed{seed}','jsonl')
+        cases = {}
+        for case in ('hotspot','natural','pressure'):
+            picked = [r for r in raw if r['case']==case]
+            arms = {name:[r for r in picked if r['arm']==name] for name in 'ABCD'}
+            if len(arms['A'])!=1 or arms['A'][0]['draw']!=0 or any(
+                    [r['draw'] for r in arms[name]]!=list(range(1,D_RANDOMNESS_DRAWS+1)) for name in 'BCD'):
+                raise ValueError('Randomness study has missing or duplicated paired draws')
+            a, = arms['A']
+            for b,c,d in zip(*(arms[k] for k in 'BCD'),strict=True):
+                if not (b['gaussian_z']==d['gaussian_z'] and
+                        c['decoder_seed']==d['decoder_seed']!=a['decoder_seed']==b['decoder_seed'] and
+                        c['latent']==a['latent'] and d['latent']==b['latent']):
+                    raise ValueError('Random factors were not crossed as registered')
+            world = make_world(seed,a['scene'],a['split'])
+            identity = ('trace_sha256','requests','backlog_in','dispatched_in','prelude','old_matrix','latent_mean')
+            reference = unpack(world,a['active_matrix'])
+            for r in picked:
+                check_period(world,r,True)
+                if (any(r[k]!=a[k] for k in identity) or r['reference_matrix']!=a['active_matrix'] or
+                        r['matrix_hamming']!=int((unpack(world,r['active_matrix'])^reference).sum())):
+                    raise ValueError('Randomness study did not hold the state and external inputs fixed')
+            def soundness(group):
+                peak = lambda resource,metric: max(q[metric] for r in group for q in r[resource])
+                pressure = max((v for r in group for v,count in zip(r['stage_ideal_pressure'],r['active_replicas'])
+                                if count==1),default=0.)
+                return dict(**aggregate(group),hamming_mean=float(np.mean([r['matrix_hamming'] for r in group])),
+                            hamming_max=max(r['matrix_hamming'] for r in group),
+                            unique=len({r['active_matrix'] for r in group}),single_stage_pressure_max=pressure,
+                            cpu_peak_util=peak('cpu','utilization'),cpu_peak_jobs=peak('cpu','peak_jobs'),
+                            cpu_pending_max=peak('cpu','work_pending'),wired_peak_util=peak('wired','utilization'),
+                            wired_peak_jobs=peak('wired','peak_jobs'),wired_pending_max=peak('wired','work_pending'))
+
+            rr = {name:np.array([r['reward_raw'] for r in group]) for name,group in arms.items()}
+            shortfall = lambda base,contrast: float(np.maximum(0.,rr[base]-rr[contrast]).mean())
+            cases[case] = dict(scene=a['scene'],period=a['period'],archived_focal_gs=a['archived_focal_gs'],
+                               offer=a['offered_cpu_load'],backlog_in=a['backlog_in'],
+                               archive_prelude_matches=a['archived_prelude_matches'],
+                               archived_focal_reward=a['archived_focal_reward'],
+                               source=a['evaluation_source'],
+                               single_gaussian=shortfall('A','B'),single_decoder=shortfall('A','C'),
+                               gaussian_with_decoder=shortfall('C','D'),decoder_with_gaussian=shortfall('B','D'),
+                               reward_interaction=float((rr['D']-rr['B']-rr['C']+rr['A']).mean()),
+                               arms={name:soundness(group) for name,group in arms.items()})
+            if render_figures:
+                cases[case]['plot'] = [[(r['reward_raw'],r['e2e_penalized'],r['p99'])
+                                       for r in arms[name]] for name in 'ABCD']
+        if len(raw)!=len(cases)*(1+3*D_RANDOMNESS_DRAWS):
+            raise ValueError('Unexpected rows in randomness diagnostics')
+        study[seed] = cases
+
+    def priority(primary,secondary):
+        all_cases = [c for cases in study.values() for c in cases.values()]
+        mean = lambda cases,key: float(np.mean([c[f'single_{key}'] for c in cases]))
+        primary_avg,secondary_avg = (mean(all_cases,k) for k in (primary,secondary))
+        wins = sum(c[f'single_{primary}']>c[f'single_{secondary}'] for c in all_cases)
+        pressure = [cases['pressure'] for cases in study.values()]
+        pressure_wins = all(c[f'single_{primary}']>c[f'single_{secondary}'] and c[f'{primary}_with_{secondary}']>0.
+                            for c in pressure)
+        seed_wins = all(mean(cases.values(),primary)>mean(cases.values(),secondary) for cases in study.values())
+        return dict(mean_shortfall=primary_avg,states_won=wins,pressure_pass=pressure_wins,both_seeds_pass=seed_wins,
+                    passes=primary_avg>=1.25*secondary_avg and wins>=4 and pressure_wins and seed_wins)
+
+    verdict = {factor:priority(factor,other) for factor,other in (('gaussian','decoder'),('decoder','gaussian'))}
+    if render_figures:
+        for seed,cases in study.items():
+            randomness_figure(seed,cases,directory/f'randomness.seed{seed}.png')
+    (directory/'randomness-review.json').write_text(
+        json.dumps(dict(verdict=verdict,seeds=study),indent=2,allow_nan=False)+'\n',encoding='utf8')
+    print(json.dumps(verdict,indent=2))
+
+
+def randomness_figure(seed,cases,path):
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
+    fig,axes = plt.subplots(3,3,figsize=(11,7),layout='constrained')
+    colors = ('#202e4b','#096c80','#93542b','#6a4390')
+    for i,(case,info) in enumerate(cases.items()):
+        values = info.pop('plot')
+        for j,(ax,label) in enumerate(zip(axes[i],('Raw Reward','Mean E2E (s)','P99 E2E (s)'),strict=True)):
+            for k,(group,color,marker) in enumerate(zip(values,colors,('D','o','s','^'),strict=True)):
+                ax.scatter(k+np.linspace(-.16,.16,len(group)) if len(group)>1 else [k],
+                           [obs[j] for obs in group],color=color,marker=marker,s=21,alpha=.83)
+            ax.set(xticks=range(4),xticklabels=list('ABCD'),xlim=(-.4,3.4))
+            if i==0:
+                ax.set_title(label)
+            if j==0:
+                ax.set_ylabel(case.title())
+            ax.grid(alpha=.2,axis='y')
+    fig.suptitle(f'EXP021 | Seed {seed} | A: mean/fixed  B: Gaussian/fixed  C: mean/random  D: Gaussian/random')
+    fig.savefig(path,dpi=113)
+    plt.close(fig)
+
+
+def scheduling_update_review(prefix, render_figures):
+    updates = rows(prefix,'s_updates.jsonl')
+    if not updates:
+        raise ValueError('This run has no recorded S optimizer updates')
+    first,last = updates[0]['s_update'],updates[-1]['s_update']
+    if [r['s_update'] for r in updates]!=list(range(first,last+1)) or any(
+            r['stage_completed']+r['stage_unfinished']+r['stage_timing_unknown']!=r['batch_size'] for r in updates):
+        raise ValueError('S optimizer update ledger does not reconcile')
+    if rows(prefix,'updates.jsonl')[-1]['s_updates']!=last:
+        raise ValueError('The S optimizer ledger ends at a different update than the training ledger')
+    print(f'{prefix.name}: {len(updates)} S optimizer steps, {first}–{last}')
+    if not render_figures:
+        return
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
+    fig,axes = plt.subplots(3,1,sharex=True,figsize=(11,7),layout='constrained')
+    for ax,group in zip(axes,(
+            ('Replay stage Reward', (('reward_mean','Batch mean'),)),
+            ('Completed stage delay (s)', (('stage_delay_mean_s','Mean'),('stage_delay_p95_s','P95'),
+                                         ('stage_delay_p99_s','P99'))),
+            ('Samples per replay batch', (('stage_unfinished','Unfinished'),('stage_timing_unknown','Unknown timing')))),
+            strict=True):
+        ylabel,series = group
+        for key,label in series:
+            ax.plot([r['s_update'] for r in updates],[r[key] for r in updates],'.',ms=1.8,label=label)
+        ax.set_ylabel(ylabel)
+        ax.legend()
+        ax.grid(alpha=.2)
+    axes[-1].set_xlabel('S optimizer update')
+    fig.suptitle(f'{prefix.name} | Per-update replay Reward and measured stage delay')
+    fig.savefig(artifact(prefix,'s_updates.png'),dpi=118)
+    plt.close(fig)
+
+
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--prefix',default=PREFIX,help='a run filename prefix within runs/results/EXP019')
@@ -1104,6 +1242,8 @@ if __name__=='__main__':
     group.add_argument('--d-sampling-review',action='store_true',help='summarize the EXP020 frozen Gaussian sample draws')
     group.add_argument('--d-sampling-trained-review',action='store_true',
                        help='compare the GS3000 EXP020 D policies under the same saved S and Gaussian draws')
+    group.add_argument('--d-randomness-review',action='store_true',help='audit the four EXP021 randomness arms')
+    group.add_argument('--s-update-review',action='store_true',help='plot the S optimizer ledger for --prefix')
     parser.add_argument('--evaluate-missing',action='store_true',
                         help='with --tail-trial or --d-kl-trial, evaluate saved models for missing holdout files')
     parser.add_argument('--baseline-gs',type=int,help='audit and plot a named frozen baseline snapshot')
@@ -1112,10 +1252,21 @@ if __name__=='__main__':
     args=parser.parse_args()
     if args.evaluate_missing and not (args.tail_trial or args.d_kl_trial):
         parser.error('--evaluate-missing requires --tail-trial or --d-kl-trial')
-    if args.spike_review or args.tail_trial or args.d_kl_trial or args.d_sampling_review or args.d_sampling_trained_review:
+    if args.s_update_review:
+        if args.prefix==PREFIX:
+            parser.error('--s-update-review requires a run --prefix')
+        prefix = Path(args.prefix).resolve()
+        if prefix.parent not in {RESULTS.with_name(name).resolve() for name in ('EXP019','EXP020','EXP021')}:
+            parser.error('The S optimizer ledger must be under runs/results/EXP019, EXP020, or EXP021')
+        scheduling_update_review(prefix,not args.no_figures)
+        raise SystemExit(0)
+    if (args.spike_review or args.tail_trial or args.d_kl_trial or args.d_sampling_review
+            or args.d_sampling_trained_review or args.d_randomness_review):
         if args.prefix!=PREFIX or args.compare or args.instant_trial or args.long_redeploy or args.baseline_gs is not None:
             parser.error('Tail-risk reviews use the protocol prefixes')
-        if args.spike_review:
+        if args.d_randomness_review:
+            deployment_randomness_review(render_figures=not args.no_figures)
+        elif args.spike_review:
             spike_review(render_figures=not args.no_figures)
         elif args.d_sampling_review or args.d_sampling_trained_review:
             sampling_review(render_figures=not args.no_figures,trained=args.d_sampling_trained_review)

@@ -201,6 +201,7 @@ def spike_case(r):
     if not np.allclose(env.w.node_demand().sum(0),r['demand_by_service']):
         raise ValueError('Recorded demand differs from reconstructed state')
     node,telemetry = max(enumerate(r['cpu']),key=lambda item:item[1]['peak_jobs'])
+    loaded_node,loaded_cpu = max(enumerate(r['cpu']),key=lambda item:item[1]['utilization'])
     link,wired = max(enumerate(r['wired']),key=lambda item:item[1]['utilization'])
     src,dst,capacity = env.w.directed[link]
     return dict(
@@ -209,6 +210,7 @@ def spike_case(r):
                             'offered_cpu_load','backlog_in','backlog_out','migration_cost','switch_cost',
                             'image_hop_work_started','holding_cost') if k in r},
         replicas=sum(r['active_replicas']), cpu_node=node, cpu_trace=telemetry,
+        most_utilized_cpu=dict(node=loaded_node,**loaded_cpu),
         peak_wired_util=max(x['utilization'] for x in r['wired']),
         peak_wired_link=dict(index=link,source=src,destination=dst,**wired,
                             work_served=capacity*(r['end']-r['start'])*wired['utilization']),
@@ -402,8 +404,8 @@ def check_continuous_episode(ledger, periods, seconds):
         raise ValueError('Final incomplete request count does not match drain ledger')
 
 
-def instant_run(seed, mode):
-    prefix = RESULTS/f'instant.{mode}.seed{seed}'
+def instant_run(seed, mode, *, prefix=None):
+    prefix = prefix or RESULTS/f'instant.{mode}.seed{seed}'
     manifest = json.loads(artifact(prefix,'manifest.json').read_text(encoding='utf8'))
     state = torch.load(artifact(prefix,'resume_latest.pt'),weights_only=True,mmap=True,map_location='cpu')
     train,updates,fixed,holdout = [rows(prefix,f'{name}.jsonl') for name in ('train','updates','fixed','holdout')]
@@ -659,17 +661,101 @@ def baseline_figures(prefix, seed, gs, results):
         plt.close(fig)
 
 
+def long_redeploy(*, render_figures):
+    from edge_joint.adaptive_runner import baseline_bounds
+    from edge_joint.adaptive_training import Config
+
+    audited = {}
+    for seed in (20261113,20261114):
+        prefix = RESULTS/f'instant.redeploy.long3000.seed{seed}'
+        audit,(train,fixed,holdout) = instant_run(seed,'redeploy',prefix=prefix)
+        if audit['online_gs'] != 3000:
+            raise ValueError(f'Expected the complete GS3000 run for {seed}')
+        arms = {label:[r for r in holdout if r['model']==label] for label in INSTANT_MODELS}
+        keys = ('scene','period','trace_sha256','requests','start','end')
+        flow = [tuple(r[k] for k in keys) for r in arms['last']]
+        if any([tuple(r[k] for k in keys) for r in group]!=flow for group in arms.values()):
+            raise ValueError('Long-run Holdout arms have different requests')
+        measured = ('reward_raw','switch_cost','holding_cost','active_matrix','penalized_delays','activated_at')
+        if any(a[k]!=b[k] for a,b in zip(arms['last'],arms['redeploy'],strict=True) for k in measured):
+            raise ValueError('Forced REDEPLOY evaluation differs from the trained macro mode')
+
+        cfg = Config(**audit['manifest']['config'])
+        world = make_world(seed,0)
+        late_start = 2432
+        early,late = ([r for r in fixed if r['episode']*cfg.periods==gs] for gs in (late_start,3000))
+        fixed_pairs = [(unpack(world,a['active_matrix']),unpack(world,b['active_matrix']))
+                       for a,b in zip(early,late,strict=True)]
+        audit['late_fixed_gs'] = late_start
+        audit['late_matrix_jaccard'] = float(np.mean([(a&b).sum()/(a|b).sum() for a,b in fixed_pairs]))
+        audit['late_matrix_changed_sites'] = float(np.mean([(a^b).sum() for a,b in fixed_pairs]))
+        audit['worst_online_periods'] = [spike_case(r) for r in sorted(train,key=lambda r:r['reward_raw'])[:5]]
+        audit['online_intervals'] = {f'{a}-{b}':aggregate(train[a-1:b])
+                                     for a,b in ((1,512),(513,1024),(1025,2048),(2049,3000),(2745,3000))}
+        for label in ('best','last','keep'):
+            group = arms[label]
+            for scene in audit['manifest']['holdout_scenes']:
+                scene_rows = [r for r in group if r['scene']==scene]
+                baseline_bounds(cfg,make_world(seed,scene,'holdout'),scene,'holdout',scene_rows)
+            audit['holdout'][label].update(
+                per_period_cost={k:float(np.mean([r[k] for r in group]))
+                                 for k in ('holding_cost','switch_cost','e2e_penalized')},
+                deployment_delay_bound=distributions(group,'relaxed_e2e_deployed'),
+                deployment_reward_bound=float(np.mean([r['deployed_reward_upper'] for r in group])),
+                all_delay_bound=distributions(group,'relaxed_e2e_all'),
+                all_reward_bound=float(np.mean([r['relaxed_reward_upper'] for r in group])))
+        if render_figures:
+            figures(prefix,train,{gs//cfg.periods:m for gs,m in audit['fixed'].items()},cfg.periods)
+        audited[seed] = audit
+        print(f'Seed {seed}: audited {len(train)} online, {len(fixed)} fixed and {len(holdout)} holdout periods.')
+
+    output = RESULTS/'instant.redeploy.long3000'
+    artifact(output,'review.json').write_text(json.dumps(audited,indent=2,allow_nan=False)+'\n',encoding='utf8')
+    if render_figures:
+        long_holdout_figure(output,audited)
+
+
+def long_holdout_figure(prefix, audited):
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    fig,axs = plt.subplots(2,3,figsize=(11,6),layout='constrained')
+    arms = ('best','last','keep')
+    labels = ('Best R','Last R','Last KEEP')
+    for column,(label,metric) in enumerate((
+            ('Net Reward',lambda a:a['mean_net']),
+            ('Mean E2E (s)',lambda a:a['adjusted_e2e']['mean']),
+            ('P99 E2E (s)',lambda a:a['adjusted_e2e']['p99']))):
+        for row,(seed,r) in enumerate(audited.items()):
+            ax = axs[row,column]
+            ax.scatter(range(3),[metric(r['holdout'][arm]) for arm in arms],
+                       c=['#315d8a','#bb602e','#277755'],s=35)
+            ax.set(xticks=range(3),xticklabels=labels,ylabel=label)
+            if column==1:
+                ax.set_title(f'Seed {seed}')
+            ax.grid(alpha=.2,axis='y')
+    fig.suptitle('EXP019 GS3000 | Independent holdout | 3 matched scenarios per seed')
+    fig.savefig(artifact(prefix,'holdout.png'),dpi=113)
+    plt.close(fig)
+
+
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--prefix',default=PREFIX,help='a run filename prefix within runs/results/EXP019')
     parser.add_argument('--compare',help='filename prefix of the learned-gate reference run')
     parser.add_argument('--instant-trial',action='store_true',help='audit and plot the six instantaneous-deployment runs')
+    parser.add_argument('--long-redeploy',action='store_true',help='audit both GS3000 fixed-REDEPLOY runs')
     parser.add_argument('--baseline-gs',type=int,help='audit and plot a named frozen baseline snapshot')
     parser.add_argument('--baseline-fixed',action='store_true',help='read a fixed-only frozen baseline')
     parser.add_argument('--no-figures',action='store_true')
     args=parser.parse_args()
     if args.baseline_fixed and args.baseline_gs is None:
         parser.error('--baseline-fixed requires --baseline-gs')
+    if args.long_redeploy:
+        if args.prefix!=PREFIX or args.compare or args.instant_trial or args.baseline_gs is not None:
+            parser.error('--long-redeploy uses the two GS3000 protocol prefixes')
+        long_redeploy(render_figures=not args.no_figures)
+        raise SystemExit(0)
     if args.instant_trial:
         if args.prefix!=PREFIX or args.compare or args.baseline_gs is not None:
             parser.error('--instant-trial uses the six protocol prefixes')

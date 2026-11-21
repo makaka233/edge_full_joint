@@ -84,6 +84,7 @@ def rolling_quartiles(values):
 
 def render(group,items):
     seeds = sorted({run.seed for run,_,_ in items})
+    show_band = group != 'long-transition'
     fig,axes = plt.subplots(len(seeds),3,figsize=(12,3.1*len(seeds)+.85),squeeze=False,
                             sharex=True,sharey='col',layout='constrained')
     for i,seed in enumerate(seeds):
@@ -92,7 +93,8 @@ def render(group,items):
             ax = axes[i,j]
             for (run,gs,data),color,style in zip(members,('#205a8e','#a74b20'),('-', '--')):
                 low,center,high = rolling_quartiles(data[:,index])
-                ax.fill_between(gs,low,high,color=color,alpha=.13,linewidth=0)
+                if show_band:
+                    ax.fill_between(gs,low,high,color=color,alpha=.13,linewidth=0)
                 ax.plot(gs,center,color=color,linestyle=style,linewidth=1.65,label=run.label)
             ax.set_title(f'{name} · 种子 {seed}')
             ax.grid(alpha=.22)
@@ -100,7 +102,10 @@ def render(group,items):
                 ax.set_xlabel('在线物理提交（GS）')
             if j==0:
                 ax.legend(loc='best',fontsize=9)
-    fig.suptitle(f'{TITLES[group]}\n实线与虚线为 64 GS 滚动中位数，色带为 P25–P75')
+    subtitle = '实线与虚线为 64 GS 滚动中位数'
+    if show_band:
+        subtitle += '，色带为 P25–P75'
+    fig.suptitle(f'{TITLES[group]}\n{subtitle}')
     plot = OUTPUT/f'trend.{group}.png'
     fig.savefig(plot,dpi=125)
     plt.close(fig)

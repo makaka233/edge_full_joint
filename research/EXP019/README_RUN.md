@@ -24,19 +24,12 @@ python -m edge_d.cli adaptive train --seed 20261113 --macro-mode redeploy --s-al
 独立评价先运行三场自然 Holdout，再运行四个从未参与训练和选模的持续压力场景。19301/19302 每期保持全网 CPU 提供负载 0.55，19303/19304 为 0.70，用原需求过程演化区域和服务组成。所有比较共享请求流。持续压力只用于独立评价。
 
 ```powershell
-foreach ($seed in 20261113, 20261114) {
-    foreach ($algo in 'ddqn', 'quantile') {
-        $prefix = ".\runs\results\EXP019\instant.tail.$algo.seed$seed"
-        python -m edge_d.cli adaptive evaluate --seed $seed --prefix $prefix
-        if ($LASTEXITCODE -ne 0) { throw "Natural Holdout failed for $algo / $seed" }
-        python -m edge_d.cli adaptive evaluate --seed $seed --prefix $prefix --sustained
-        if ($LASTEXITCODE -ne 0) { throw "Sustained Holdout failed for $algo / $seed" }
-    }
-}
-python -m scripts.exp019_report --tail-trial
+python -m scripts.exp019_report --tail-trial --evaluate-missing
 ```
 
-报告入口对账真实训练提交、同流、部署、截尾、最差 1%/5% 并生成完整原始图。结果统一位于 `runs/results/EXP019/`，使用 `instant.tail.*` 前缀。已有长训权重和日志仍使用原前缀。请在训练和评价完成后明确告知 Codex 进行离线审核。
+此命令检查四组训练均已完成，只运行缺失的独立评价，显示当前模型和场景，最后生成报告。中断后再次执行同一行，已完整写出的评价文件会被跳过，未写完的该套评价从头计算。已有全部评价时，`python -m scripts.exp019_report --tail-trial` 只离线复算和绘图。
+
+报告入口对账真实训练提交、同流、部署、截尾、最差 1%/5% 并生成完整原始图。结果统一位于 `runs/results/EXP019/`，使用 `instant.tail.*` 前缀。请在训练和评价完成后明确告知 Codex 进行离线审核。
 
 如需重做两个历史诊断，只运行以下冻结入口。它读取已有长训文件，写入单独的 `.spike.gs*.json`。
 

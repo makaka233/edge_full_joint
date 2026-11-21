@@ -159,17 +159,18 @@ def evaluate(out, seed, *, sustained=False):
         raise ValueError('The evaluation prefix belongs to another seed')
     if state['best'] is None:
         raise ValueError('Resume training to complete the initial fixed evaluation')
-    repair_projections(out, state)
     cfg = Config(**state['config'])
     d, s, _, _, gate, _ = components(cfg)
     scenarios = SUSTAINED if sustained else tuple((scene,None) for scene in HOLDOUT)
+    suite = 'Sustained holdout' if sustained else 'Natural holdout'
+
     def write(file):
         flows = {}
-        for label, filename, mode in (('best','best.pt',cfg.macro_mode), ('last','last.pt',cfg.macro_mode),
-                                      ('keep','last.pt','keep'), ('redeploy','last.pt','redeploy')):
-            current = torch.load(out/filename, weights_only=True, map_location='cpu')
+        for label,current,mode in (('best',state['best'],cfg.macro_mode), ('last',state,cfg.macro_mode),
+                                   ('keep',state,'keep'), ('redeploy',state,'redeploy')):
             load_model(current, d, s, gate)
             for scene,load in scenarios:
+                print(f'{suite}: seed={seed} model={label} scene={scene}',flush=True)
                 rows = episode(cfg, make_world(cfg.seed, scene, 'holdout'), d, s, gate,
                                scene, 'holdout', current['episode'], mode,offered_load=load)[0]
                 trace = tuple(r['trace_sha256'] for r in rows)

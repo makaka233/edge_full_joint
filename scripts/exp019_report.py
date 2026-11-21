@@ -1,4 +1,4 @@
-"""Audit recorded EXP019 trajectories without running the simulator."""
+"""Audit EXP019 trajectories and optionally fill missing held-out evaluations."""
 import argparse
 from collections import Counter, defaultdict
 import csv
@@ -822,9 +822,56 @@ def spike_review_figure(path, audit):
     plt.close(fig)
 
 
-def tail_trial(*, render_figures):
+def prepare_tail_trial(runs, *, evaluate_missing):
+    from edge_joint.adaptive_runner import evaluate, read_checkpoint
+    from edge_joint.adaptive_storage import RunFiles, run_lock
+
+    def present(path):
+        return path.is_file() and path.stat().st_size>0
+
+    training_names = ('manifest.json','resume_latest.pt','best.pt','last.pt','train.jsonl','fixed.jsonl','updates.jsonl')
+    training_missing = [artifact(prefix,name).name for _,_,prefix in runs for name in training_names
+                        if not present(artifact(prefix,name))]
+    if training_missing:
+        raise SystemExit('Missing training files in runs/results/EXP019:\n  '+'\n  '.join(training_missing))
+
+    suites = (('holdout.jsonl',False),('holdout-sustained.jsonl',True))
+    pending = [(seed,prefix,suffix,sustained) for seed,_,prefix in runs for suffix,sustained in suites
+               if not present(artifact(prefix,suffix))]
+    if not pending:
+        return
+    if not evaluate_missing:
+        names = '\n  '.join(artifact(prefix,suffix).name for _,prefix,suffix,_ in pending)
+        raise SystemExit(f'Missing evaluation files in runs/results/EXP019:\n  {names}\n'
+                         'To evaluate the saved models and build the report, run on a new line:\n'
+                         '  python -m scripts.exp019_report --tail-trial --evaluate-missing')
+
+    for seed,algorithm,prefix in runs:
+        state = read_checkpoint(artifact(prefix,'resume_latest.pt'))
+        config = state['config']
+        if (config['seed']!=seed or config.get('s_algorithm')!=algorithm or config['macro_mode']!='redeploy'
+                or state['episode']*config['periods']!=128 or state['best'] is None):
+            raise SystemExit(f'{prefix.name}: expected a completed 128-GS tail-trial checkpoint')
+        del state
+    torch.set_num_threads(1)
+    try:
+        for seed,prefix,suffix,sustained in pending:
+            out = RunFiles(prefix)
+            with run_lock(out):
+                if not present(out/suffix):
+                    print(f'Evaluating {prefix.name}.{suffix}',flush=True)
+                    evaluate(out,seed,sustained=sustained)
+    except KeyboardInterrupt:
+        print('Evaluation interrupted. Re-run the same command to finish the missing suites.',flush=True)
+        raise SystemExit(130) from None
+
+
+def tail_trial(*, render_figures, evaluate_missing=False):
     from edge_joint.adaptive_runner import SUSTAINED
 
+    runs = [(seed,algorithm,RESULTS/f'instant.tail.{algorithm}.seed{seed}')
+            for seed in (20261113,20261114) for algorithm in ('ddqn','quantile')]
+    prepare_tail_trial(runs,evaluate_missing=evaluate_missing)
     result = {}
     for seed in (20261113,20261114):
         pair = {}
@@ -912,15 +959,21 @@ if __name__=='__main__':
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--spike-review',action='store_true',help='summarize the two frozen historical spike diagnostics')
     group.add_argument('--tail-trial',action='store_true',help='audit the four predeclared 128-GS tail-risk runs')
+    parser.add_argument('--evaluate-missing',action='store_true',
+                        help='with --tail-trial, evaluate saved models for missing holdout files before reporting')
     parser.add_argument('--baseline-gs',type=int,help='audit and plot a named frozen baseline snapshot')
     parser.add_argument('--baseline-fixed',action='store_true',help='read a fixed-only frozen baseline')
     parser.add_argument('--no-figures',action='store_true')
     args=parser.parse_args()
+    if args.evaluate_missing and not args.tail_trial:
+        parser.error('--evaluate-missing requires --tail-trial')
     if args.spike_review or args.tail_trial:
         if args.prefix!=PREFIX or args.compare or args.instant_trial or args.long_redeploy or args.baseline_gs is not None:
             parser.error('Tail-risk reviews use the protocol prefixes')
-        review = spike_review if args.spike_review else tail_trial
-        review(render_figures=not args.no_figures)
+        if args.spike_review:
+            spike_review(render_figures=not args.no_figures)
+        else:
+            tail_trial(render_figures=not args.no_figures,evaluate_missing=args.evaluate_missing)
         raise SystemExit(0)
     if args.baseline_fixed and args.baseline_gs is None:
         parser.error('--baseline-fixed requires --baseline-gs')

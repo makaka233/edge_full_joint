@@ -4,6 +4,7 @@ from itertools import product
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 import torch
@@ -102,7 +103,9 @@ class ContinuousDeploymentTests(unittest.TestCase):
             self.assertEqual((state['episode'],state['s']['updates'],state['d_updates']), (2,4,2))
             self.assertTrue(all(r['s_change']>0 and r['d_change']>0 and np.isfinite(r['s_loss']) for r in updates))
             self.assertTrue(torch.count_nonzero(state['s_online']['value_offset.weight']))
+            projections = {name:(run/name).stat().st_mtime_ns for name in ('best.pt','last.pt')}
             evaluate(run,cfg.seed,sustained=True)
+            self.assertEqual(projections,{name:(run/name).stat().st_mtime_ns for name in projections})
             heldout = list(map(json.loads,(run/'holdout-sustained.jsonl').read_text().splitlines()))
             self.assertEqual(len(heldout),32)
             self.assertEqual({r['offered_cpu_target'] for r in heldout},{.55,.70})
@@ -115,6 +118,26 @@ class ContinuousDeploymentTests(unittest.TestCase):
         for row in rows:
             self.assertAlmostEqual(row['offered_cpu_load'],.55)
             self.assertEqual(row['epsilon'],0.)
+
+    def test_tail_report_only_evaluates_missing_suites_on_request(self):
+        from scripts.exp019_report import prepare_tail_trial
+
+        with tempfile.TemporaryDirectory(prefix='exp019-report-test-') as directory:
+            run = RunFiles(Path(directory)/'instant.tail.ddqn.seed20261113')
+            for name in ('manifest.json','resume_latest.pt','best.pt','last.pt','train.jsonl',
+                         'fixed.jsonl','updates.jsonl','holdout.jsonl'):
+                (run/name).write_bytes(b'fixture')
+            runs = [(20261113,'ddqn',run.prefix)]
+            state = dict(config=dict(seed=20261113,s_algorithm='ddqn',macro_mode='redeploy',periods=8),
+                         episode=16,best={})
+            with patch('edge_joint.adaptive_runner.read_checkpoint',return_value=state), \
+                    patch('edge_joint.adaptive_runner.evaluate') as evaluate_missing:
+                with self.assertRaisesRegex(SystemExit,'holdout-sustained.jsonl'):
+                    prepare_tail_trial(runs,evaluate_missing=False)
+                evaluate_missing.assert_not_called()
+                prepare_tail_trial(runs,evaluate_missing=True)
+                evaluate_missing.assert_called_once_with(run,20261113,sustained=True)
+            self.assertEqual((run/'holdout.jsonl').read_bytes(),b'fixture')
 
     def test_legal_matrices_switch_both_directions_despite_infeasible_union(self):
         env = make_world(20261113, 0, 'fixed')

@@ -40,18 +40,22 @@ class ContinuousDeploymentTests(unittest.TestCase):
                                           '--episodes', str(episodes), *options])
                 return adaptive_cli.run(parser, args)
 
-            with patch.object(adaptive_cli, '__file__', str(root/'edge_joint/adaptive_cli.py')), redirect_stdout(StringIO()):
+            with patch.object(adaptive_cli, '__file__', str(root/'edge_joint/adaptive_cli.py')), redirect_stdout(StringIO()) as stdout:
                 first = RunFiles(prefix.with_name(f'{prefix.name}.seed{seeds[0]}'))
                 self.assertEqual(run('train', ['--seed', seeds[0]], first.prefix, 1, *training), 0)
                 previous = (first/'manifest.json').read_bytes()
                 selector = ['--seeds', *seeds]
-                self.assertEqual(run('train', selector, prefix, 1, *training, '--resume'), 0)
+                self.assertEqual(run('train', selector, prefix, 1, *training, '--resume', '--evaluate-after'), 0)
                 self.assertEqual((first/'manifest.json').read_bytes(), previous)
+                messages = stdout.getvalue().splitlines()
+                last = prefix.with_name(f'{prefix.name}.seed{seeds[-1]}').resolve()
+                first_evaluation = f'evaluate: seed={seeds[0]} prefix={first.prefix.resolve()}'
+                self.assertLess(messages.index(str(last)), messages.index(first_evaluation))
+                holdout = (first/'holdout.jsonl').read_bytes()
                 with redirect_stderr(StringIO()) as stderr:
                     self.assertEqual(run('evaluate', selector, prefix, 2), 1)
                 self.assertIn('expected 2 completed episodes', stderr.getvalue())
-                self.assertFalse((first/'holdout.jsonl').exists())
-                self.assertEqual(run('evaluate', selector, prefix, 1), 0)
+                self.assertEqual((first/'holdout.jsonl').read_bytes(), holdout)
                 for seed in seeds:
                     out = RunFiles(prefix.with_name(f'{prefix.name}.seed{seed}'))
                     manifest = json.loads((out/'manifest.json').read_text(encoding='utf8'))

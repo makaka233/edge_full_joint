@@ -1,20 +1,16 @@
 # EXP019 瞬时矩阵切换运行指南
 
-## 五种子各 10000 GS
+## 五种子各 5000 GS，训练后自动评估
 
-在项目根目录执行下列命令。五个种子依次运行，各从随机参数初始化。每个种子训练 1250 个 episode，每个 episode 包含 8 个 24 秒业务期。固定验证每 8 个 episode 进行一次，并在 GS10000 再评价一次。
-
-```powershell
-python -m edge_d.cli adaptive train --seeds 20261113 20261114 20261115 20261116 20261117 --macro-mode redeploy --episodes 1250 --periods 8 --period-seconds 24 --eval-every 8 --prefix ".\runs\results\EXP019\instant.redeploy.long10000"
-```
-
-中断后在同一训练指令末尾追加 `--resume`。批量恢复会跳过已完成的种子，从已有检查点继续未完的种子，并以随机初始化启动尚未开始的种子。训练后用一条命令评价所有种子的 `best` 和 `last`，以及相同 `last` 权重的固定动作对照。检查点必须达到 1250 个 episode。
+在项目根目录执行下列命令。五个种子依次运行，各从随机参数初始化。每个种子训练 625 个 episode，每个 episode 包含 8 个 24 秒业务期。固定验证每 8 个 episode 进行一次，并在 GS5000 再评价一次。全部训练达到目标后，同一条命令继续评估每个种子的 `best`、`last` 及同权重固定动作对照。
 
 ```powershell
-python -m edge_d.cli adaptive evaluate --seeds 20261113 20261114 20261115 20261116 20261117 --episodes 1250 --prefix ".\runs\results\EXP019\instant.redeploy.long10000"
+python -m edge_d.cli adaptive train --seeds 20261113 20261114 20261115 20261116 20261117 --macro-mode redeploy --episodes 625 --periods 8 --period-seconds 24 --eval-every 8 --evaluate-after --prefix ".\runs\results\EXP019\instant.redeploy.long5000"
 ```
 
-日志、模型和独立自然负载评价均位于 `runs/results/EXP019/`，按 `instant.redeploy.long10000.seed<seed>` 前缀区分。
+中断后在同一指令末尾追加 `--resume`。批量恢复会跳过已完成的训练，从已有检查点继续未完的种子，并以随机初始化启动尚未开始的种子。所有种子达到目标后，独立评估从第一个种子开始执行。
+
+日志、模型和独立自然负载评价均位于 `runs/results/EXP019/`，按 `instant.redeploy.long5000.seed<seed>` 前缀区分。
 
 ## 双种子固定 REDEPLOY 基线
 

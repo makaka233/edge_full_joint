@@ -16,6 +16,8 @@ def add_arguments(parser):
     parser.add_argument('--periods', type=int, default=8, help='periods per continuous episode')
     parser.add_argument('--period-seconds', type=float, default=24.)
     parser.add_argument('--eval-every', type=int, default=16, help='fixed validation interval in episodes')
+    parser.add_argument('--evaluate-after', action='store_true',
+                        help='run independent evaluation after all requested training runs reach the target')
     parser.add_argument('--s-batch', type=int, default=128, help='original DDQN replay minibatch size')
     parser.add_argument('--macro-mode', choices=('learned', 'keep', 'redeploy'), default='learned',
                         help='train the gate or fix the action at eligible periods')
@@ -43,6 +45,8 @@ def run(parser, args):
     if (args.action!='train' and args.resume) or (
             args.action in ('evaluate','baseline') and args.init_checkpoint):
         parser.error('Invalid adaptive checkpoint flags for this action')
+    if args.evaluate_after and args.action != 'train':
+        parser.error('--evaluate-after is only used with train.')
     if args.action!='train' and args.macro_mode!='learned':
         parser.error('--macro-mode is a training setting. Evaluation reads it from the run.')
     if args.fixed_only and args.action!='baseline':
@@ -78,16 +82,19 @@ def run(parser, args):
                     'Start a fresh run with train and no --resume. '
                     'For evaluation or resume pass the same --prefix as the training run.')
     torch.set_num_threads(1)
-    for seed, out in zip(seeds, runs, strict=True):
-        if batch:
-            print(f'{args.action}: seed={seed} prefix={out.prefix}', flush=True)
-        code = run_one(args, seed, out, target, RunFiles(original) if original is not None else None)
-        if code:
-            return code
+    source = RunFiles(original) if original is not None else None
+    actions = (args.action, 'evaluate') if args.evaluate_after else (args.action,)
+    for action in actions:
+        for seed, out in zip(seeds, runs, strict=True):
+            if batch:
+                print(f'{action}: seed={seed} prefix={out.prefix}', flush=True)
+            code = run_one(args, action, seed, out, target, source)
+            if code:
+                return code
     return 0
 
 
-def run_one(args, seed, out, target, original):
+def run_one(args, action, seed, out, target, original):
     from .adaptive_runner import baseline, evaluate, replay_blocked, train, verify
     from .adaptive_storage import RunFiles, run_lock
     from .adaptive_training import Config
@@ -96,20 +103,21 @@ def run_one(args, seed, out, target, original):
                  eval_every=args.eval_every, s_batch=args.s_batch,
                  freeze_ds=args.freeze_ds, macro_mode=args.macro_mode)
     prefix = out.prefix
-    lock = RunFiles(prefix.with_name(prefix.name+'.baseline')) if args.action=='baseline' else out
+    lock = RunFiles(prefix.with_name(prefix.name+'.baseline')) if action=='baseline' else out
     try:
         with run_lock(lock):
-            if args.action=='train':
+            if action=='train':
                 resume = args.resume and (args.seeds is None or (out/'resume_latest.pt').is_file())
                 train(cfg, out, target, resume=resume, init=args.init_checkpoint)
-            elif args.action=='baseline':
+            elif action=='baseline':
                 baseline(out, seed, fixed_only=args.fixed_only)
             elif original is not None:
                 replay_blocked(seed, original, out, args.replay_gs)
-            elif args.action=='verify':
+            elif action=='verify':
                 verify(cfg, out, args.init_checkpoint)
             else:
-                evaluate(out, seed, expected_episodes=args.episodes)
+                expected = target if args.evaluate_after else args.episodes
+                evaluate(out, seed, expected_episodes=expected)
     except (Exception, KeyboardInterrupt) as error:
         message = traceback.format_exc()
         sys.stderr.write(message)

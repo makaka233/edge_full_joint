@@ -57,7 +57,7 @@ def physical(cfg, d, s, gate, scene, index, control, *, recorded=None):
     return rows
 
 
-def common(seed, sources, study, *, environment=None):
+def common(seed, sources, study, *, environment=None, suite=SUITE):
     torch.set_num_threads(1)
     frozen = study == 'frozen'
     env_seed, first_scene = (2402401, 24100) if frozen else (2402402, 24200)
@@ -71,7 +71,7 @@ def common(seed, sources, study, *, environment=None):
         models[name] = d, s, gate
     pairs = tuple(product(('best', 'last'), repeat=2)) if frozen else (('best', 'best'), ('last', 'last'))
     rows = []
-    for offset, profile, loads in SUITE:
+    for offset, profile, loads in suite:
         scene = first_scene+offset
         control = RolloutControl(environment_seed=env_seed, loads=loads)
         reference = last = None

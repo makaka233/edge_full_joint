@@ -22,12 +22,12 @@ SEEDS = (20261113, 20261116)
 STYLES = (('原始 CPU 运输','#315579','cpu'),('链路边际定价','#ac4829','link-priced'))
 
 
-def paths(tag, seed):
-    return RESULTS/f'compare.{tag}.seed{seed}.jsonl'
+def paths(tag, seed, destination=RESULTS):
+    return destination/f'compare.{tag}.seed{seed}.jsonl'
 
 
-def matching(seed, gs, tag):
-    sources = [(arm,RESULTS/f'{arm}.{tag}') for _,_,arm in STYLES]
+def matching(seed, gs, tag, destination=RESULTS):
+    sources = [(arm,destination/f'{arm}.{tag}') for _,_,arm in STYLES]
     settings = {}
     for arm, source in sources:
         for label in ('best','last'):
@@ -71,15 +71,15 @@ def paired_gate(ref, trial):
                                           np.mean([c['mean_delta_s'] for c in lasting])<0))
 
 
-def report(seeds, gs, tag):
+def report(seeds, gs, tag, *, destination=RESULTS, experiment='EXP026', suite=SUITE):
     results, gates = {}, {}
-    groups = {s:read(paths(tag,s)) for s in seeds}
+    groups = {s:read(paths(tag,s,destination)) for s in seeds}
     verify_common(groups)
     for seed in seeds:
         observations = {}
         raw = {}
         for _,_,arm in STYLES:
-            source = dict(matching(seed,gs,tag))[arm]
+            source = dict(matching(seed,gs,tag,destination))[arm]
             summary, train, fixed = formal_run(source,seed,gs)
             if raw:
                 assert_flow(raw['cpu'][0],train)
@@ -102,7 +102,7 @@ def report(seeds, gs, tag):
             summary['holdout'] = {}
             for label in ('best','last'):
                 profiles = {}
-                for _, profile, loads in SUITE:
+                for _, profile, loads in suite:
                     eligible = [r for r in groups[seed] if r['arm']==arm and r['profile']==profile
                                 and r['d_model']==r['s_model']==label]
                     if len(eligible)!=len(loads) or any(r['d_episode']!=r['s_episode'] or
@@ -116,7 +116,7 @@ def report(seeds, gs, tag):
                 summary['holdout'][label] = profiles
             observations[arm] = summary
         stages = observations['cpu']['fixed']
-        options = dict(destination=RESULTS,experiment='EXP026')
+        options = dict(destination=destination,experiment=experiment)
         trajectories(seed,np.arange(1,gs+1),{name:np.array([
             (r['reward_raw'],r['e2e_completed'],r['p95'],r['p99']) for r in raw[arm][0]])
             for name,_,arm in STYLES},'完整在线轨迹',tag,**options)
@@ -129,7 +129,7 @@ def report(seeds, gs, tag):
         results[seed],gates[seed] = observations,verdict
     passed = all(g['sustained_gain_vs_cpu'] and g['fixed_improved'] and g['updated']
                  and all(x['noninferior'] for x in g['comparisons'].values()) for g in gates.values())
-    atomic(RESULTS/f'formal.{tag}.review.json',lambda f:f.write(line(
+    atomic(destination/f'formal.{tag}.review.json',lambda f:f.write(line(
         dict(seeds=results,by_seed=gates,pass_numeric_screen=passed))))
 
 

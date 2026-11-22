@@ -111,3 +111,5 @@ python -m scripts.exp026_report report --gs 512 --tag gs512
 ### 工程验证
 
 通过 22 个部署、观察、Agent-S 更新时钟、瞬时切换、资源守恒与续训回归。其中 4 个新测试验证链路方向性及旧工作、数值导数、完整合法矩阵及可重复性，以及加载恢复后两方权重、优化器、replay 与原始物理轨迹一致。双种子两臂 CLI 烟测各 2 GS，均实际执行 1 次 D、16 次 S 优化并改变权重。烟测的共同独立评价共 320 个短业务期，使用真实物理并完成报告复算。烟测使用缩短业务期，结果只验证工程入口。[烟测账本](../../runs/results/EXP026/formal.smoke.review.json)
+
+正式源码版本为 `39e6bce6de0852241f734ab1ae350a164ed4cd9e`。在该提交上另外从随机初始化重跑双种子两臂的 2 GS 计时烟测。四组 `*.smoke-committed.*.manifest.json` 均记录该 SHA 和 `tracked_dirty=false`。实际预算、期内分项计时、更新耗时及种子内请求哈希均通过核对。后续的交接提交只改本文。[工程说明](../../README.md)

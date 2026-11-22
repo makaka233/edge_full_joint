@@ -36,10 +36,24 @@ def solo_delay_bounds(world, available):
 
 
 class PeriodSimulator(Simulator):
-    def __init__(self, env, initial, scheduler, step, version, collect):
+    def __init__(self, env, initial, scheduler, step, version, collect, *, track_dispatch=False):
         super().__init__(env.w, initial, scheduler, start=env.w.t, version=version, collection_step=step,
                          collect=collect)
         self.env = env
+        if track_dispatch and (not collect or self.system_credit):
+            raise ValueError('Dispatch tracking requires original stage-transition collection')
+        self.dispatch_tags = {} if track_dispatch else None
+
+    def ready(self, request, previous=None):
+        super().ready(request, previous)
+        if self.dispatch_tags is not None:
+            self.dispatch_tags[request.id, request.index] = (self.version, self.collection_step, self.window_index)
+
+    def record(self, request, pending, next_obs, next_mask, terminated):
+        super().record(request, pending, next_obs, next_mask, terminated)
+        if self.dispatch_tags is not None:
+            row = self.transitions[-1]
+            row.version, row.collection_step, row.window_index = self.dispatch_tags.pop((row.request_id, row.stage_index))
 
     def holding_cost(self):
         return self.env.cost['holding_weight'] * footprint(self.env, self.deployment)

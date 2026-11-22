@@ -1,6 +1,7 @@
 """Isolated EXP019 continuity, probability credit and recoverability checks."""
 import argparse
 from contextlib import redirect_stderr, redirect_stdout
+from dataclasses import replace
 from io import StringIO
 import json
 from itertools import product
@@ -25,6 +26,70 @@ from edge_joint.adaptive_storage import RunFiles
 class ContinuousDeploymentTests(unittest.TestCase):
     def setUp(self):
         torch.set_num_threads(1)
+
+    def test_cross_period_transition_retains_dispatch_version_and_bootstrap(self):
+        env = make_world(20261114, 0)
+        env.w.t = 0.
+        matrix = decode(env, np.zeros(8), 8, True).matrix
+        sim = PeriodSimulator(env, matrix, lambda obs, mask: int(np.flatnonzero(mask)[0]),
+                              1, 0, True, track_dispatch=True)
+        stage = env.c.services[0][0]
+        upload = env.w.stages[stage, 1]/env.w.nodes[0, 3]
+        sim.add_arrivals([Arrival(0., 0, 0, 0)])
+        sim.run_until(upload + 1e-7)
+        self.assertEqual(len(sim.transitions), 0)
+        sim.version, sim.collection_step, sim.window_index = 1, 2, 1
+        sim.run_until(20.)
+        sim.verify()
+        first, *rest = sim.transitions
+        self.assertEqual((first.version, first.collection_step, first.window_index), (0, 1, 0))
+        self.assertFalse(first.terminated)
+        self.assertTrue(first.next_mask.any())
+        self.assertTrue(rest[-1].terminated)
+        self.assertTrue(all((r.version, r.collection_step, r.window_index) == (1, 2, 1) for r in rest))
+
+    def test_period_ddqn_budget_flow_and_resume(self):
+        base = Config(seed=20261115, macro_mode='redeploy', periods=3, period_seconds=1.5,
+                      s_batch=1, s_updates_per_gs=2, eval_every=1)
+        candidate = replace(base, s_update_timing='period')
+
+        def assert_tree(left, right):
+            if isinstance(left, dict):
+                self.assertEqual(left.keys(), right.keys())
+                for key in left:
+                    assert_tree(left[key], right[key])
+            elif isinstance(left, torch.Tensor):
+                torch.testing.assert_close(left, right, rtol=0., atol=0.)
+            else:
+                self.assertEqual(left, right)
+
+        def ledger(out, key):
+            return [json.loads(line) for line in (out/f'{key}.jsonl').read_text(encoding='utf8').splitlines()]
+
+        with tempfile.TemporaryDirectory() as directory, redirect_stdout(StringIO()):
+            control, continuous, resumed = [RunFiles(Path(directory)/name) for name in ('base','continuous','resume')]
+            train(base, control, 2)
+            train(candidate, continuous, 2)
+            train(candidate, resumed, 1)
+            train(candidate, resumed, 2, resume=True)
+            rollout, ref, continued = (ledger(out, 'train') for out in (control, continuous, resumed))
+            self.assertEqual([r['trace_sha256'] for r in rollout], [r['trace_sha256'] for r in ref])
+            for first, second in zip(ref, continued, strict=True):
+                keep = ('active_matrix', 'trace_sha256', 'reward_raw', 'completed_delays', 's_boundary')
+                self.assertEqual([first[k] for k in keep], [second[k] for k in keep])
+                self.assertLess(first['conservation_error'], 1e-6)
+            self.assertLess(ref[0]['s_policy_version'], ref[1]['s_policy_version'])
+            for i, row in enumerate(ledger(continuous, 'updates')):
+                periods = ref[3*i:3*i+3]
+                self.assertEqual((row['d_updates'], row['s_updates_this_episode']), (i+1, 6))
+                self.assertEqual(sum(p['s_boundary']['optimizer_steps'] for p in periods), 6)
+                self.assertEqual(sum(p['s_boundary']['completed_transitions'] for p in periods), row['admitted_to_replay'])
+                self.assertEqual(sum(p['s_decisions']+p.get('drain_decisions',0) for p in periods),
+                                 row['admitted_to_replay']+row['s_unfinished_expiry_excluded'])
+            self.assertEqual(ledger(control, 'updates')[-1]['s_updates'], ledger(continuous, 'updates')[-1]['s_updates'])
+            left, right = [torch.load(out/'resume_latest.pt', weights_only=True) for out in (continuous, resumed)]
+            for key in ('d', 'd_optimizer', 'gate', 'gate_optimizer', 's', 'replay'):
+                assert_tree(left[key], right[key])
 
     def test_batch_train_resume_and_evaluate(self):
         parser = argparse.ArgumentParser()

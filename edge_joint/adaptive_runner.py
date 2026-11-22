@@ -15,7 +15,7 @@ from edge_d.world import LoadAwareHeuristic, make_world, stable_seed
 from edge_joint.inventory_joint import load_scale, recover_ledgers, replay_snapshot, restore_replay
 
 from .adaptive_physics import DEPLOYMENT_MODEL, capacity_ok, solo_delay_bounds
-from .adaptive_training import Config, components, episode, load_model, model, update
+from .adaptive_training import Config, PeriodUpdates, components, episode, load_model, model, update
 from .adaptive_storage import append, atomic, line, publish, random_state, restore_random
 
 
@@ -133,8 +133,11 @@ def train(cfg, out, target, *, resume=False, init=None):
     atomic(out/'manifest.json', lambda file: file.write(line(metadata)))
     for index in range(index+1, target+1):
         scene = stable_seed('EXP019', cfg.seed, 'train-scene', index)
-        ledger, credit, transitions = episode(cfg, make_world(cfg.seed, scene), d, s, gate, scene, 'train', index)
-        change = update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, index, d_updates)
+        period_updates = PeriodUpdates(cfg, s, replay, index) if cfg.s_update_timing == 'period' and not cfg.freeze_ds else None
+        ledger, credit, transitions = episode(cfg, make_world(cfg.seed, scene), d, s, gate, scene, 'train', index,
+                                              period_updates=period_updates)
+        change = update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, index, d_updates,
+                        period_updates=period_updates)
         d_updates = change['d_updates']
         offsets['train.jsonl'] = append(out/'train.jsonl', ledger)
         offsets['updates.jsonl'] = append(out/'updates.jsonl', [change])

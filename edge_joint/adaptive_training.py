@@ -22,6 +22,50 @@ class Config(BaseConfig):
     eval_every: int = 16
     freeze_ds: bool = False
     macro_mode: str = 'learned'
+    s_update_timing: str = 'episode'
+
+
+@dataclass(frozen=True)
+class RolloutControl:
+    """Independent random sources and optional interventions for frozen evaluation."""
+    environment_seed: int | None = None
+    decoder_seed: int | None = None
+    loads: tuple[float | None, ...] = ()
+    sample_d: bool | None = None
+    epsilon: float | None = None
+    focal_period: int | None = None
+    focal_latent: tuple[float, ...] | None = None
+    trace: bool = False
+
+
+class PeriodUpdates:
+    """Move the original DDQN budget through completed transition prefixes."""
+
+    def __init__(self, cfg, s, replay, index):
+        self.cfg, self.s, self.replay = cfg, s, replay
+        self.rng = np.random.default_rng(stable_seed('EXP019', cfg.seed, index, 'replay'))
+        self.online_start, self.target_start = parameters(s.online), parameters(s.target)
+        self.cursor = self.budget = 0
+        self.metrics = []
+
+    def advance(self, transitions, gs):
+        fresh = transitions[self.cursor:]
+        self.cursor += len(fresh)
+        cross_period = sum(t.collection_step < gs for t in fresh)
+        self.replay.add(fresh)
+        self.replay.prune(gs)
+        self.budget += self.cfg.s_updates_per_gs
+        used = self.budget if len(self.replay) >= self.cfg.s_batch else 0
+        self.budget -= used
+        batch_metrics = [self.s.update(self.replay.sample(self.cfg.s_batch, gs, self.rng)) for _ in range(used)]
+        self.metrics.extend(batch_metrics)
+        if used:
+            self.s.version += 1
+        return dict(completed_transitions=len(fresh), cross_period_transitions=cross_period,
+                    optimizer_steps=used, optimizer_steps_total=self.s.updates, deferred_steps=self.budget,
+                    replay_size=len(self.replay), next_policy_version=self.s.version,
+                    loss=float(np.mean([m['s_loss'] for m in batch_metrics])) if used else None,
+                    grad_norm=float(np.mean([m['s_grad_norm'] for m in batch_metrics])) if used else None)
 
 
 class Gate(nn.Module):
@@ -98,11 +142,14 @@ def request_metrics(requests, deadline, penalty):
                 completed_delays=completed, penalized_delays=penalized, censored_requests=censored)
 
 
-def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_matrices=None):
-    """One event queue and one S parameter version across all its business periods."""
+def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_matrices=None,
+            control=RolloutControl(), period_updates=None):
+    """Run all business periods on one event queue."""
     started = time.perf_counter()
     online = split == 'train'
     collect = online and not cfg.freeze_ds and recorded_matrices is None
+    if period_updates is not None and not collect:
+        raise ValueError('Incremental DDQN needs a collecting online episode')
     mode = cfg.macro_mode if mode is None else mode
     # Natively evolving regimes retain the original parameters. Simulated periods are compact.
     if env.w.amplitude != 0. or env.cost['latency_objective'] != 'period_mean':
@@ -111,11 +158,19 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
     env.old = np.zeros((env.K, env.N), dtype=bool)
     sim = previous = None
     rows, cohort, credit = [], [], []
+    traffic_seed = cfg.seed if control.environment_seed is None else control.environment_seed
+    decoder_seed = traffic_seed if control.decoder_seed is None else control.decoder_seed
+    decisions_trace = []
+    shadow = np.random.default_rng(0) if control.trace else None
+    if control.loads and len(control.loads) != cfg.periods:
+        raise ValueError('Frozen load profile must cover all business periods')
     for i in range(cfg.periods):
         period_tick = time.perf_counter()
         start, end = i * cfg.period_seconds, (i + 1) * cfg.period_seconds
         period = i + 1
         gs = (index - 1) * cfg.periods + period if online else None
+        if control.loads and control.loads[i] is not None:
+            env.w.scale *= control.loads[i] / load_scale(env)
         demand = env.w.node_demand()
         if sim is not None:
             env.old = sim.deployment.copy()
@@ -123,7 +178,7 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
         x = macro_state(env, sim, demand, previous, i, cfg.periods)
         logit, value = gate(x)
         p = float(logit.detach().sigmoid()) if mode == 'learned' else float(mode == 'redeploy')
-        rng = np.random.default_rng(stable_seed('EXP019', cfg.seed, split, scene, i, 'policy'))
+        rng = np.random.default_rng(stable_seed('EXP019', traffic_seed, split, scene, i, 'policy'))
         gate_logp = d_logp = None
         target = recorded_matrices[i] if recorded_matrices is not None else None
         fallback = None
@@ -142,22 +197,45 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
         backlog = sim.active_requests if sim is not None else 0
         carried = sum(r.pending is not None for r in sim.requests) if sim is not None else 0
         epsilon = max(.05, .25 - .20 * (gs - 1) / (cfg.epsilon_steps - 1)) if online and not cfg.freeze_ds else 0.
-        scheduler = s.scheduler(np.random.default_rng(stable_seed('EXP019', cfg.seed, split, scene, i, 'schedule')),
-                                epsilon)
+        intervene = control.focal_period in (None, period)
+        if intervene and control.epsilon is not None:
+            epsilon = control.epsilon
+        schedule_rng = np.random.default_rng(stable_seed('EXP019', traffic_seed, split, scene, i, 'schedule'))
+        scheduler = s.scheduler(schedule_rng, epsilon)
+        if control.trace:
+            def traced(obs, mask, base=scheduler, rng=schedule_rng, rate=epsilon, p=period):
+                shadow.bit_generator.state = rng.bit_generator.state
+                explores = bool(shadow.random() < rate)
+                action = base(obs, mask)
+                decisions_trace.append(dict(period=p, time=sim.now, action=action,
+                                            legal=np.flatnonzero(mask).tolist(), explores=explores))
+                return action
+            scheduler = traced
+        decode_key = stable_seed('EXP019', decoder_seed, split, scene, i, 'decode')
         if recorded_matrices is None and action in ('BOOTSTRAP', 'REDEPLOY'):
             mean = d(env)
             draw = mean.detach()
-            if online and not cfg.freeze_ds:
+            sample = online and not cfg.freeze_ds
+            if intervene and control.sample_d is not None:
+                sample = control.sample_d
+            if sample:
                 draw = draw + cfg.sigma * torch.as_tensor(rng.normal(size=mean.shape), dtype=mean.dtype)
+            if sample and collect:
                 d_logp = torch.distributions.Normal(mean, cfg.sigma).log_prob(draw).sum()
             latent, latent_mean = draw.tolist(), mean.detach().tolist()
-            proposal = decode(env, draw.numpy(), stable_seed('EXP019', cfg.seed, split, scene, i, 'decode'), True)
+            proposal = decode(env, draw.numpy(), decode_key, True)
+            target, fallback = proposal.matrix, proposal.coverage_fallback
+        elif intervene and control.focal_latent is not None:
+            proposal = decode(env, np.asarray(control.focal_latent, dtype=np.float32), decode_key, True)
             target, fallback = proposal.matrix, proposal.coverage_fallback
         if sim is None:
-            sim = PeriodSimulator(env, target, scheduler, index, s.version, collect)
+            sim = PeriodSimulator(env, target, scheduler, index, s.version, collect,
+                                  track_dispatch=period_updates is not None)
+            sim.trace_enabled = control.trace
             switch.update(status='bootstrap', switch_cost=switch_cost(env, old, sim.deployment))
         else:
             sim.scheduler = scheduler
+        sim.version = s.version
         sim.window_index = i
         sim.collection_step = gs if online else 0
         served = np.array([r.served for r in sim.resources])
@@ -168,7 +246,7 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
         if action == 'REDEPLOY':
             switch = sim.redeploy(target)
         arrivals = env.w.arrivals(start, end,
-                                  np.random.default_rng(stable_seed('EXP019', cfg.seed, split, scene, i, 'traffic')))
+                                  np.random.default_rng(stable_seed('EXP019', traffic_seed, split, scene, i, 'traffic')))
         first = len(sim.requests)
         sim.add_arrivals(arrivals)
         sim.run_until(end)
@@ -206,12 +284,16 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
                          wall_seconds=time.perf_counter()-period_tick, **switch))
         credit.append((gate_logp, d_logp, value))
         if period < cfg.periods:
+            if period_updates is not None:
+                rows[-1]['s_boundary'] = period_updates.advance(sim.transitions, gs)
             env.w.advance()
             env.w.t = end
         previous = demand
     before_drain = sim.decisions
     sim.run_until(end + env.tail)
     sim.verify()
+    if period_updates is not None:
+        rows[-1]['s_boundary'] = period_updates.advance(sim.transitions, gs)
     sim.end_replay()
     rows[-1].update(drain_decisions=sim.decisions-before_drain, episode_wall_seconds=time.perf_counter()-started,
                     residual_requests=sim.active_requests)
@@ -222,6 +304,10 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
         row.update(request_metrics(requests, row['end']+env.tail, env.failure_penalty))
         raw = -(env.cost['delay_weight'] * (row['e2e_penalized'] or 0.) + row['holding_cost'] + row['switch_cost'])
         row.update(reward_raw=raw, reward_net=raw, score_deadline=row['end']+env.tail)
+    if control.trace:
+        rows[-1]['diagnostic'] = dict(decisions=decisions_trace, requests=[
+            dict(id=r.id, service=r.arrival.service, access=r.arrival.access, arrival=r.arrival.time,
+                 finish=r.finish, trace=r.trace) for r in sim.requests])
     return rows, credit, sim.transitions
 
 
@@ -240,12 +326,15 @@ def macro_parameters(gate, learned):
     return torch.cat((parameters(gate.hidden), parameters(gate.policy)))
 
 
-def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, index, d_updates):
+def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, index, d_updates, *, period_updates=None):
     learned = cfg.macro_mode == 'learned'
-    d_start, s_start = parameters(d), parameters(s.online)
+    d_start = parameters(d)
     gate_start = macro_parameters(gate, learned)
     value_start = parameters(gate.value)
-    target_start = parameters(s.target)
+    if period_updates is None:
+        s_start, target_start = parameters(s.online), parameters(s.target)
+    else:
+        s_start, target_start = period_updates.online_start, period_updates.target_start
     returns = credit_targets(ledger, cfg.gamma)
     values = torch.stack([v for _, _, v in credit])
     advantages = returns - values.detach()
@@ -268,7 +357,13 @@ def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, 
         opt.step()
         d_updates += 1
     metrics = []
-    if transitions:
+    admitted = len(transitions)
+    extra = {}
+    if period_updates is not None:
+        admitted = period_updates.cursor
+        metrics = period_updates.metrics
+        extra = dict(s_unfinished_expiry_excluded=len(transitions)-admitted, s_deferred_steps=period_updates.budget)
+    elif transitions:
         step = ledger[-1]['gs']
         replay.add(transitions)
         replay.prune(step)
@@ -285,7 +380,7 @@ def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, 
                 value_change=float((parameters(gate.value)-value_start).norm()),
                 s_change=float((parameters(s.online)-s_start).norm()),
                 s_target_change=float((parameters(s.target)-target_start).norm()),
-                admitted_to_replay=len(transitions), replay_size=len(replay), s_policy_version=s.version,
+                admitted_to_replay=admitted, replay_size=len(replay), s_policy_version=s.version,
                 macro_decisions=sum(r['action'] in ('KEEP','REDEPLOY') for r in ledger),
                 macro_policy_samples=len(gate_terms), d_samples=len(d_terms), discounted_return=float(returns[0]),
-                s_loss=float(np.mean([r['s_loss'] for r in metrics])) if metrics else None)
+                s_loss=float(np.mean([r['s_loss'] for r in metrics])) if metrics else None, **extra)

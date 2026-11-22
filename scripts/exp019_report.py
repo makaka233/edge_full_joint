@@ -93,7 +93,7 @@ def validate(prefix, manifest, state, train, updates, fixed):
     for r in train+fixed:
         check_period(world,r,instantaneous)
     decisions = sum(r['s_decisions']+r.get('drain_decisions',0) for r in train)
-    if decisions != sum(r['admitted_to_replay'] for r in updates):
+    if decisions != sum(r['admitted_to_replay']+r.get('s_unfinished_expiry_excluded',0) for r in updates):
         raise ValueError('Scheduling decisions and admitted transitions do not match')
     return world,decisions
 

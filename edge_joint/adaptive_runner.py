@@ -68,8 +68,8 @@ def fixed(cfg, d, s, gate, index):
 
 def train(cfg, out, target, *, resume=False, init=None):
     if (cfg.d_observation != 'original' or cfg.d_diagnostics) and (
-            cfg.macro_mode != 'redeploy' or cfg.s_update_timing != 'episode' or cfg.freeze_ds or init is not None):
-        raise ValueError('Placement observation trials require random joint fixed-REDEPLOY and episode DDQN')
+            cfg.macro_mode != 'redeploy' or cfg.freeze_ds or init is not None):
+        raise ValueError('Placement observation trials require random joint fixed-REDEPLOY')
     d, s, opt, replay, gate, gate_opt = components(cfg)
     resume_path = out / 'resume_latest.pt'
     if resume:

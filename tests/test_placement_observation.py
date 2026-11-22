@@ -83,8 +83,13 @@ class PlacementObservationTests(unittest.TestCase):
         self.assertTrue(matrix.any(1).all() and capacity_ok(matrix,env.spec,env.capacity))
 
     def test_real_training_diagnostics_and_resume(self):
+        for timing in ('episode', 'period'):
+            with self.subTest(timing=timing):
+                self.check_training_diagnostics_and_resume(timing)
+
+    def check_training_diagnostics_and_resume(self, timing):
         cfg = Config(seed=20261113, macro_mode='redeploy', periods=2, period_seconds=2., s_batch=1,
-                     d_observation='resource', d_diagnostics=True, eval_every=1)
+                     d_observation='resource', d_diagnostics=True, eval_every=1, s_update_timing=timing)
 
         def log(out, kind):
             return [json.loads(line) for line in (out/f'{kind}.jsonl').read_text().splitlines()]
@@ -111,7 +116,12 @@ class PlacementObservationTests(unittest.TestCase):
             self.assertGreater(float(states[0]['d']['resource_weight'].norm()),0.)
             self.assertEqual(float(states[2]['d']['resource_weight'].norm()),0.)
             source = make_world(cfg.seed,0)
-            for x,y,z in zip(*(log(out,'train') for out in (a,b,control)),strict=True):
+            train_rows = [log(out,'train') for out in (a,b,control)]
+            if timing == 'period':
+                self.assertEqual([r['s_policy_version'] for r in train_rows[0]],[0,1,2,3])
+                self.assertTrue(all(r['s_boundary']['optimizer_steps']==8 for rows in train_rows for r in rows))
+                self.assertEqual([r['s_boundary'] for r in train_rows[0]], [r['s_boundary'] for r in train_rows[1]])
+            for x,y,z in zip(*train_rows,strict=True):
                 for field in ('trace_sha256','reward_net','active_matrix','d_credit','d_observation'):
                     self.assertEqual(x[field],y[field])
                 self.assertEqual(x['trace_sha256'],z['trace_sha256'])

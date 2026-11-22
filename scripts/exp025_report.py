@@ -21,16 +21,17 @@ STYLES = (('原始 D','#245582','original'), ('同参数屏蔽 D','#906519','bli
 MODES = tuple(arm for _, _, arm in STYLES)
 
 
-def evaluate(seeds, sources, gs, tag, workers):
+def evaluate(seeds, sources, gs, tag, workers, timing):
     paths = {seed:RESULTS/f'compare.{tag}.seed{seed}.jsonl' for seed in seeds}
     if any(path.exists() for path in paths.values()):
         raise FileExistsError('A comparison result already exists; use report or choose a new tag.')
     for seed in seeds:
         for arm, source in sources:
             cfg, last = projection(source, seed, 'last')
+            best_cfg, _ = projection(source, seed, 'best')
             if (last['episode'] * cfg.periods != gs or cfg.d_observation != arm or not cfg.d_diagnostics
-                    or cfg.s_update_timing != 'episode'):
-                raise ValueError(f'{seed}/{arm}: incomplete or unregistered Agent-D arm')
+                    or cfg.s_update_timing != timing or best_cfg != cfg):
+                raise ValueError(f'{seed}/{arm}: incomplete run or mismatched D observation/S timing')
     executor = ThreadPoolExecutor if workers == 1 else ProcessPoolExecutor
     with executor(max_workers=workers) as pool:
         jobs = {seed:pool.submit(common, seed, sources, 'compare', environment=(2502502, 25200)) for seed in seeds}
@@ -74,7 +75,7 @@ def add_resources(summary, records):
     return summary
 
 
-def audit_seed(seed, records, sources, gs, tag):
+def audit_seed(seed, records, sources, gs, tag, timing):
     runs = dict((arm, formal_run(path, seed, gs)) for arm,path in sources)
     baseline, base_train, base_fixed = runs['original']
     reference_settings = {k:v for k,v in baseline['manifest']['config'].items() if k != 'd_observation'}
@@ -88,7 +89,7 @@ def audit_seed(seed, records, sources, gs, tag):
         cfg = report['manifest']['config']
         if {k:v for k,v in cfg.items() if k != 'd_observation'} != reference_settings:
             raise ValueError('The three arms differ in training settings beyond D observations')
-        if cfg['d_observation'] != arm or cfg['s_update_timing'] != 'episode' or not cfg['d_diagnostics']:
+        if cfg['d_observation'] != arm or cfg['s_update_timing'] != timing or not cfg['d_diagnostics']:
             raise ValueError('Manifest does not match the named protocol arm')
         if (report['updates']['d_updates'],report['updates']['s_updates']) != (
                 gs//cfg['periods'], gs*cfg['s_updates_per_gs']):
@@ -168,21 +169,24 @@ def main():
     parser.add_argument('action', choices=('evaluate','report'))
     parser.add_argument('--seeds', type=int, nargs='+', default=SEEDS)
     parser.add_argument('--gs', type=int, default=512)
-    parser.add_argument('--tag', default=None, help='unique run suffix (defaults to gs<GS>)')
+    parser.add_argument('--s-update-timing', choices=('episode', 'period'), default='episode',
+                        help='required DDQN timing in all training checkpoints')
+    parser.add_argument('--tag', default=None, help='unique run suffix (period mode defaults to gs<GS>-period-s)')
     parser.add_argument('--workers', type=int, choices=(1,2,3,4,5), default=2)
     args = parser.parse_args()
     if args.gs < 2 or len(set(args.seeds)) != len(args.seeds) or (args.tag and not re.fullmatch('[a-z0-9-]+',args.tag)):
         parser.error('Use distinct seeds, at least two periods, and a simple run suffix')
-    tag = args.tag or f'gs{args.gs}'
+    base_tag = f'gs{args.gs}'
+    tag = args.tag or (f'{base_tag}-period-s' if args.s_update_timing == 'period' else base_tag)
     sources = tuple((arm,RESULTS/f'{arm}.{tag}') for arm in MODES)
     if args.action == 'evaluate':
-        evaluate(args.seeds,sources,args.gs,tag,args.workers)
+        evaluate(args.seeds,sources,args.gs,tag,args.workers,args.s_update_timing)
         return
     by_seed = {seed:read(RESULTS/f'compare.{tag}.seed{seed}.jsonl') for seed in args.seeds}
     verify_common(by_seed)
     plt.rcParams['font.sans-serif'] = ['Microsoft YaHei','Noto Sans CJK SC','SimHei','DejaVu Sans']
-    figure_tag = 'formal' if args.tag is None else f'formal.{tag}'
-    evidence = {seed:audit_seed(seed,rows,sources,args.gs,figure_tag) for seed,rows in by_seed.items()}
+    figure_tag = 'formal' if tag == base_tag else f'formal.{tag}'
+    evidence = {seed:audit_seed(seed,rows,sources,args.gs,figure_tag,args.s_update_timing) for seed,rows in by_seed.items()}
     output = RESULTS/f'formal.{tag}.review.json'
     atomic(output, lambda file: file.write(line(dict(seeds=evidence, screen=screen(evidence) if args.gs>=512 else None))))
     print(output)

@@ -4,7 +4,7 @@
 
 开工 HEAD 为 `ed5cd6a3748a5aeb9fe8264ea98f785ea9e7429b`，从 `exp024-joint-stability` 建立 `exp025-d-resource-observation`。HEAD 与指定的 EXP024 `d465dbe999618d882f5df2ecf3cc22f01dd526a9` 之间只有 EXP024 正式报告，Agent、训练、物理、配置源码相同。开工时跟踪工作树和暂存区无差异。原有未跟踪 `EXP007_AI_RESEARCH_REVIEW.md` 的 Git blob 指纹为 `4aca540d2d728377165877ac125d19459a762524`。历史 EXP023/024 清单的 `dirty=true` 差异未保存，物理轨迹另按日志复现验证。
 
-正式基线继承 EXP023 的库存协调 Gaussian D、Adam、episode 末更新的原 Masked Dueling Double DQN 和瞬时固定 REDEPLOY。原 `finish_pf`、逐跳有线 KKT、约 366.9185 CU/s 物理 CPU 容量、请求与 Reward 保持原义。EXP024 提前更新 S 的早期收益有效，持续压力 P99 未达门槛。EXP020、EXP021 和 EXP022 的负结果继续作为边界证据。[EXP019](../EXP019/AI_RESEARCH_REVIEW.md) · [EXP020](../EXP020/AI_RESEARCH_REVIEW.md) · [EXP021](../EXP021/AI_RESEARCH_REVIEW.md) · [EXP022](../EXP022/AI_RESEARCH_REVIEW.md) · [EXP023](../EXP023/AI_RESEARCH_REVIEW.md) · [EXP024](../EXP024/AI_RESEARCH_REVIEW.md)
+历史基线继承 EXP023 的库存协调 Gaussian D、Adam、episode 末更新的原 Masked Dueling Double DQN 和瞬时固定 REDEPLOY。原 `finish_pf`、逐跳有线 KKT、约 366.9185 CU/s 物理 CPU 容量、请求与 Reward 保持原义。EXP024 提前更新 S 的早期收益有效，持续压力 P99 未达门槛。EXP020、EXP021 和 EXP022 的负结果继续作为边界证据。[EXP019](../EXP019/AI_RESEARCH_REVIEW.md) · [EXP020](../EXP020/AI_RESEARCH_REVIEW.md) · [EXP021](../EXP021/AI_RESEARCH_REVIEW.md) · [EXP022](../EXP022/AI_RESEARCH_REVIEW.md) · [EXP023](../EXP023/AI_RESEARCH_REVIEW.md) · [EXP024](../EXP024/AI_RESEARCH_REVIEW.md)
 
 ## 决策时资源信息的因果价值
 
@@ -45,6 +45,8 @@
 
 ## 双种子 512 GS 预注册与运行
 
+本次选用**逐 GS 更新 Agent-S**，三个 D 观测臂统一使用 `--s-update-timing period`。每个 GS 结束后将当时已完成的阶段转移放入回放，按预算执行 8 次 DDQN 优化；回放样本不足时在同一 episode 内顺延。终期排空后执行剩余批次。D 仍于每 8 GS 更新一次。三臂之间的差异仍是 D 的输入，结论适用于逐 GS S 时钟。原 episode 末方案使用 `.gs512`，本方案使用 `.gs512-period-s`，检查点、评价和图表按各自前缀保存。
+
 首先使用两个已定位中期热点的模型种子 **20261113、20261116**。每个种子、每臂从随机参数跑 64 个八期 episode，每期 24 秒。固定验证每 64 GS 一次，按原净 Reward 选 `best`。独立共同人口使用环境 seed 2502502、场景 25201–25204。自然和突发各 8 期；突发第 3–4 期提供负载 0.70；持续 0.55 与 0.70 各 12 期连续队列。EXP024 诊断环境只供机制分析，这组新 Holdout 仅供验收。五种子长训由双种子门槛决定。512 GS 尚未覆盖 GS1308、GS1779，所以任何正面结果均仅是扩大训练的依据。
 
 工程门槛要求同流、相同实际预算和双智能体真实更新。两个种子的固定验证从 GS0 到 GS512 均需提高 Reward 并降低平均 E2E。GS0、GS1–8、GS9–64 和 GS65–512 分开报告。自然和两档持续压力下，`best`/`last` 对两个对照的净 Reward 容忍下降至多 0.03、平均完成 E2E 容忍增加至多 1%，P99、截尾和终局未完成不得恶化。每个种子的资源臂 `last` 在两档持续压力的等权平均上，相对同参数屏蔽臂净 Reward 至少改善 0.02，平均 E2E 同方向下降。突发、最差 1%/5%、单次最差 Reward、局部热点和矩阵漂移单独复核。只有全部条件通过才扩大训练，暂保留原 D 为默认。
@@ -53,7 +55,7 @@
 
 ```powershell
 foreach ($arm in @('original', 'blind', 'resource')) {
-    python -m edge_d.cli adaptive train --experiment EXP025 --seeds 20261113 20261116 --macro-mode redeploy --s-update-timing episode --d-observation $arm --d-diagnostics --episodes 64 --periods 8 --period-seconds 24 --eval-every 8 --prefix ".\runs\results\EXP025\$arm.gs512"
+    python -m edge_d.cli adaptive train --experiment EXP025 --seeds 20261113 20261116 --macro-mode redeploy --s-update-timing period --d-observation $arm --d-diagnostics --episodes 64 --periods 8 --period-seconds 24 --eval-every 8 --prefix ".\runs\results\EXP025\$arm.gs512-period-s"
     if ($LASTEXITCODE -ne 0) { throw "EXP025 $arm training failed" }
 }
 ```
@@ -61,15 +63,15 @@ foreach ($arm in @('original', 'blind', 'resource')) {
 三臂结束后运行共同环境独立评估与离线作图。已生成评估文件时可直接运行 `report` 复核，重复物理实验应使用新的 `--tag` 和相应模型文件前缀。
 
 ```powershell
-python -m scripts.exp025_report evaluate --seeds 20261113 20261116 --gs 512 --workers 2
+python -m scripts.exp025_report evaluate --seeds 20261113 20261116 --gs 512 --s-update-timing period --workers 2
 if ($LASTEXITCODE -ne 0) { throw 'EXP025 independent evaluation failed' }
-python -m scripts.exp025_report report --seeds 20261113 20261116 --gs 512
+python -m scripts.exp025_report report --seeds 20261113 20261116 --gs 512 --s-update-timing period
 ```
 
-结果位于 `runs/results/EXP025/`。每臂、每种子保留逐期训练、更新、固定验证和三类模型文件 `best`、`last`、`resume_latest`。独立物理日志为 `compare.gs512.seed<seed>.jsonl`。正式复核输出原始 Reward、E2E、P95、P99 连线（保留所有负峰），固定验证图及 Holdout 图，还有请求级汇总与训练信用审计。旧检查点保持可读；实际正式训练源提交记录在各臂 `manifest.json`。
+结果位于 `runs/results/EXP025/`。每臂、每种子保留逐期训练、更新、固定验证和三类模型文件 `best`、`last`、`resume_latest`。独立物理日志为 `compare.gs512-period-s.seed<seed>.jsonl`，汇总为 `formal.gs512-period-s.review.json`。正式复核输出原始 Reward、E2E、P95、P99 连线（保留所有负峰），固定验证图及 Holdout 图，还有请求级汇总与训练信用审计。运行源提交记录在各臂 `manifest.json`。
 
 ## 实施与验证状态
 
-已完成 16 项回归，覆盖时点因果、特征尺度、覆盖与 RAM/SSD 合法性、工作量守恒、原 Reward、同流和双智能体恢复。两个正式种子的三臂在第一完整 episode 的请求、矩阵、Reward、逐请求时延及积压都与 EXP023 原轨迹逐点一致。三臂主入口分别完成了 2 GS 工程烟测，各 1 次 D 和 16 次 S 更新。共同评估跑完 240 个短期配对周期，离线审计及三类图可复现。烟测与机制诊断均与正式产物隔离。[烟测审计](../../runs/results/EXP025/formal.smoke.review.json)
+已完成时点因果、特征尺度、覆盖与 RAM/SSD 合法性、工作量守恒、原 Reward、同流和两种更新时钟的双智能体恢复回归。原 episode 末方案中，两个正式种子的三臂在第一完整 episode 的请求、矩阵、Reward、逐请求时延及积压均与 EXP023 原轨迹一致。逐 GS 方案的三臂主入口各完成 2 GS 工程烟测，各 1 次 D 和 16 次 S 更新；共同评估完成 240 个短期配对周期与离线出图。两种时钟的烟测产物均与正式产物隔离。[逐 GS 烟测](../../runs/results/EXP025/formal.period-smoke.review.json) · [原 episode 末烟测](../../runs/results/EXP025/formal.smoke.review.json)
 
 当前结论仅涉及资源信息的物理决策价值和候选能否正确训练；双种子正式学习、跨压力非劣性与算法升级仍待正式结果。

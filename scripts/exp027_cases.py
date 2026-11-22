@@ -5,6 +5,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from copy import deepcopy
 from dataclasses import replace
 from itertools import product
+import json
 from types import CellType, FunctionType
 
 import numpy as np
@@ -145,6 +146,15 @@ def calculate_latent(name,repeat,environment,scene,split,period,policy,env,sigma
     return mean,draw,key,noise
 
 
+class ScheduledRates(FrozenSchedulers):
+    def __init__(self,agents,rates):
+        super().__init__(agents)
+        self.rates = iter(rates)
+
+    def scheduler(self,rng,epsilon):
+        return super().scheduler(rng,next(self.rates))
+
+
 @torch.inference_mode()
 def case_job(spec):
     torch.set_num_threads(1)
@@ -181,17 +191,10 @@ def case_job(spec):
                 adjusted[period-1] = None
                 control = RolloutControl(environment_seed=environment,loads=tuple(adjusted),trace_requests=True)
 
-                class Schedulers(FrozenSchedulers):
-                    def __init__(self):
-                        super().__init__([models[scheduler][3],models['cpu'][3]])
-                        self.rates = iter((first_epsilon,last_epsilon))
-
-                    def scheduler(self,rng,epsilon):
-                        return super().scheduler(rng,next(self.rates))
-
                 options = replace(cfg,periods=period+1,freeze_ds=True)
                 ledger = WorkLedger(period)
-                rows = episode(options,env,d,Schedulers(),gate,scene,split,index,'redeploy',
+                scheduled = ScheduledRates([models[scheduler][3],models['cpu'][3]],(first_epsilon,last_epsilon))
+                rows = episode(options,env,d,scheduled,gate,scene,split,index,'redeploy',
                                recorded_matrices=matrices,control=control,boundary=ledger,
                                continuation=(period-1,sim))[0]
                 for row,rate in zip(rows,(first_epsilon,last_epsilon),strict=True):
@@ -217,19 +220,85 @@ def case_job(spec):
     return name
 
 
+class PrefixReady(Exception):
+    """Stop only at the reached deterministic period boundary."""
+
+
+@torch.inference_mode()
+def queue_job(spec):
+    torch.set_num_threads(1)
+    name,seed,label,profile,period = spec
+    path = RESULTS/f'{name}.queue-only.json'
+    if path.exists():
+        return name
+    environment,scene,loads,split,archived = sources(seed,label,profile)
+    original = json.loads((RESULTS/f'{name}.frozen.json').read_text(encoding='utf8'))['native']
+    out = []
+    for prefix in ARMS:
+        cfg,index,d,s,gate = weights(seed,label,prefix)
+        env = make_world(environment,scene,split)
+        state = []
+
+        def capture(world,sim,n,phase):
+            if n==period and phase=='start':
+                state.append((world,sim))
+                raise PrefixReady
+
+        options = replace(cfg,periods=len(loads))
+        settings = RolloutControl(environment_seed=environment,loads=loads,trace_requests=True)
+        try:
+            episode(options,env,d,s,gate,scene,split,index,'redeploy',control=settings,
+                    simulator_factory=ObservedSimulator,boundary=capture)
+        except PrefixReady:
+            pass
+        world,sim = state[0]
+        baseline = sim.snapshot()
+        assert fingerprint(baseline)==fingerprint(original[prefix]['snapshot']['physical'])
+        fixed_old = unpack(world,archived['cpu'][period-1]['old_matrix'])
+        adjusted = list(loads[:period+1])
+        adjusted[period-1] = None
+        for target in ARMS:
+            e,branch = fork(world,sim)
+            # Standardize switch-cost origin and eligibility while retaining the
+            # active requests, their already-committed routes, and the whole heap.
+            branch.change_deployment(fixed_old)
+            after = branch.snapshot()
+            assert all(after[k]==v for k,v in baseline.items() if k!='deployment')
+            env_control = replace(settings,loads=tuple(adjusted))
+            chosen = unpack(e,archived[target][period-1]['active_matrix'])
+            suffix = unpack(e,archived['cpu'][period]['active_matrix'])
+            raw_rates = [r['epsilon'] for r in archived['cpu'][period-1:period+1]]
+            cfg0,index0,d0,s0,gate0 = weights(seed,label,'cpu')
+            ledger = WorkLedger(period)
+            rows = episode(replace(cfg0,periods=period+1,freeze_ds=True),e,d0,
+                           ScheduledRates([s0,s0],raw_rates),gate0,scene,split,index0,'redeploy',
+                           control=env_control,recorded_matrices=[None]*(period-1)+[chosen,suffix],
+                           boundary=ledger,continuation=(period-1,branch))[0]
+            for row,rate in zip(rows,raw_rates,strict=True):
+                row['epsilon'] = rate
+            verify_periods(e,rows)
+            assert_flow(archived['cpu'][period-1:period+1],rows)
+            out.append(dict(prefix=prefix,target=target,initial_sha256=ledger.boundary_hash,
+                            rows=rows,work=ledger.work,stages=stage_work(branch,e,period,cfg0.period_seconds)))
+    atomic(path,lambda file:file.write(line(dict(case=name,period=period,arms=out))))
+    return name
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--case',choices=[x[0] for x in CASES],nargs='+')
     parser.add_argument('--workers',type=int,default=1)
+    parser.add_argument('--queue-only',action='store_true')
     args = parser.parse_args()
     RESULTS.mkdir(parents=True,exist_ok=True)
     planned = [case for case in CASES if args.case is None or case[0] in args.case]
+    job_fn = queue_job if args.queue_only else case_job
     if args.workers==1:
         for case in planned:
-            print(case_job(case),flush=True)
+            print(job_fn(case),flush=True)
     else:
         with ProcessPoolExecutor(max_workers=args.workers) as pool:
-            for job in as_completed([pool.submit(case_job,c) for c in planned]):
+            for job in as_completed([pool.submit(job_fn,c) for c in planned]):
                 print(job.result(),flush=True)
 
 

@@ -140,6 +140,27 @@ def schedule_fingerprints(case):
             for i in range(PERIODS)]
 
 
+def run_arm(case,arm,checkpoint_arm,namespace):
+    control = RolloutControl(environment_seed=case['environment'],decoder_seed=case['decoder_seed'],
+                             loads=tuple(case['loads']),sample_d=False,epsilon=0.,trace_requests=True)
+    cfg,index,d,s,gate = weights(case['seed'],case['model'],checkpoint_arm)
+    env = make_world(case['environment'],case['scene'],'holdout')
+    env.w.t = 0.
+    initial = decode(env,np.zeros(8),stable_seed('EXP027',case['id'],'common-initial'),True).matrix
+    ledger = WorkLedger(snapshot_period=1)
+    options = replace(cfg,d_decoder=arm,periods=PERIODS,freeze_ds=True)
+    periods = episode(options,env,d,s,gate,case['scene'],'holdout',index,'redeploy',control=control,
+                      simulator_factory=ObservedSimulator,initial_deployment=initial,boundary=ledger)[0]
+    verify_periods(env,periods)
+    assert len(periods)==len(ledger.work)==PERIODS and periods[0]['backlog_in']==0
+    tokens = {suffix:RESULTS/f'{namespace}.{arm}.{suffix}' for suffix in
+              ('periods.jsonl','work.jsonl','requests.jsonl.gz')}
+    write_periods(tokens['periods.jsonl'],periods)
+    write_periods(tokens['work.jsonl'],ledger.work)
+    write_requests(tokens['requests.jsonl.gz'],ledger.sim)
+    return periods,{name:path.name for name,path in tokens.items()},ledger.boundary_hash
+
+
 @torch.inference_mode()
 def long_pair(case):
     torch.set_num_threads(1)
@@ -147,37 +168,44 @@ def long_pair(case):
     done = prefix.with_name(prefix.name+'.paired.json')
     if done.exists():
         return case['id']
-    control = RolloutControl(environment_seed=case['environment'],decoder_seed=case['decoder_seed'],
-                             loads=tuple(case['loads']),sample_d=False,epsilon=0.,trace_requests=True)
-    cfg,index,d,s,gate = weights(case['seed'],case['model'],'cpu')
     timelines, products, start_hash = {}, {}, None
     for arm in ARMS:
-        env = make_world(case['environment'],case['scene'],'holdout')
-        env.w.t = 0.
-        initial = decode(env,np.zeros(8),stable_seed('EXP027',case['id'],'common-initial'),True).matrix
-        ledger = WorkLedger(snapshot_period=1)
-        options = replace(cfg,d_decoder=arm,periods=PERIODS,freeze_ds=True)
-        periods = episode(options,env,d,s,gate,case['scene'],'holdout',index,'redeploy',control=control,
-                          simulator_factory=ObservedSimulator,initial_deployment=initial,boundary=ledger)[0]
-        verify_periods(env,periods)
-        assert len(periods)==len(ledger.work)==PERIODS and periods[0]['backlog_in']==0
+        periods,products[arm],basis = run_arm(case,arm,'cpu',prefix.name)
         if start_hash is not None:
             assert_flow(timelines[ARMS[0]],periods)
-            if start_hash!=ledger.boundary_hash:
+            if start_hash!=basis:
                 raise AssertionError('Pair did not start from the same legal physical state')
-        start_hash = ledger.boundary_hash
-        tokens = {suffix:prefix.with_name(f'{prefix.name}.{arm}.{suffix}') for suffix in
-                  ('periods.jsonl','work.jsonl','requests.jsonl.gz')}
-        write_periods(tokens['periods.jsonl'],periods)
-        write_periods(tokens['work.jsonl'],ledger.work)
-        write_requests(tokens['requests.jsonl.gz'],ledger.sim)
-        products[arm] = {name:path.name for name,path in tokens.items()}
+        start_hash = basis
         timelines[arm] = periods
     document = dict(case=case,initial_state_sha256=start_hash,products=products,
                     exogenous_sha256=fingerprint([r['trace_sha256'] for r in timelines['cpu']]),
                     streams=schedule_fingerprints(case))
     atomic(done,lambda file:file.write(line(document)))
     return case['id']
+
+
+def learned_cases():
+    return [case for case in registry() if (
+        case['profile']=='burst' or case['profile']=='sustained070' and case['seed']==20261113)]
+
+
+@torch.inference_mode()
+def learned_pair(case):
+    torch.set_num_threads(1)
+    name = case['id']
+    done = RESULTS/f'learned.{name}.paired.json'
+    if done.exists():
+        return name
+    namespace = f'long.{name}'
+    reference = json.loads((RESULTS/f'{namespace}.paired.json').read_text(encoding='utf8'))
+    old = read(RESULTS/reference['products']['cpu']['periods.jsonl'])
+    periods,products,basis = run_arm(case,'link-priced','link-priced',f'learned.{name}')
+    assert_flow(old,periods)
+    assert basis==reference['initial_state_sha256']
+    record = dict(case=case,initial_state_sha256=basis,exogenous_sha256=reference['exogenous_sha256'],
+                  products=dict(cpu=reference['products']['cpu'],**{'link-priced':products}))
+    atomic(done,lambda f:f.write(line(record)))
+    return name
 
 
 def preregister():
@@ -200,27 +228,28 @@ def preregister():
     atomic(path,lambda file:file.write(line(dict(source=metadata,trajectories=planned,inputs=inputs))))
 
 
-def execute_long(workers):
+def execute_long(workers,learned=False):
     preregister()
-    planned = [case for case in registry() if not (RESULTS/f'long.{case["id"]}.paired.json').exists()]
+    cases,worker,prefix = (learned_cases(),learned_pair,'learned') if learned else (registry(),long_pair,'long')
+    planned = [case for case in cases if not (RESULTS/f'{prefix}.{case["id"]}.paired.json').exists()]
     if workers==1:
         for case in planned:
-            print(long_pair(case),flush=True)
+            print(worker(case),flush=True)
     else:
         with ProcessPoolExecutor(max_workers=workers,initializer=torch.set_num_threads,initargs=(1,)) as pool:
-            jobs = [pool.submit(long_pair,case) for case in planned]
+            jobs = [pool.submit(worker,case) for case in planned]
             for job in as_completed(jobs):
                 print(job.result(),flush=True)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action',choices=('preregister','long'))
+    parser.add_argument('action',choices=('preregister','long','learned'))
     parser.add_argument('--workers',type=int,default=4)
     args = parser.parse_args()
     if not 1<=args.workers<=12:
         parser.error('Choose 1–12 workers')
-    preregister() if args.action=='preregister' else execute_long(args.workers)
+    preregister() if args.action=='preregister' else execute_long(args.workers,args.action=='learned')
 
 
 if __name__=='__main__':

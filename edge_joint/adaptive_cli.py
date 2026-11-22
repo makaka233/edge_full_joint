@@ -24,6 +24,9 @@ def add_arguments(parser):
     parser.add_argument('--s-batch', type=int, default=128, help='original DDQN replay minibatch size')
     parser.add_argument('--s-update-timing', choices=('episode', 'period'), default='episode',
                         help='DDQN update clock with the same optimizer budget per episode')
+    parser.add_argument('--d-observation', choices=('original', 'blind', 'resource'), default='original',
+                        help='Gaussian Actor observation; blind masks the equally-sized resource branch')
+    parser.add_argument('--d-diagnostics', action='store_true', help='record D credit and one same-state decode pair per update')
     parser.add_argument('--macro-mode', choices=('learned', 'keep', 'redeploy'), default='learned',
                         help='train the gate or fix the action at eligible periods')
     parser.add_argument('--freeze-ds', action='store_true', help='learn the macro policy with fixed D and greedy S')
@@ -56,6 +59,8 @@ def run(parser, args):
         parser.error('--macro-mode is a training setting. Evaluation reads it from the run.')
     if args.s_update_timing == 'period' and (args.action != 'train' or args.macro_mode != 'redeploy' or args.freeze_ds):
         parser.error('Period DDQN updates require joint fixed-REDEPLOY training.')
+    if (args.d_observation != 'original' or args.d_diagnostics) and args.action != 'train':
+        parser.error('The D observation and diagnostic flags are training settings.')
     if args.fixed_only and args.action!='baseline':
         parser.error('--fixed-only is a baseline setting.')
     if args.replay_from is not None or args.replay_gs is not None:
@@ -111,7 +116,8 @@ def run_one(args, action, seed, out, target, original):
 
     cfg = Config(seed=seed, periods=args.periods, period_seconds=args.period_seconds,
                  eval_every=args.eval_every, s_batch=args.s_batch,
-                 freeze_ds=args.freeze_ds, macro_mode=args.macro_mode, s_update_timing=args.s_update_timing)
+                 freeze_ds=args.freeze_ds, macro_mode=args.macro_mode, s_update_timing=args.s_update_timing,
+                 d_observation=args.d_observation, d_diagnostics=args.d_diagnostics)
     prefix = out.prefix
     lock = RunFiles(prefix.with_name(prefix.name+'.baseline')) if action=='baseline' else out
     try:

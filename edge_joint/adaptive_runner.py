@@ -67,6 +67,9 @@ def fixed(cfg, d, s, gate, index):
 
 
 def train(cfg, out, target, *, resume=False, init=None):
+    if (cfg.d_observation != 'original' or cfg.d_diagnostics) and (
+            cfg.macro_mode != 'redeploy' or cfg.s_update_timing != 'episode' or cfg.freeze_ds or init is not None):
+        raise ValueError('Placement observation trials require random joint fixed-REDEPLOY and episode DDQN')
     d, s, opt, replay, gate, gate_opt = components(cfg)
     resume_path = out / 'resume_latest.pt'
     if resume:
@@ -134,10 +137,11 @@ def train(cfg, out, target, *, resume=False, init=None):
     for index in range(index+1, target+1):
         scene = stable_seed('EXP019', cfg.seed, 'train-scene', index)
         period_updates = PeriodUpdates(cfg, s, replay, index) if cfg.s_update_timing == 'period' and not cfg.freeze_ds else None
+        d_audit = {} if cfg.d_diagnostics else None
         ledger, credit, transitions = episode(cfg, make_world(cfg.seed, scene), d, s, gate, scene, 'train', index,
-                                              period_updates=period_updates)
+                                              period_updates=period_updates, d_audit=d_audit)
         change = update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, index, d_updates,
-                        period_updates=period_updates)
+                        period_updates=period_updates, d_audit=d_audit)
         d_updates = change['d_updates']
         offsets['train.jsonl'] = append(out/'train.jsonl', ledger)
         offsets['updates.jsonl'] = append(out/'updates.jsonl', [change])

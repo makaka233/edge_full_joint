@@ -17,9 +17,28 @@ class PlacementPolicy(nn.Module):
         super().__init__()
         self.net = nn.Sequential(nn.Linear(57, 32), nn.Tanh(), nn.Linear(32, self.dimensions))
 
-    def forward(self, env):
+    @staticmethod
+    def features(env):
         pairs = pair_features(env).flatten(0, 1)
-        return self.net(torch.cat((pairs.mean(0), pairs.std(0, unbiased=False), pairs.amax(0))))
+        return torch.cat((pairs.mean(0), pairs.std(0, unbiased=False), pairs.amax(0)))
+
+    def forward(self, env):
+        return self.mean_from_features(self.features(env))
+
+    def mean_from_features(self, base, live=None):
+        return self.net(base)
+
+
+class ResourceGaussianPolicy(PlacementPolicy):
+    def __init__(self, inputs):
+        super().__init__()
+        self.resource_weight = nn.Parameter(torch.zeros(32, inputs))
+
+    def mean_from_features(self, base, live=None):
+        if live is None:
+            raise ValueError('Resource Gaussian placement needs an explicit observation')
+        encoded = self.net[0](base) + nn.functional.linear(live, self.resource_weight)
+        return self.net[2](self.net[1](encoded))
 
 
 class PeriodicPlacementPolicy(PlacementPolicy):
@@ -45,14 +64,15 @@ class Placement:
     inventory_reroutes: int = 0
 
 
-def decode(env, latent, seed, inventory_routing=False, *, include_optional=True, ranking_bias=None):
+def decode(env, latent, seed, inventory_routing=False, *, include_optional=True, ranking_bias=None, node_demand=None):
     """Map one latent sample to one matrix, without traffic simulation or retries."""
     rng = np.random.default_rng(seed)
     stages, nodes = env.K, env.N
     stage_map = np.kron(np.eye(stages), np.ones((1, nodes)))
     node_map = np.tile(np.eye(nodes), stages)
     cpu = env.w.nodes[:, 0]
-    demand = env.w.node_demand()[:, env.w.stage_service].T
+    node_demand = env.w.node_demand() if node_demand is None else node_demand
+    demand = node_demand[:, env.w.stage_service].T
     work = demand.sum(1) * env.w.stages[:, 0]
     global_lb = float(work.sum() / cpu.sum())
     ceiling = global_lb + max(0., 1. - global_lb) * expit(latent[7]) + 1e-5

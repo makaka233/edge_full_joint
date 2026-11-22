@@ -7,11 +7,12 @@ import torch
 from torch import nn
 
 from edge_d.physical import hasharr
-from edge_d.placement import decode
+from edge_d.placement import ResourceGaussianPolicy, decode
 from edge_d.world import stable_seed
 from edge_joint.inventory_joint import Config as BaseConfig, initialize, load_scale, parameters
 
 from .adaptive_physics import PeriodSimulator, switch_cost
+from .placement_state import capture_resources, feature_count, resource_features
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,8 @@ class Config(BaseConfig):
     freeze_ds: bool = False
     macro_mode: str = 'learned'
     s_update_timing: str = 'episode'
+    d_observation: str = 'original'
+    d_diagnostics: bool = False
 
 
 @dataclass(frozen=True)
@@ -36,6 +39,7 @@ class RolloutControl:
     focal_period: int | None = None
     focal_latent: tuple[float, ...] | None = None
     trace: bool = False
+    observe_period: int | None = None
 
 
 class PeriodUpdates:
@@ -82,6 +86,13 @@ class Gate(nn.Module):
 
 def components(cfg):
     d, s, opt, replay = initialize(cfg)
+    if cfg.d_observation in ('blind', 'resource'):
+        size = feature_count(s.config.n, s.config.k, 2*len(s.config.links))
+        # Preserve the original random draws of the shared Actor and DDQN weights.
+        with torch.random.fork_rng(devices=[]):
+            expanded = ResourceGaussianPolicy(size)
+        expanded.load_state_dict(d.state_dict(), strict=False)
+        d, opt = expanded, torch.optim.Adam(expanded.parameters(), lr=cfg.d_lr)
     torch.manual_seed(stable_seed('EXP019', cfg.seed, 'macro-initial'))
     gate = Gate()
     if cfg.macro_mode != 'learned':
@@ -143,7 +154,7 @@ def request_metrics(requests, deadline, penalty):
 
 
 def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_matrices=None,
-            control=RolloutControl(), period_updates=None):
+            control=RolloutControl(), period_updates=None, d_audit=None):
     """Run all business periods on one event queue."""
     started = time.perf_counter()
     online = split == 'train'
@@ -161,6 +172,7 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
     traffic_seed = cfg.seed if control.environment_seed is None else control.environment_seed
     decoder_seed = traffic_seed if control.decoder_seed is None else control.decoder_seed
     decisions_trace = []
+    observe = cfg.d_observation != 'original' or control.observe_period is not None or d_audit is not None
     shadow = np.random.default_rng(0) if control.trace else None
     if control.loads and len(control.loads) != cfg.periods:
         raise ValueError('Frozen load profile must cover all business periods')
@@ -176,6 +188,17 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
             env.old = sim.deployment.copy()
             sim.refresh_pressure()
         x = macro_state(env, sim, demand, previous, i, cfg.periods)
+        capture = d_audit is not None or cfg.d_observation != 'original' or control.observe_period == period
+        base = d.features(env) if capture else None
+        live = capture_resources(env, sim) if capture else None
+        signal = resource_features(env, live, demand) if capture else None
+        extra_signal = None
+        if cfg.d_observation != 'original':
+            extra_signal = signal if cfg.d_observation == 'resource' else torch.zeros_like(signal)
+        observation = None
+        if control.observe_period == period:
+            observation = dict(base=base.tolist(), resources=live.as_log(),
+                               mean=d.mean_from_features(base, extra_signal).detach().tolist())
         logit, value = gate(x)
         p = float(logit.detach().sigmoid()) if mode == 'learned' else float(mode == 'redeploy')
         rng = np.random.default_rng(stable_seed('EXP019', traffic_seed, split, scene, i, 'policy'))
@@ -213,7 +236,7 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
             scheduler = traced
         decode_key = stable_seed('EXP019', decoder_seed, split, scene, i, 'decode')
         if recorded_matrices is None and action in ('BOOTSTRAP', 'REDEPLOY'):
-            mean = d(env)
+            mean = d(env) if base is None else d.mean_from_features(base, extra_signal)
             draw = mean.detach()
             sample = online and not cfg.freeze_ds
             if intervene and control.sample_d is not None:
@@ -225,12 +248,15 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
             latent, latent_mean = draw.tolist(), mean.detach().tolist()
             proposal = decode(env, draw.numpy(), decode_key, True)
             target, fallback = proposal.matrix, proposal.coverage_fallback
+            if d_audit is not None and period == 2:
+                d_audit['anchor'] = (env, demand.copy(), decode_key, base, extra_signal, mean.detach())
         elif intervene and control.focal_latent is not None:
             proposal = decode(env, np.asarray(control.focal_latent, dtype=np.float32), decode_key, True)
             target, fallback = proposal.matrix, proposal.coverage_fallback
         if sim is None:
             sim = PeriodSimulator(env, target, scheduler, index, s.version, collect,
-                                  track_dispatch=period_updates is not None)
+                                  track_dispatch=period_updates is not None,
+                                  observe_placement=observe)
             sim.trace_enabled = control.trace
             switch.update(status='bootstrap', switch_cost=switch_cost(env, old, sim.deployment))
         else:
@@ -282,6 +308,13 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
                          wireless=resources[-len(sim.wireless):], conservation_error=error,
                          capacity_error=cap_error, events=sim.events-events, s_decisions=sim.decisions-decisions,
                          wall_seconds=time.perf_counter()-period_tick, **switch))
+        if observation is not None:
+            rows[-1]['placement_observation'] = observation
+        if d_audit is not None:
+            rows[-1]['d_observation'] = dict(base=base.tolist(), available_live=signal.tolist(),
+                                            cpu_work=live.cpu_work.sum(0).tolist(), cpu_jobs=live.cpu_jobs.sum(0).tolist(),
+                                            inflight_work=live.inflight_work.sum(0).tolist(), wired_work=live.wired_work.tolist())
+            d_audit.setdefault('states', []).append((base, extra_signal))
         credit.append((gate_logp, d_logp, value))
         if period < cfg.periods:
             if period_updates is not None:
@@ -326,7 +359,33 @@ def macro_parameters(gate, learned):
     return torch.cat((parameters(gate.hidden), parameters(gate.policy)))
 
 
-def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, index, d_updates, *, period_updates=None):
+@torch.no_grad()
+def audit_d_update(cfg, policy, ledger, audit, returns, values, advantages, discounts):
+    for row, (base, live), reward, value, advantage, discount in zip(
+            ledger, audit['states'], returns, values, advantages, discounts, strict=True):
+        logp_after = None
+        if row['d_latent'] is not None:
+            mean = policy.mean_from_features(base, live)
+            latent = torch.as_tensor(row['d_latent'], dtype=mean.dtype)
+            logp_after = float(torch.distributions.Normal(mean, cfg.sigma).log_prob(latent).sum())
+        row['d_credit'] = dict(discounted_return=float(reward), value=float(value), advantage=float(advantage),
+                               discount=float(discount), logp_after=logp_after)
+    start = time.perf_counter()
+    env, demand, key, state, live, before = audit['anchor']
+    after = policy.mean_from_features(state, live)
+    sensitivity = None if live is None else float(torch.linalg.vector_norm(
+        after-policy.mean_from_features(state, torch.zeros_like(live))))
+    a, b = (decode(env, mean.numpy(), key, True, node_demand=demand).matrix for mean in (before, after))
+    # Replicas are never changed by the audit. It compares two decodes of the same pre-action state.
+    return dict(d_value_mae=float(advantages.abs().mean()), d_anchor_changed_bits=int((a ^ b).sum()),
+                d_anchor_gs=ledger[1]['gs'], d_anchor_before=matrix_hex(a), d_anchor_after=matrix_hex(b),
+                d_anchor_mean_before=before.tolist(), d_anchor_mean_after=after.tolist(),
+                d_anchor_live_mean_delta=sensitivity,
+                d_audit_decodes=2, d_audit_decode_seconds=time.perf_counter()-start)
+
+
+def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, index, d_updates,
+           *, period_updates=None, d_audit=None):
     learned = cfg.macro_mode == 'learned'
     d_start = parameters(d)
     gate_start = macro_parameters(gate, learned)
@@ -350,12 +409,18 @@ def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, 
     gate_grad = float(torch.nn.utils.clip_grad_norm_(gate.parameters(), 5., error_if_nonfinite=True))
     gate_opt.step()
     d_grad = None
+    d_extra = {}
     if d_terms:
         opt.zero_grad(set_to_none=True)
         (torch.stack(d_terms).sum() / len(ledger)).backward()
         d_grad = float(torch.nn.utils.clip_grad_norm_(d.parameters(), 5., error_if_nonfinite=True))
+        if d_audit is not None:
+            observed = torch.cat([p.grad.flatten() for p in d.parameters() if p.grad is not None])
+            d_extra['d_gradient_after_clip'] = float(torch.linalg.vector_norm(observed))
         opt.step()
         d_updates += 1
+        if d_audit is not None:
+            d_extra.update(audit_d_update(cfg, d, ledger, d_audit, returns, values, advantages, discounts))
     metrics = []
     admitted = len(transitions)
     extra = {}
@@ -383,4 +448,4 @@ def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, 
                 admitted_to_replay=admitted, replay_size=len(replay), s_policy_version=s.version,
                 macro_decisions=sum(r['action'] in ('KEEP','REDEPLOY') for r in ledger),
                 macro_policy_samples=len(gate_terms), d_samples=len(d_terms), discounted_return=float(returns[0]),
-                s_loss=float(np.mean([r['s_loss'] for r in metrics])) if metrics else None, **extra)
+                s_loss=float(np.mean([r['s_loss'] for r in metrics])) if metrics else None, **extra, **d_extra)

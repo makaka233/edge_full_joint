@@ -57,14 +57,18 @@ def physical(cfg, d, s, gate, scene, index, control, *, recorded=None):
     return rows
 
 
-def common(seed, sources, study):
+def common(seed, sources, study, *, environment=None):
     torch.set_num_threads(1)
     frozen = study == 'frozen'
     env_seed, first_scene = (2402401, 24100) if frozen else (2402402, 24200)
+    if environment is not None:
+        env_seed, first_scene = environment
     projections = {(name, label): projection(base, seed, label) for name, base in sources
                    for label in ('best', 'last')}
-    cfg, _ = next(iter(projections.values()))
-    d, s, _, _, gate, _ = components(cfg)
+    models = {}
+    for name, _ in sources:
+        d, s, _, _, gate, _ = components(projections[name, 'best'][0])
+        models[name] = d, s, gate
     pairs = tuple(product(('best', 'last'), repeat=2)) if frozen else (('best', 'best'), ('last', 'last'))
     rows = []
     for offset, profile, loads in SUITE:
@@ -72,6 +76,7 @@ def common(seed, sources, study):
         control = RolloutControl(environment_seed=env_seed, loads=loads)
         reference = last = None
         for name, _ in sources:
+            d, s, gate = models[name]
             for d_label, s_label in pairs:
                 d_cfg, d_checkpoint = projections[name, d_label]
                 _, s_checkpoint = projections[name, s_label]

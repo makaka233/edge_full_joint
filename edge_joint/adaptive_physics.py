@@ -36,13 +36,26 @@ def solo_delay_bounds(world, available):
 
 
 class PeriodSimulator(Simulator):
-    def __init__(self, env, initial, scheduler, step, version, collect, *, track_dispatch=False):
+    def __init__(self, env, initial, scheduler, step, version, collect, *, track_dispatch=False, observe_placement=False):
         super().__init__(env.w, initial, scheduler, start=env.w.t, version=version, collection_step=step,
                          collect=collect)
         self.env = env
         if track_dispatch and (not collect or self.system_credit):
             raise ValueError('Dispatch tracking requires original stage-transition collection')
         self.dispatch_tags = {} if track_dispatch else None
+        self.cpu_requests = set() if observe_placement else None
+
+    def transmit(self, request, route, hop):
+        super().transmit(request, route, hop)
+        if self.cpu_requests is not None and hop == len(route):
+            stage = self.c.services[request.arrival.service][request.index]
+            self.cpu[request.destination].jobs[self.job_counter].stage_id = stage
+            self.cpu_requests.add(request.id)
+
+    def finish_stage(self, request):
+        if self.cpu_requests is not None:
+            self.cpu_requests.remove(request.id)
+        super().finish_stage(request)
 
     def ready(self, request, previous=None):
         super().ready(request, previous)

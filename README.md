@@ -10,6 +10,8 @@
 
 联合训练稳定性、共同环境冻结归因及逐期 DDQN 候选见 [EXP024 单文件交接](research/EXP024/AI_RESEARCH_REVIEW.md)。
 
+Agent-D 的实时资源观测审计及三臂对照见 [EXP025 单文件交接](research/EXP025/AI_RESEARCH_REVIEW.md)。
+
 ## 其他已完成研究
 
 库存协调 Agent-D 与原始 DDQN 的 BUILD-only 联合训练见 [EXP016 单文件交接](research/EXP016/AI_RESEARCH_REVIEW.md) 与 [连续训练复现](research/EXP016/REPRODUCE.md)。训练需求分布对照见 [EXP015](research/EXP015/AI_RESEARCH_REVIEW.md)。

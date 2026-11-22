@@ -128,10 +128,10 @@ def formal_run(base, seed, gs):
                 extra_physical_rollouts=0), train, fixed
 
 
-def trajectories(seed, xticks, series, kind, tag):
+def trajectories(seed, xticks, series, kind, tag, *, destination=RESULTS, experiment='EXP024'):
     labels = ('原始 Reward', '平均完成时延（秒）', '惩罚后 P95（秒）', '惩罚后 P99（秒）')
     fig, axes = plt.subplots(2, 2, figsize=(11, 6), layout='constrained')
-    fig.suptitle(f'EXP024 · 种子 {seed} · {kind}')
+    fig.suptitle(f'{experiment} · 种子 {seed} · {kind}')
     for index, (ax, title) in enumerate(zip(axes.flat, labels, strict=True)):
         for arm, values in series.items():
             ax.plot(xticks, values[:, index], linewidth=1., label=arm)
@@ -139,17 +139,19 @@ def trajectories(seed, xticks, series, kind, tag):
         ax.grid(alpha=.2)
     axes[0, 0].legend()
     suffix = 'online' if kind == '完整在线轨迹' else 'fixed'
-    path = RESULTS/f'{tag}.gs{xticks[-1]}.seed{seed}.{suffix}.png'
+    path = destination/f'{tag}.gs{xticks[-1]}.seed{seed}.{suffix}.png'
     fig.savefig(path, dpi=130)
     plt.close(fig)
 
 
-def holdout_plot(seed, arms, tag, gs):
+def holdout_plot(seed, arms, tag, gs, *, destination=RESULTS, experiment='EXP024', styles=None):
     names = ('自然', '突发', '持续 0.55', '持续 0.70')
     keys = [profile for _,profile,_ in SUITE]
     fig, axes = plt.subplots(1, 3, figsize=(12, 3.5), layout='constrained')
-    fig.suptitle(f'EXP024 · 种子 {seed} · 共同独立环境（GS{gs}）')
-    for name, color, arm in (('基线','#245582','base'), ('提前更新 S','#a34523','early-s')):
+    fig.suptitle(f'{experiment} · 种子 {seed} · 共同独立环境（GS{gs}）')
+    if styles is None:
+        styles = (('基线','#245582','base'), ('提前更新 S','#a34523','early-s'))
+    for name, color, arm in styles:
         for model, marker, shift in (('best','o',-.09), ('last','D',.09)):
             values = np.asarray([vector(arms[arm]['holdout'][model][key])[:3] for key in keys])
             for ax, title, data in zip(axes, ('净 Reward','平均完成时延（秒）','惩罚后 P99（秒）'), values.T, strict=True):
@@ -158,7 +160,7 @@ def holdout_plot(seed, arms, tag, gs):
                 ax.set(title=title, xticks=np.arange(len(keys)), xticklabels=names)
                 ax.grid(alpha=.2)
     axes[0].legend(fontsize=8)
-    fig.savefig(RESULTS/f'{tag}.gs{gs}.seed{seed}.holdout.png', dpi=130)
+    fig.savefig(destination/f'{tag}.gs{gs}.seed{seed}.holdout.png', dpi=130)
     plt.close(fig)
 
 

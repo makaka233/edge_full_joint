@@ -42,7 +42,9 @@ def source():
             return None
     revision = git('rev-parse', 'HEAD')
     status = git('status', '--porcelain') if revision else None
+    tracked = git('status', '--porcelain', '--untracked-files=no') if revision else None
     return dict(commit=revision, dirty=bool(status) if status is not None else None,
+                tracked_dirty=bool(tracked) if tracked is not None else None,
                 python=platform.python_version(), os=platform.platform(), torch=str(torch.__version__),
                 numpy=np.__version__)
 
@@ -67,6 +69,9 @@ def fixed(cfg, d, s, gate, index):
 
 
 def train(cfg, out, target, *, resume=False, init=None):
+    if cfg.d_decoder == 'link-priced' and (
+            cfg.d_observation != 'original' or cfg.macro_mode != 'redeploy' or cfg.freeze_ds or init is not None):
+        raise ValueError('Link-priced decoder trials require original observation and random joint fixed-REDEPLOY')
     if (cfg.d_observation != 'original' or cfg.d_diagnostics) and (
             cfg.macro_mode != 'redeploy' or cfg.freeze_ds or init is not None):
         raise ValueError('Placement observation trials require random joint fixed-REDEPLOY')
@@ -139,9 +144,14 @@ def train(cfg, out, target, *, resume=False, init=None):
         period_updates = PeriodUpdates(cfg, s, replay, index) if cfg.s_update_timing == 'period' and not cfg.freeze_ds else None
         d_audit = {} if cfg.d_diagnostics else None
         ledger, credit, transitions = episode(cfg, make_world(cfg.seed, scene), d, s, gate, scene, 'train', index,
-                                              period_updates=period_updates, d_audit=d_audit)
+                                              period_updates=period_updates, d_audit=d_audit,
+                                              profile=cfg.profile_periods)
+        if cfg.profile_periods:
+            update_tick = time.perf_counter()
         change = update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, index, d_updates,
                         period_updates=period_updates, d_audit=d_audit)
+        if cfg.profile_periods:
+            change['episode_update_seconds'] = time.perf_counter()-update_tick
         d_updates = change['d_updates']
         offsets['train.jsonl'] = append(out/'train.jsonl', ledger)
         offsets['updates.jsonl'] = append(out/'updates.jsonl', [change])

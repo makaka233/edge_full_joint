@@ -26,6 +26,8 @@ class Config(BaseConfig):
     s_update_timing: str = 'episode'
     d_observation: str = 'original'
     d_diagnostics: bool = False
+    d_decoder: str = 'cpu'
+    profile_periods: bool = False
 
 
 @dataclass(frozen=True)
@@ -135,6 +137,10 @@ def matrix_hex(matrix):
     return np.packbits(matrix).tobytes().hex()
 
 
+def decode_placement(cfg, env, latent, key, **kwargs):
+    return decode(env, latent, key, True, link_priced=cfg.d_decoder=='link-priced', **kwargs)
+
+
 def request_metrics(requests, deadline, penalty):
     completed, penalized, censored = [], [], []
     for r in requests:
@@ -154,7 +160,8 @@ def request_metrics(requests, deadline, penalty):
 
 
 def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_matrices=None,
-            control=RolloutControl(), period_updates=None, d_audit=None):
+            control=RolloutControl(), period_updates=None, d_audit=None,
+            simulator_factory=PeriodSimulator, boundary=None, profile=False):
     """Run all business periods on one event queue."""
     started = time.perf_counter()
     online = split == 'train'
@@ -187,6 +194,10 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
         if sim is not None:
             env.old = sim.deployment.copy()
             sim.refresh_pressure()
+        if boundary is not None:
+            boundary(env, sim, period, 'start')
+        if profile:
+            resource_tick = time.perf_counter()
         x = macro_state(env, sim, demand, previous, i, cfg.periods)
         capture = d_audit is not None or cfg.d_observation != 'original' or control.observe_period == period
         base = d.features(env) if capture else None
@@ -195,6 +206,8 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
         extra_signal = None
         if cfg.d_observation != 'original':
             extra_signal = signal if cfg.d_observation == 'resource' else torch.zeros_like(signal)
+        if profile:
+            resource_seconds = time.perf_counter() - resource_tick
         observation = None
         if control.observe_period == period:
             observation = dict(base=base.tolist(), resources=live.as_log(),
@@ -235,6 +248,8 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
                 return action
             scheduler = traced
         decode_key = stable_seed('EXP019', decoder_seed, split, scene, i, 'decode')
+        if profile:
+            decode_tick = time.perf_counter()
         if recorded_matrices is None and action in ('BOOTSTRAP', 'REDEPLOY'):
             mean = d(env) if base is None else d.mean_from_features(base, extra_signal)
             draw = mean.detach()
@@ -246,15 +261,17 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
             if sample and collect:
                 d_logp = torch.distributions.Normal(mean, cfg.sigma).log_prob(draw).sum()
             latent, latent_mean = draw.tolist(), mean.detach().tolist()
-            proposal = decode(env, draw.numpy(), decode_key, True)
+            proposal = decode_placement(cfg, env, draw.numpy(), decode_key)
             target, fallback = proposal.matrix, proposal.coverage_fallback
             if d_audit is not None and period == 2:
                 d_audit['anchor'] = (env, demand.copy(), decode_key, base, extra_signal, mean.detach())
         elif intervene and control.focal_latent is not None:
-            proposal = decode(env, np.asarray(control.focal_latent, dtype=np.float32), decode_key, True)
+            proposal = decode_placement(cfg, env, np.asarray(control.focal_latent, dtype=np.float32), decode_key)
             target, fallback = proposal.matrix, proposal.coverage_fallback
+        if profile:
+            decode_seconds = time.perf_counter() - decode_tick
         if sim is None:
-            sim = PeriodSimulator(env, target, scheduler, index, s.version, collect,
+            sim = simulator_factory(env, target, scheduler, index, s.version, collect,
                                   track_dispatch=period_updates is not None,
                                   observe_placement=observe)
             sim.trace_enabled = control.trace
@@ -275,6 +292,8 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
                                   np.random.default_rng(stable_seed('EXP019', traffic_seed, split, scene, i, 'traffic')))
         first = len(sim.requests)
         sim.add_arrivals(arrivals)
+        if profile:
+            physical_before, stale_before = sim.profile.copy(), sim.stale_events
         sim.run_until(end)
         cohort.append(sim.requests[first:])
         if len(cohort[-1]) != len(arrivals):
@@ -315,6 +334,13 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
                                             cpu_work=live.cpu_work.sum(0).tolist(), cpu_jobs=live.cpu_jobs.sum(0).tolist(),
                                             inflight_work=live.inflight_work.sum(0).tolist(), wired_work=live.wired_work.tolist())
             d_audit.setdefault('states', []).append((base, extra_signal))
+        if profile:
+            rows[-1]['profile'] = dict(
+                **{name: value - physical_before[name] for name, value in sim.profile.items()},
+                placement_features_seconds=resource_seconds, placement_policy_decode_seconds=decode_seconds,
+                stale_events=sim.stale_events - stale_before)
+        if boundary is not None:
+            boundary(env, sim, period, 'end')
         credit.append((gate_logp, d_logp, value))
         if period < cfg.periods:
             if period_updates is not None:
@@ -375,7 +401,7 @@ def audit_d_update(cfg, policy, ledger, audit, returns, values, advantages, disc
     after = policy.mean_from_features(state, live)
     sensitivity = None if live is None else float(torch.linalg.vector_norm(
         after-policy.mean_from_features(state, torch.zeros_like(live))))
-    a, b = (decode(env, mean.numpy(), key, True, node_demand=demand).matrix for mean in (before, after))
+    a, b = (decode_placement(cfg, env, mean.numpy(), key, node_demand=demand).matrix for mean in (before, after))
     # Replicas are never changed by the audit. It compares two decodes of the same pre-action state.
     return dict(d_value_mae=float(advantages.abs().mean()), d_anchor_changed_bits=int((a ^ b).sum()),
                 d_anchor_gs=ledger[1]['gs'], d_anchor_before=matrix_hex(a), d_anchor_after=matrix_hex(b),

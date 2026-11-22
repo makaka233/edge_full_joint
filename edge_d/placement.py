@@ -55,6 +55,40 @@ def _standardize(values):
     return (values - values.mean()) / max(values.std(), 1e-8)
 
 
+def link_marginals(world, node_demand, stage_rates):
+    """Derivative of half the sum of squared link utilizations per added CU/s.
+
+    Linearize around the previous transport solution using independent
+    upstream and downstream marginals. This prices both adjacent segments.
+    """
+    ratios = np.zeros(len(world.directed))
+    caps = np.asarray([edge[2] for edge in world.directed])
+    segments = []
+    for service, chain in enumerate(world.c.services):
+        upstream = node_demand[:, service]
+        volume = upstream.sum()
+        if volume <= 0 or np.any(stage_rates[chain,:].sum(axis=1)<=0):
+            continue
+        upstream = upstream / volume
+        for k in chain:
+            downstream = stage_rates[k]
+            downstream = downstream / downstream.sum()
+            mbits = world.stages[k,1]
+            ratios += (volume*mbits/caps)*np.einsum('a,b,abe->e', upstream, downstream, world.path_incidence)
+            segments.append((k, upstream, downstream))
+            upstream = downstream
+    price = np.einsum('abe,e->ab', world.path_incidence, ratios/caps)
+    marginal = np.zeros_like(stage_rates)
+    previous = {b:a for chain in world.c.services for a,b in zip(chain,chain[1:])}
+    for k, upstream, downstream in segments:
+        work, mbits = world.stages[k,:2]
+        marginal[k] += mbits/work * (upstream @ price)
+        if k in previous:
+            prev = previous[k]
+            marginal[prev] += mbits/world.stages[prev,0] * (price @ downstream)
+    return marginal
+
+
 @dataclass
 class Placement:
     matrix: np.ndarray
@@ -64,7 +98,8 @@ class Placement:
     inventory_reroutes: int = 0
 
 
-def decode(env, latent, seed, inventory_routing=False, *, include_optional=True, ranking_bias=None, node_demand=None):
+def decode(env, latent, seed, inventory_routing=False, *, include_optional=True, ranking_bias=None, node_demand=None,
+           link_priced=False):
     """Map one latent sample to one matrix, without traffic simulation or retries."""
     rng = np.random.default_rng(seed)
     stages, nodes = env.K, env.N
@@ -85,9 +120,7 @@ def decode(env, latent, seed, inventory_routing=False, *, include_optional=True,
     priority = ((1. + latent[0]) * locality + (.5 + latent[1]) * speed
                 + latent[2] * node_load - (.25 + latent[3]) * footprint
                 + rng.standard_normal((stages, nodes)))
-    allowed = eligible.copy()
-
-    def transport():
+    def transport(priority, allowed):
         fit = linprog(-priority.ravel(), A_eq=stage_map, b_eq=work, A_ub=node_map,
                       b_ub=cpu*ceiling, bounds=np.column_stack((np.zeros(stages*nodes),
                       (allowed*work[:, None]).ravel())), method='highs')
@@ -95,23 +128,41 @@ def decode(env, latent, seed, inventory_routing=False, *, include_optional=True,
             raise RuntimeError(f'CPU transport solver: {fit.message}')
         return fit
 
-    flow = transport()
-    reroutes = 0
-    while inventory_routing and flow.success:
-        loads = flow.x.reshape(stages, nodes)
-        support = loads > 1e-9
-        excess = (support.T @ env.spec)/env.capacity - 1.
-        if excess.max() <= 1e-10:
-            break
-        node, resource = np.unravel_index(excess.argmax(), excess.shape)
-        choices = np.flatnonzero(support[:, node] & (allowed.sum(1) > 1))
-        if not choices.size:
-            break
-        score = loads[choices, node]/env.spec[choices, resource]
-        stage = choices[score.argmin()]
-        allowed[stage, node] = False
-        reroutes += 1
-        flow = transport()
+    def coordinate(priority, flow=None):
+        allowed = eligible.copy()
+        if flow is None:
+            flow = transport(priority, allowed)
+        reroutes = 0
+        while inventory_routing and flow.success:
+            loads = flow.x.reshape(stages, nodes)
+            support = loads > 1e-9
+            excess = (support.T @ env.spec)/env.capacity - 1.
+            if excess.max() <= 1e-10:
+                break
+            node, resource = np.unravel_index(excess.argmax(), excess.shape)
+            choices = np.flatnonzero(support[:, node] & (allowed.sum(1) > 1))
+            if not choices.size:
+                break
+            score = loads[choices, node]/env.spec[choices, resource]
+            stage = choices[score.argmin()]
+            allowed[stage, node] = False
+            reroutes += 1
+            flow = transport(priority, allowed)
+        return flow, reroutes
+
+    if link_priced:
+        # Use the uncoordinated transport as a fractional reference. Only the
+        # repriced transport enters inventory coordination and execution.
+        reference = transport(priority, eligible)
+        if reference.success:
+            marginal = link_marginals(env.w, node_demand, reference.x.reshape(stages, nodes))
+            eligible_prices = marginal[eligible]
+            priority = priority - (marginal-eligible_prices.mean())/max(eligible_prices.std(),1e-8)
+            flow, reroutes = coordinate(priority)
+        else:
+            flow, reroutes = coordinate(priority, reference)
+    else:
+        flow, reroutes = coordinate(priority)
     matrix = (flow.x.reshape(stages, nodes) > 1e-9) if flow.success else np.zeros_like(eligible)
     fallback = not (matrix.any(1).all() and np.all(matrix.T @ env.spec <= env.capacity + 1e-9))
     if fallback:

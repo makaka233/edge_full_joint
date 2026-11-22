@@ -22,6 +22,9 @@ def add_arguments(parser):
     parser.add_argument('--evaluate-after', action='store_true',
                         help='run independent evaluation after all requested training runs reach the target')
     parser.add_argument('--s-batch', type=int, default=128, help='original DDQN replay minibatch size')
+    parser.add_argument('--d-decoder', choices=('cpu', 'link-priced'), default='cpu',
+                        help='original Gaussian decoder or EXP026 link-priced transport (training setting)')
+    parser.add_argument('--profile-periods', action='store_true', help='log timing for simulation, inference and decoding')
     parser.add_argument('--s-update-timing', choices=('episode', 'period'), default='episode',
                         help='DDQN update clock with the same optimizer budget per episode')
     parser.add_argument('--d-observation', choices=('original', 'blind', 'resource'), default='original',
@@ -59,7 +62,8 @@ def run(parser, args):
         parser.error('--macro-mode is a training setting. Evaluation reads it from the run.')
     if args.s_update_timing == 'period' and (args.action != 'train' or args.macro_mode != 'redeploy' or args.freeze_ds):
         parser.error('Period DDQN updates require joint fixed-REDEPLOY training.')
-    if (args.d_observation != 'original' or args.d_diagnostics) and args.action != 'train':
+    if (args.d_observation != 'original' or args.d_diagnostics or args.d_decoder != 'cpu'
+            or args.profile_periods) and args.action != 'train':
         parser.error('The D observation and diagnostic flags are training settings.')
     if args.fixed_only and args.action!='baseline':
         parser.error('--fixed-only is a baseline setting.')
@@ -117,7 +121,8 @@ def run_one(args, action, seed, out, target, original):
     cfg = Config(seed=seed, periods=args.periods, period_seconds=args.period_seconds,
                  eval_every=args.eval_every, s_batch=args.s_batch,
                  freeze_ds=args.freeze_ds, macro_mode=args.macro_mode, s_update_timing=args.s_update_timing,
-                 d_observation=args.d_observation, d_diagnostics=args.d_diagnostics)
+                 d_observation=args.d_observation, d_diagnostics=args.d_diagnostics, d_decoder=args.d_decoder,
+                 profile_periods=args.profile_periods)
     prefix = out.prefix
     lock = RunFiles(prefix.with_name(prefix.name+'.baseline')) if action=='baseline' else out
     try:

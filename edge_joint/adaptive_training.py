@@ -42,6 +42,7 @@ class RolloutControl:
     focal_latent: tuple[float, ...] | None = None
     trace: bool = False
     observe_period: int | None = None
+    trace_requests: bool = False
 
 
 class PeriodUpdates:
@@ -161,7 +162,8 @@ def request_metrics(requests, deadline, penalty):
 
 def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_matrices=None,
             control=RolloutControl(), period_updates=None, d_audit=None,
-            simulator_factory=PeriodSimulator, boundary=None, profile=False):
+            simulator_factory=PeriodSimulator, boundary=None, profile=False,
+            initial_deployment=None, continuation=None):
     """Run all business periods on one event queue."""
     started = time.perf_counter()
     online = split == 'train'
@@ -172,18 +174,31 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
     # Natively evolving regimes retain the original parameters. Simulated periods are compact.
     if env.w.amplitude != 0. or env.cost['latency_objective'] != 'period_mean':
         raise ValueError('EXP019 requires stationary within-period demand and original period_mean cost')
-    env.w.t = 0.
-    env.old = np.zeros((env.K, env.N), dtype=bool)
     sim = previous = None
+    first_period = 0
+    if continuation is not None:
+        first_period, sim = continuation
+        if (collect or initial_deployment is not None or sim.collect or sim.env is not env
+                or not 0 < first_period < cfg.periods or sim.now != first_period*cfg.period_seconds):
+            raise ValueError('Invalid frozen rollout continuation')
+    else:
+        env.w.t = 0.
+        env.old = np.zeros((env.K, env.N), dtype=bool)
     rows, cohort, credit = [], [], []
     traffic_seed = cfg.seed if control.environment_seed is None else control.environment_seed
     decoder_seed = traffic_seed if control.decoder_seed is None else control.decoder_seed
     decisions_trace = []
     observe = cfg.d_observation != 'original' or control.observe_period is not None or d_audit is not None
+    if initial_deployment is not None:
+        if collect:
+            raise ValueError('Explicit initial deployment is supported only for frozen rollout')
+        sim = simulator_factory(env, initial_deployment, None, index, s.version, False,
+                                observe_placement=observe)
+        sim.trace_enabled = control.trace or control.trace_requests
     shadow = np.random.default_rng(0) if control.trace else None
     if control.loads and len(control.loads) != cfg.periods:
         raise ValueError('Frozen load profile must cover all business periods')
-    for i in range(cfg.periods):
+    for i in range(first_period, cfg.periods):
         period_tick = time.perf_counter()
         start, end = i * cfg.period_seconds, (i + 1) * cfg.period_seconds
         period = i + 1
@@ -274,7 +289,7 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
             sim = simulator_factory(env, target, scheduler, index, s.version, collect,
                                   track_dispatch=period_updates is not None,
                                   observe_placement=observe)
-            sim.trace_enabled = control.trace
+            sim.trace_enabled = control.trace or control.trace_requests
             switch.update(status='bootstrap', switch_cost=switch_cost(env, old, sim.deployment))
         else:
             sim.scheduler = scheduler

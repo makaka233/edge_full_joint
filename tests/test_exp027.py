@@ -1,5 +1,6 @@
 """Exercise reproducible paired evaluation and physical snapshot forks."""
 from dataclasses import replace
+from itertools import product
 from unittest import TestCase
 
 import numpy as np
@@ -11,6 +12,7 @@ from edge_joint.adaptive_training import Config, RolloutControl, components, epi
 from scripts.exp019_report import unpack
 from scripts.exp024_evaluate import FIELDS, assert_flow
 from scripts.exp027_cases import fork
+from scripts.exp027_report import FACTORS, causal_effects, interval
 from scripts.exp027_run import ObservedSimulator, WorkLedger, fingerprint, registry, verify_periods
 
 
@@ -23,6 +25,24 @@ class Exp027Tests(TestCase):
         burst = [case for case in cases if case['profile']=='burst']
         self.assertEqual(len(burst),8)
         self.assertTrue(all(case['loads']==[None]*8+[.70]*4+[None]*12 for case in burst))
+
+    def test_paired_effect_keeps_trajectory_as_resampling_unit(self):
+        result = interval([-3.,-3.,-3.,-3.],'constant')
+        self.assertEqual((result['n'],result['estimate'],result['lower'],result['upper'],result['negative']),
+                         (4,-3.,-3.,-3.,4))
+        self.assertEqual(interval([-1.,1.,4.],'fixed'),interval([-1.,1.,4.],'fixed'))
+
+    def test_factorial_reports_held_cell_pairs_and_interactions(self):
+        records = []
+        for a,d,s in product((0,1),repeat=3):
+            labels = ['cpu' if value==0 else 'link-priced' for value in (a,d,s)]
+            records.append(dict(zip(FACTORS,labels,strict=True),
+                                outcome={'p99':2*a+3*d+7*s+4*a*d+5*a*d*s}))
+        result = causal_effects(records,FACTORS)
+        self.assertEqual(len(result['decoder']['pairs']),4)
+        self.assertEqual(result['decoder']['average']['p99'],6.25)
+        self.assertEqual(result['actor:decoder']['average']['p99'],6.5)
+        self.assertEqual(result['actor:decoder:scheduler']['average']['p99'],5.)
 
     @torch.inference_mode()
     def test_rehydrated_queue_admits_the_same_physical_actions(self):

@@ -1,9 +1,15 @@
 """Check the causal comparison and its pre-registered decision rule."""
 
+import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest import TestCase
+from unittest.mock import patch
 
 from scripts.exp032_report import contrasts, inference, pooled_interactions
-from scripts.exp032_run import future_ids, suffix_loads
+from scripts.exp032_run import (CELLS, PRE_FIX_REVISION, execution_sources, fingerprint, future_ids,
+                                suffix_loads, validate_quartet, verify_archived_snapshot)
 
 
 PLAN = dict(futures=4, minimum_reward=.03, minimum_e2e_relative=.01,
@@ -27,6 +33,43 @@ class CounterfactualTests(TestCase):
         self.assertEqual(suffix_loads(spec,4),(None,None,None,.70,.70,.70))
         spec['case'] = dict(profile='burst',loads=[None,.70,.70,None])
         self.assertEqual(suffix_loads(spec,5),(None,None,None,.70,None,None,None))
+
+    def test_archived_snapshot_preserves_event_and_queue_values(self):
+        actual = dict(active=[(1, 2, 3.0)], queue=[(0, 1, 2.0)], heap=[[1.0, 0, 'resource', [0, 1]]])
+        archived = json.loads(json.dumps(actual))
+        self.assertNotEqual(actual, archived)
+        verify_archived_snapshot(actual, archived)
+        archived['heap'][0][-1][-1] += 1
+        with self.assertRaisesRegex(AssertionError, 'Archived full event snapshot differs'):
+            verify_archived_snapshot(actual, archived)
+
+    def test_recovery_preserves_cached_results_and_records_new_revision(self):
+        original = dict(commit=PRE_FIX_REVISION, tracked_dirty=False)
+        current = dict(commit='fixed', tracked_dirty=False)
+        plan = dict(source=original, selected=['unchanged'])
+        signature = fingerprint(plan)
+        future = dict(index=1)
+        with TemporaryDirectory() as root, patch('scripts.exp032_run.RESULTS', Path(root)):
+            with (
+                patch('scripts.exp032_run.subprocess.run', return_value=SimpleNamespace(returncode=0)),
+                patch('scripts.exp032_run.subprocess.check_output',
+                      return_value='scripts/exp032_run.py\nedge_joint/adaptive_training.py\n'),
+            ):
+                with self.assertRaisesRegex(ValueError, 'preserve'):
+                    execution_sources(plan, current)
+            with (
+                patch('scripts.exp032_run.subprocess.run', return_value=SimpleNamespace(returncode=0)),
+                patch('scripts.exp032_run.subprocess.check_output', return_value='scripts/exp032_run.py\n'),
+            ):
+                self.assertEqual(execution_sources(plan, current), execution_sources(plan))
+            for source in (original, current):
+                data = dict(source=source, protocol_sha256=signature, future=future,
+                            cells=dict.fromkeys(CELLS))
+                validate_quartet(data, signature, future, execution_sources(plan), 'saved.json')
+            data['source'] = dict(commit='foreign', tracked_dirty=False)
+            with self.assertRaisesRegex(ValueError, 'Unexpected intervention evidence'):
+                validate_quartet(data, signature, future, execution_sources(plan), 'saved.json')
+            self.assertEqual(plan['source'], original)
 
     def test_ranking_flip_requires_both_metrics_and_a_real_margin(self):
         samples = [[comparison(.07,.03),comparison(-.06,-.04)] for _ in range(4)]

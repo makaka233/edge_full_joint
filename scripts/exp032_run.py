@@ -5,6 +5,7 @@ from dataclasses import replace
 from functools import lru_cache
 import json
 from pathlib import Path
+import subprocess
 import time
 
 import numpy as np
@@ -23,12 +24,15 @@ from scripts.exp027_cases import PrefixReady, boundary_record, fork
 from scripts.exp027_run import WorkLedger, fingerprint, verify_periods
 from scripts.exp028_run import jobs
 from scripts.exp029_run import common_prefix, digest
-from scripts.exp031_frozen import (RESULTS as EXP031, SEED, destination as archive_path, load_pair,
-                                   model_pool, registry, stage_statistics)
+from scripts.exp031_frozen import (FOCAL_PERIOD, RESULTS as EXP031, SEED, destination as archive_path,
+                                   load_pair, model_pool, registry, stage_statistics)
 
 
 RESULTS = Path('runs/results/EXP032')
 ORIGIN = '9394dd180aa3f3a0cb69edc84aa7ab079428109f'
+PRE_FIX_REVISION = '60a21ed0a220742c2d22845508046de0a89e40a5'
+RECOVERY_FILES = {'scripts/exp032_run.py', 'scripts/exp032_report.py',
+                  'tests/test_exp032.py', 'research/EXP032/AI_RESEARCH_REVIEW.md'}
 ANCHORS = {'new.sustained055.1': ('A', 'C', 8), 'new.sustained070.2': ('A', 'C', 20)}
 FUTURES = 4
 PERIODS = 24
@@ -213,6 +217,12 @@ def boundary_verification(env, sim, r, observation, d):
         raise AssertionError(f'The replayed pre-decision state differs at period {r["period"]}')
 
 
+def verify_archived_snapshot(actual, expected):
+    # The event snapshot uses tuples in memory and arrays in persisted JSON.
+    if fingerprint(actual) != fingerprint(expected):
+        raise AssertionError('Archived full event snapshot differs')
+
+
 @torch.inference_mode()
 def reconstruct(spec, result):
     """Recover real event state by replaying the original, separate prefix policies."""
@@ -239,9 +249,8 @@ def reconstruct(spec, result):
                 cursor = len(sim.requests)
                 if p == period:
                     proof = boundary_record(world, sim, case['environment'], 'holdout', case['scene'], p)
-                    if phase in raw['incident_state'] and p == 11:
-                        if proof['physical'] != raw['incident_state'][phase]:
-                            raise AssertionError('Archived full event snapshot differs')
+                    if phase in raw['incident_state'] and p == FOCAL_PERIOD:
+                        verify_archived_snapshot(proof['physical'], raw['incident_state'][phase])
                     states[q] = (world, sim, proof)
                     raise PrefixReady
             elif (hasharr([req.arrival for req in sim.requests[cursor:]]) != r['trace_sha256']
@@ -314,19 +323,59 @@ def artifact(spec, future, tag='counterfactual'):
     return RESULTS/f'{tag}.{spec["case"]["id"]}.future{future["index"]}.json'
 
 
-def run_pair(spec, plan, *, smoke=False):
+def execution_sources(plan, current=None):
+    """Record the one snapshot-check recovery while preserving prior provenance."""
+    original = plan['source']
+    allowed = {original['commit']: original}
+    path = RESULTS/'counterfactual.recovery.json'
+    signature = fingerprint(plan)
+    if path.exists():
+        saved = json.loads(path.read_bytes())
+        if saved['protocol_sha256'] != signature or saved['execution']['tracked_dirty'] is not False:
+            raise ValueError('The saved recovery revision does not match this protocol')
+        allowed[saved['execution']['commit']] = saved['execution']
+    if current is None:
+        return allowed
+    if original['tracked_dirty'] is not False or current['tracked_dirty'] is not False:
+        raise ValueError('Start formal counterfactuals from a recorded clean source revision')
+    if current['commit'] in allowed:
+        return allowed
+    if path.exists() or original['commit'] != PRE_FIX_REVISION:
+        raise ValueError('Run the remaining quartets from the registered execution revision')
+    base, revision = original['commit'], current['commit']
+    ancestor = subprocess.run(('git', 'merge-base', '--is-ancestor', base, revision), check=False)
+    changed = subprocess.check_output(('git', 'diff', '--name-only', base, revision), text=True).splitlines()
+    if ancestor.returncode or not set(changed) <= RECOVERY_FILES or 'scripts/exp032_run.py' not in changed:
+        raise ValueError('The snapshot-check recovery must preserve the registered evaluator and physical code')
+    saved = dict(protocol_sha256=signature, execution=current,
+                 reason='compare identical JSON representations of archived event snapshots')
+    atomic(path, lambda f:f.write(line(saved)))
+    allowed[revision] = current
+    return allowed
+
+
+def validate_quartet(data, signature, future, sources, path):
+    stored = data['source']
+    if (data['protocol_sha256'] != signature or data['future'] != future
+            or sources.get(stored['commit']) != stored or tuple(data['cells']) != CELLS):
+        raise ValueError(f'Unexpected intervention evidence: {path}')
+
+
+def run_pair(spec, plan, execution=None, *, smoke=False):
     torch.set_num_threads(1)
     tag = 'smoke.v2' if smoke else 'counterfactual'
     horizons = 1 if smoke else plan['periods']
     futures = spec['futures'][:1] if smoke else spec['futures']
     signature = fingerprint(spec if smoke else plan)
+    sources = execution_sources(plan) if not smoke else None
     pending = []
     for future in futures:
         path = artifact(spec, future, tag)
         if path.exists():
             data = json.loads(path.read_bytes())
-            if data['protocol_sha256'] != signature or data['future'] != future or (
-                    not smoke and data['source'] != plan['source']):
+            if not smoke:
+                validate_quartet(data, signature, future, sources, path)
+            elif data['protocol_sha256'] != signature or data['future'] != future:
                 raise ValueError(f'Existing result conflicts with registration: {path}')
         else:
             pending.append(future)
@@ -339,7 +388,7 @@ def run_pair(spec, plan, *, smoke=False):
     for future in pending:
         start = time.perf_counter()
         cells = score(spec, states, future, horizons)
-        result = dict(spec=spec['case']['id'], future=future, source=plan['source'],
+        result = dict(spec=spec['case']['id'], future=future, source=execution or plan['source'],
                       protocol_sha256=signature, opening=snapshots,
                       physical_sha256={q:fingerprint(s['physical']) for q, s in snapshots.items()},
                       cells=cells, wall_seconds=time.perf_counter()-start, prefix_seconds=prefix_seconds)
@@ -367,10 +416,9 @@ def main():
         print(f'{len(plan["selected"])} registered real state pairs', flush=True)
         if args.stage == 'all':
             current = source()
-            if (current['commit'] != plan['source']['commit'] or current['tracked_dirty']
-                    or plan['source']['tracked_dirty']):
-                raise ValueError('Start formal counterfactuals from the registered clean source revision')
-            jobs(run_pair, [(spec, plan) for spec in plan['selected']],
+            revisions = execution_sources(plan, current)
+            execution = revisions[current['commit']]
+            jobs(run_pair, [(spec, plan, execution) for spec in plan['selected']],
                  min(args.workers, len(plan['selected'])))
         if args.stage in ('all', 'report'):
             from scripts.exp032_report import report

@@ -10,7 +10,8 @@ from edge_d.world import stable_seed
 from edge_joint.adaptive_storage import atomic, line
 from scripts.exp024_evaluate import assert_flow
 from scripts.exp029_report import COLORS, summarize
-from scripts.exp032_run import CELLS, RESULTS, archive, archive_cases, artifact, fingerprint
+from scripts.exp032_run import (CELLS, RESULTS, archive, archive_cases, artifact,
+                                execution_sources, fingerprint, validate_quartet)
 
 
 METRICS = ('reward_raw', 'e2e_completed', 'p95', 'p99')
@@ -129,6 +130,7 @@ def plots(data, raw):
 
 def report(plan):
     signature = fingerprint(plan)
+    sources = execution_sources(plan)
     prior = set()
     for case in archive_cases():
         prior.update(r['trace_sha256'] for r in archive(case)['cells']['A']['rows'])
@@ -138,9 +140,7 @@ def report(plan):
         for future in spec['futures']:
             path = artifact(spec, future)
             data = json.loads(path.read_bytes())
-            if (data['protocol_sha256'] != signature or data['source'] != plan['source']
-                    or data['future'] != future or tuple(data['cells']) != CELLS):
-                raise ValueError(f'Unexpected intervention evidence: {path}')
+            validate_quartet(data, signature, future, sources, path)
             opening = data['physical_sha256'] if opening is None else opening
             if (opening != data['physical_sha256'] or
                     any(fingerprint(v['physical']) != opening[q] for q,v in data['opening'].items())):
@@ -162,13 +162,14 @@ def report(plan):
                 rows.append(dict(case=spec['case']['id'], future=future['index'], cell=name, **stats[name]))
             all_futures.append(contrasts(stats))
             raw.append(series)
-            cohort.append(dict(future=future, balance=stats, path=path.name))
+            cohort.append(dict(future=future, balance=stats, path=path.name,
+                               execution_commit=data['source']['commit']))
         key, profile = spec['case']['id'], spec['case']['profile']
         evaluated.append(dict(id=key, profile=profile, opening=opening, futures=cohort, samples=all_futures,
                               sorting=inference(all_futures, plan, key)))
     n = sum(r['sorting']['confirmed'] for r in evaluated)
     review = dict(confirmed=n, evaluated=len(evaluated), gate=n >= plan['minimum_confirmed_states'],
-                  source=plan['source'], protocol_sha256=signature,
+                  source=plan['source'], execution_sources=sources, protocol_sha256=signature,
                   interactions=pooled_interactions(evaluated, plan), pairs=evaluated)
     atomic(RESULTS/'counterfactual.review.json', lambda f:f.write(line(review)))
     output = io.StringIO()

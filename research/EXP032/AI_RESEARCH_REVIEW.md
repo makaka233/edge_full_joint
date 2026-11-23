@@ -1,6 +1,6 @@
 # EXP032 · Agent-D 状态信息价值
 
-**当前阶段。** 已从 EXP031 轨迹筛出八对具有相同决策输入、不同真实队列的状态，为每对锁定了两张完整合法矩阵和四条独立未来随机流。原事件前缀回放和四格短测已通过。正式排序结果待研究员运行，Actor 无新候选，沿用 EXP029。
+**当前阶段。** 已从 EXP031 轨迹锁定八对真实状态、各自的两张完整矩阵及四条未来流。首次正式运行保存了 24/32 个四格。两组剩余场景的完整快照比对错误已修正，并通过真实事件前缀重放验证。等待研究员续跑剩余 8 个四格后汇总排序。Actor 沿用 EXP029。
 
 ## 研究基础与边界
 
@@ -39,12 +39,16 @@ EXP026 链路定价改善了历史拥塞事故，但独立尾时延验收为 14/
 
 ## 实际轻量验证与运行
 
-15 项 EXP030–EXP032 相关测试通过。真实烟测从 EXP031 突发第 1 条的第 3 期恢复两套不同事件状态，四臂各保留 10 个继承请求，并处理同流的 854 个新请求。两侧状态指纹不同，四个物理臂的容量误差不超过 2.85×10⁻¹⁴、工作量守恒误差不超过 1.10×10⁻¹¹。烟测只覆盖一条未来流和一个计分期。正式 128 次物理评价以及任何新训练均待研究员主动执行。 [真实烟测账本](../../runs/results/EXP032/smoke.v2.new.burst.1.future1.json)
+17 项 EXP030–EXP032 相关测试通过。初始真实烟测从 EXP031 突发第 1 条的第 3 期恢复两套不同事件状态，四臂各保留 10 个继承请求，并处理同流的 854 个新请求。两侧状态指纹不同，容量误差不超过 2.85×10⁻¹⁴、工作量守恒误差不超过 1.10×10⁻¹¹。 [真实烟测账本](../../runs/results/EXP032/smoke.v2.new.burst.1.future1.json)
 
-从现有主目录运行，保持注册的 Git 版本。以下一条指令自动完成八对、四条未来流、四格物理和汇总出图。重复执行会复用已完成的四格文件。
+首次正式运行使用 `60a21ed0a220742c2d22845508046de0a89e40a5`。`new.burst.4` 和 `new.natural.4` 两个第 11 期切点具备完整归档快照，原校验直接比较内存元组与 JSON 列表，触发 `Archived full event snapshot differs`。修复后比较完整快照的 JSON 指纹，事件、资源或请求值出现真实变化时仍会拒绝。已实际重放这两个缺失场景的前缀，四个期初快照均和原档指纹完全一致，在途请求数分别为 49/45 和 11/11。已保存的 24 个四格共 96 个物理臂，逐个通过协议、矩阵、请求流、原 Reward、队列与资源守恒复核。
+
+原预注册文件继续使用，协议指纹为 `bd10c747e97f260ebd7dc1c36edf885e95491e94f009b275ec83c6cbab3185d0`。旧四格保留原执行提交，剩余四格记录修复版本。恢复清单只接受已核对的 EXP032 快照检查修复，汇总逐条记录执行提交。尚未运行剩余 8 个正式四格或新训练。
+
+从现有主目录及 `exp032-state-information` 修复版本运行。以下一条指令复用 24 个已保存四格，仅补齐 `new.burst.4` 和 `new.natural.4` 的八个四格，随后自动汇总出图。
 
 ```powershell
-$env:OPENBLAS_NUM_THREADS="1"; $env:OMP_NUM_THREADS="1"; $env:MKL_NUM_THREADS="1"; python -m scripts.exp032_run --workers 6
+$env:OPENBLAS_NUM_THREADS="1"; $env:OMP_NUM_THREADS="1"; $env:MKL_NUM_THREADS="1"; python -m scripts.exp032_run --workers 2
 ```
 
 共 32 个四格、最多 128 条连续仿真和 3,072 个计分期，另需重放状态前缀。此阶段为正式物理诊断，D/S 权重冻结。结果留在 `runs/results/EXP032/`。关键文件为 `counterfactual.protocol.json`、`counterfactual.review.json`、`counterfactual.cells.csv`、完整逐期 `counterfactual.raw.png` 和排序区间图 `counterfactual.sorting.png`。状态和四格明细文件名含来源和未来流编号。已有完整文件时可用 `python -m scripts.exp032_run --stage report` 只复算汇总。GitHub 保存脚本、测试和交接文档。

@@ -79,10 +79,11 @@ def plot(seed, records, *, fixed=False):
     plt.close(fig)
 
 
-def evaluate(seed, runs):
+def evaluate(seed, runs, used_flows):
     log = RESULTS/f'late.holdout.seed{seed}.jsonl'
     raw = read(log)
     cells, gates = {}, {}
+    flows = {}
     seeds = [c for c in registration() if c['seed'] == seed]
     for c in seeds:
         profile = c['profile']
@@ -92,12 +93,18 @@ def evaluate(seed, runs):
             cells[profile][arm] = {}
             for label in ('best', 'last'):
                 rows = [r for r in raw if r['profile'] == profile and r['arm'] == arm and r['checkpoint'] == label]
-                assert len(rows) == 24 and all(r['episode']*8 == runs[arm][label] for r in rows)
+                if len(rows) != 24 or any(r['episode']*8 != runs[arm][label] or r['scene'] != c['scene'] or
+                                         r['environment'] != c['environment'] for r in rows):
+                    raise ValueError('Holdout ledger disagrees with its registered checkpoint or scenario')
                 if ref is None:
                     ref = rows
                 else:
                     assert_flow(ref, rows)
                 cells[profile][arm][label] = summarize(rows)
+        case_flow = tuple(r['trace_sha256'] for r in ref)
+        if any(digest in used_flows for digest in case_flow):
+            raise ValueError(f'Registered late Holdout {c["scene"]} overlaps a prior request stream')
+        flows[c['scene']] = case_flow
         for label in ('best', 'last'):
             a, b = (cells[profile][arm][label] for arm in ARMS)
             dr, de, dt = (b[k]-a[k] for k in ('reward', 'e2e', 'p99'))
@@ -106,7 +113,8 @@ def evaluate(seed, runs):
             gates[f'{profile}.{label}'] = dict(reward=dr, e2e=de, p99=dt, pass_gate=ok)
     sustained = [gates[f'{p}.last'] for p in ('sustained055', 'sustained070')]
     improved = (np.mean([r['reward'] for r in sustained]) >= .02 and np.mean([r['e2e'] for r in sustained]) < 0.)
-    return dict(arms=cells, gates=gates, sustained_improvement=bool(improved), evidence_sha256=digest(log))
+    return dict(arms=cells, gates=gates, sustained_improvement=bool(improved), evidence_sha256=digest(log),
+                flows=flows)
 
 
 def plot_holdout(seed, holdout):
@@ -149,8 +157,12 @@ def main():
     torch.set_num_threads(1)
     plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'DejaVu Sans']
     plt.rcParams['axes.unicode_minus'] = False
+    used_flows = set(json.loads((RESULTS/'exp028.flow-index.json').read_text(encoding='utf8')))
+    frozen = json.loads((RESULTS/'frozen.v1.review.json').read_text(encoding='utf8'))
+    used_flows.update(flow for case in frozen['cases'] for flow in case['flow'])
     output = {}
     trend = []
+    independent = {}
     for seed in SEEDS:
         a, raw_a, fixed_a = verify(seed, ARMS[0])
         b, raw_b, fixed_b = verify(seed, ARMS[1])
@@ -161,7 +173,10 @@ def main():
         if not initial_pair_equal:
             raise ValueError(f'Seed {seed} diverged before the first fork optimizer step')
         runs = dict(zip(ARMS, (a, b), strict=True))
-        holdout = evaluate(seed, runs)
+        holdout = evaluate(seed, runs, used_flows.union(r['trace_sha256'] for r in raw_a+fixed_a))
+        for scene, flow in holdout['flows'].items():
+            if independent.setdefault(scene, flow) != flow:
+                raise ValueError(f'Holdout references differ for shared scene {scene}')
         before, after = a['online'], b['online']
         online_ok = after['reward'] >= before['reward']-.03 and after['e2e'] <= before['e2e']*1.01
         output[seed] = dict(runs=runs, holdout=holdout, online_gate=online_ok,
@@ -171,6 +186,8 @@ def main():
         plot(seed, raw)
         plot(seed, {arm: r['fixed'] for arm, r in runs.items()}, fixed=True)
         plot_holdout(seed, holdout)
+    if len(independent) != 8 or len(set(independent.values())) != 8:
+        raise ValueError('Late Holdout differs from the independent trajectory budget')
     plot_blocks(trend)
     atomic(RESULTS/'late.review.json', lambda file: file.write(line(output)))
     print(json.dumps({s: dict(online=r['online_gate'], sustained=r['holdout']['sustained_improvement'],

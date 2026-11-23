@@ -102,11 +102,11 @@ def load_pair(pool, pair):
     return cfg, d_saved['episode'], d, s, gate
 
 
-def common_prefix(case, pool):
+def common_prefix(case, pool, *, pair_loader=load_pair, namespace='EXP029'):
     environment, scene = case['environment'], case['scene']
     env = make_world(environment, scene, 'holdout')
-    initial = decode(env, np.zeros(8), stable_seed('EXP029', case['id'], 'initial'), True).matrix
-    cfg, index, d, s, gate = load_pair(pool, 'A')
+    initial = decode(env, np.zeros(8), stable_seed(namespace, case['id'], 'initial'), True).matrix
+    cfg, index, d, s, gate = pair_loader(pool, 'A')
     control = RolloutControl(environment_seed=environment, loads=(None, *case['loads']),
                              epsilon=0., sample_d=False, trace_requests=True)
     options = replace(cfg, periods=PERIODS+1, freeze_ds=True)

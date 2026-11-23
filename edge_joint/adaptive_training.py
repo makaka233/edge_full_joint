@@ -32,6 +32,7 @@ class Config(BaseConfig):
     d_decoder: str = 'cpu'
     profile_periods: bool = False
     d_advantage_calibration: bool = False
+    d_load_conditioned_credit: bool = False
 
 
 @dataclass(frozen=True)
@@ -429,8 +430,15 @@ def audit_d_update(cfg, policy, ledger, audit, returns, values, advantages, disc
                 d_audit_decodes=2, d_audit_decode_seconds=time.perf_counter()-start)
 
 
+def load_conditioned_bias(offset, first, square, cross, loads):
+    """Predict a residual using only the moments of completed episodes."""
+    variance = (square-first.square()).clamp_min(0.)
+    slope = (cross-first*offset)/(variance+.0001)
+    return slope*(loads-first)
+
+
 def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, index, d_updates,
-           *, period_updates=None, d_audit=None, d_credit_offset=None):
+           *, period_updates=None, d_audit=None, d_credit_offset=None, d_load_moments=None):
     learned = cfg.macro_mode == 'learned'
     d_start = parameters(d)
     gate_start = macro_parameters(gate, learned)
@@ -444,7 +452,14 @@ def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, 
     advantages = returns - values.detach()
     if cfg.d_advantage_calibration != (d_credit_offset is not None):
         raise ValueError('Agent-D advantage calibration requires a persistent offset')
+    if cfg.d_load_conditioned_credit != (d_load_moments is not None) or (
+            d_load_moments is not None and d_credit_offset is None):
+        raise ValueError('Load-conditioned credit requires EXP029 offsets and persistent moments')
     actor_advantages = advantages if d_credit_offset is None else advantages - d_credit_offset
+    if d_load_moments is not None:
+        loads = returns.new_tensor([r['offered_cpu_load']-.20 for r in ledger])
+        load_bias = load_conditioned_bias(d_credit_offset, *d_load_moments, loads)
+        actor_advantages = actor_advantages - load_bias
     discounts = cfg.gamma ** torch.arange(len(ledger))
     gate_terms = [-logp * adv * weight for (logp, _, _), adv, weight in zip(credit, advantages, discounts)
                   if logp is not None]
@@ -476,6 +491,10 @@ def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, 
                 row.setdefault('d_credit', {})['actor_advantage'] = float(advantage)
             # Update the control variate only after consuming this episode's samples.
             d_credit_offset.lerp_(advantages, D_CREDIT_CALIBRATION_RATE)
+        if d_load_moments is not None:
+            d_extra['d_credit_load_bias'] = load_bias.tolist()
+            d_load_moments.lerp_(torch.stack((loads,loads.square(),loads*advantages)),
+                                 D_CREDIT_CALIBRATION_RATE)
     metrics = []
     admitted = len(transitions)
     extra = {}

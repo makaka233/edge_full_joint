@@ -21,7 +21,8 @@ from scripts.exp028_run import jobs
 from scripts.exp029_audit import weight_delta
 from scripts.exp029_report import intervals, summarize
 from scripts.exp029_long import SUITE, TARGET as START
-from scripts.exp030_frozen import RESULTS, SEEDS, file
+from scripts.exp030_audit import metadata
+from scripts.exp030_frozen import ONLINE, RESULTS, SEEDS, file, model_pool
 from scripts.exp030_report import archive_flows
 
 
@@ -71,7 +72,10 @@ def prepare(seed,arm,out):
             raise ValueError('Bounded prefix belongs to another experiment')
         return cfg
     state = read_checkpoint(source_path)
-    if state['episode']!=START or state['d_updates']!=START or state['s']['updates']!=40000:
+    projections,*_ = model_pool(seed)
+    original = projections['calibrated'][1]
+    if (not metadata(state,original) or any(h['commit']!=ONLINE['calibrated'] or h['tracked_dirty']
+                                           for h in state['source_history'])):
         raise ValueError('The complete EXP029 GS5000 recovery state is required')
     cfg = replace(Config(**state['config']),d_load_conditioned_credit=arm=='conditioned')
     if cfg.d_load_conditioned_credit:

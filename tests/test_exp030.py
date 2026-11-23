@@ -10,11 +10,11 @@ from unittest import TestCase
 
 import torch
 
-from scripts.exp030_audit import demand_summary, load_conditioned_bias
+from scripts.exp030_audit import demand_summary
 from scripts.exp030_frozen import SEEDS, PAIRS, registry, verify_pairs
 from edge_joint.adaptive_runner import read_checkpoint, train
 from edge_joint.adaptive_storage import RunFiles
-from edge_joint.adaptive_training import Config, D_CREDIT_CALIBRATION_RATE
+from edge_joint.adaptive_training import Config, D_CREDIT_CALIBRATION_RATE, load_conditioned_bias
 from scripts.exp024_report import read
 
 

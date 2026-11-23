@@ -69,6 +69,8 @@ def fixed(cfg, d, s, gate, index):
 
 
 def train(cfg, out, target, *, resume=False, init=None):
+    if cfg.d_advantage_calibration and (cfg.freeze_ds or cfg.macro_mode != 'redeploy' or not cfg.d_diagnostics):
+        raise ValueError('Advantage calibration requires diagnosed joint fixed-REDEPLOY training')
     if cfg.d_decoder == 'link-priced' and (
             cfg.d_observation != 'original' or cfg.macro_mode != 'redeploy' or cfg.freeze_ds or init is not None):
         raise ValueError('Link-priced decoder trials require original observation and random joint fixed-REDEPLOY')
@@ -76,6 +78,7 @@ def train(cfg, out, target, *, resume=False, init=None):
             cfg.macro_mode != 'redeploy' or cfg.freeze_ds or init is not None):
         raise ValueError('Placement observation trials require random joint fixed-REDEPLOY')
     d, s, opt, replay, gate, gate_opt = components(cfg)
+    d_credit_offset = torch.zeros(cfg.periods) if cfg.d_advantage_calibration else None
     resume_path = out / 'resume_latest.pt'
     if resume:
         state = read_checkpoint(resume_path)
@@ -96,6 +99,11 @@ def train(cfg, out, target, *, resume=False, init=None):
         gate_opt.load_state_dict(state['gate_optimizer'])
         restore_replay(replay, state['replay'])
         restore_random(state['rng'])
+        if d_credit_offset is not None:
+            previous_offset = torch.as_tensor(state['d_credit_offset'], dtype=d_credit_offset.dtype)
+            if previous_offset.shape != d_credit_offset.shape or not torch.isfinite(previous_offset).all():
+                raise ValueError('Invalid saved Agent-D baseline calibration')
+            d_credit_offset.copy_(previous_offset)
         index, d_updates, best = state['episode'], state['d_updates'], state['best']
         origin, offsets, wall = state['origin'], state['offsets'], state['wall_seconds']
         history = state.get('source_history', [])
@@ -122,6 +130,8 @@ def train(cfg, out, target, *, resume=False, init=None):
         full = dict(**current, s=s.state_dict(), s_actions=s.actions, d_optimizer=opt.state_dict(),
                     gate_optimizer=gate_opt.state_dict(), replay=replay_snapshot(replay), d_updates=d_updates,
                     rng=random_state(), best=best, offsets=offsets, wall_seconds=elapsed, source_history=history)
+        if d_credit_offset is not None:
+            full['d_credit_offset'] = d_credit_offset.tolist()
         publish(resume_path, full)
         publish(out/'last.pt', current)
         if best is not None:
@@ -149,7 +159,7 @@ def train(cfg, out, target, *, resume=False, init=None):
         if cfg.profile_periods:
             update_tick = time.perf_counter()
         change = update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, index, d_updates,
-                        period_updates=period_updates, d_audit=d_audit)
+                        period_updates=period_updates, d_audit=d_audit, d_credit_offset=d_credit_offset)
         if cfg.profile_periods:
             change['episode_update_seconds'] = time.perf_counter()-update_tick
         d_updates = change['d_updates']

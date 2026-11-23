@@ -15,6 +15,9 @@ from .adaptive_physics import PeriodSimulator, switch_cost
 from .placement_state import capture_resources, feature_count, resource_features
 
 
+D_CREDIT_CALIBRATION_RATE = 1/16
+
+
 @dataclass(frozen=True)
 class Config(BaseConfig):
     periods: int = 8
@@ -28,6 +31,7 @@ class Config(BaseConfig):
     d_diagnostics: bool = False
     d_decoder: str = 'cpu'
     profile_periods: bool = False
+    d_advantage_calibration: bool = False
 
 
 @dataclass(frozen=True)
@@ -426,7 +430,7 @@ def audit_d_update(cfg, policy, ledger, audit, returns, values, advantages, disc
 
 
 def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, index, d_updates,
-           *, period_updates=None, d_audit=None):
+           *, period_updates=None, d_audit=None, d_credit_offset=None):
     learned = cfg.macro_mode == 'learned'
     d_start = parameters(d)
     gate_start = macro_parameters(gate, learned)
@@ -438,10 +442,13 @@ def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, 
     returns = credit_targets(ledger, cfg.gamma)
     values = torch.stack([v for _, _, v in credit])
     advantages = returns - values.detach()
+    if cfg.d_advantage_calibration != (d_credit_offset is not None):
+        raise ValueError('Agent-D advantage calibration requires a persistent offset')
+    actor_advantages = advantages if d_credit_offset is None else advantages - d_credit_offset
     discounts = cfg.gamma ** torch.arange(len(ledger))
     gate_terms = [-logp * adv * weight for (logp, _, _), adv, weight in zip(credit, advantages, discounts)
                   if logp is not None]
-    d_terms = [-logp * adv * weight for (_, logp, _), adv, weight in zip(credit, advantages, discounts)
+    d_terms = [-logp * adv * weight for (_, logp, _), adv, weight in zip(credit, actor_advantages, discounts)
                if logp is not None]
     critic = torch.nn.functional.smooth_l1_loss(values, returns)
     gate_loss = critic + (torch.stack(gate_terms).sum() / len(ledger) if gate_terms else 0.)
@@ -462,6 +469,13 @@ def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, 
         d_updates += 1
         if d_audit is not None:
             d_extra.update(audit_d_update(cfg, d, ledger, d_audit, returns, values, advantages, discounts))
+        if d_credit_offset is not None:
+            d_extra['d_credit_offset'] = d_credit_offset.tolist()
+            d_extra['d_actor_advantage_mae'] = float(actor_advantages.abs().mean())
+            for row, advantage in zip(ledger, actor_advantages, strict=True):
+                row.setdefault('d_credit', {})['actor_advantage'] = float(advantage)
+            # Update the control variate only after consuming this episode's samples.
+            d_credit_offset.lerp_(advantages, D_CREDIT_CALIBRATION_RATE)
     metrics = []
     admitted = len(transitions)
     extra = {}

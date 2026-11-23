@@ -58,8 +58,9 @@ class Exp029Tests(TestCase):
             a, b = (read_checkpoint(out/'resume_latest.pt') for out in (continuous, resumed))
             self.assertEqual(a['d_credit_offset'], b['d_credit_offset'])
             self.assertEqual((a['d_updates'], a['s']['updates']), (2, 32))
-            for key in ('d', 's_online'):
-                self.assertTrue(all(torch.equal(x, b[key][name]) for name, x in a[key].items()))
+            for key in ('d', 'd_optimizer', 's', 'replay', 'gate', 'gate_optimizer'):
+                torch.testing.assert_close(a[key], b[key], rtol=0, atol=0)
+            self.assertTrue(torch.equal(a['rng']['torch'], b['rng']['torch']))
             rows = read(resumed/'train.jsonl')
             update = read(resumed/'updates.jsonl')
             self.assertEqual(update[0]['d_credit_offset'], [0., 0.])

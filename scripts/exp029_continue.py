@@ -4,6 +4,8 @@ from dataclasses import asdict, replace
 from itertools import product
 import json
 
+import numpy as np
+
 from edge_d.world import stable_seed
 from edge_joint.adaptive_runner import read_checkpoint, repair_projections, source, train
 from edge_joint.adaptive_storage import RunFiles, atomic, line, publish, run_lock
@@ -97,7 +99,7 @@ def prepare(seed, arm):
     if len(rows) != 16:
         raise ValueError('Original fork point lacks a complete fixed validation ledger')
     reference = {k: state[k] for k in ('format', 'config', 'episode', 'origin', 'd', 's_online', 'gate')}
-    state['best'] = dict(reference, fixed_reward_net=sum(r['reward_net'] for r in rows)/len(rows))
+    state['best'] = dict(reference, fixed_reward_net=float(np.mean([r['reward_net'] for r in rows])))
     state['wall_seconds'] = 0.
     quote = out/'fixed.jsonl'
     if quote.exists() and quote.read_bytes() != b''.join(map(line, rows)):

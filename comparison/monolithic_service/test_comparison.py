@@ -20,7 +20,7 @@ from edge_joint.inventory_joint import load_scale
 from scripts.exp029_long import config
 
 from comparison.run import rollout
-from comparison.profile_audit import registered_profiles
+from comparison.profile_audit import payload_bytes, registered_profiles
 from . import training
 from .environment import MeasuredMonolithicSimulator, MeasuredMultistageSimulator, world
 
@@ -258,9 +258,41 @@ class ComparisonTests(TestCase):
         np.testing.assert_array_equal(multi.spec,self.multi.spec)
         np.testing.assert_array_equal(multi.service_work,2*self.multi.service_work)
         np.testing.assert_array_equal(mono.w.stages[:,0],multi.service_work)
+        expected=(2720,928,8288,512,8480,544,8224,64,1580,224,24608,112,65568,2336,1472,104,4064,64)
+        pairs=[(a,b) for chain in multi.c.services for a,b in zip(chain,chain[1:])]
+        self.assertEqual([profile['internal_payload_bytes'][edge] for edge in pairs],list(expected))
         for chain in multi.c.services:
             self.assertEqual(multi.w.stages[chain[0],1],self.multi.w.stages[chain[0],1])
             self.assertEqual(multi.w.stages[chain[-1],2],self.multi.w.stages[chain[-1],2])
-            for a,b,kib in zip(chain[:-1],chain[1:],(8,2),strict=False):
-                self.assertEqual(multi.w.stages[a,2],kib*1024*8/1_000_000)
-                self.assertEqual(multi.w.stages[a,2],multi.w.stages[b,1])
+        for (a,b),size in zip(pairs,expected,strict=True):
+            self.assertEqual(multi.w.stages[a,2],size*8/1_000_000)
+            self.assertEqual(multi.w.stages[a,2],multi.w.stages[b,1])
+
+    def test_18_catalog_rejects_duplicate_and_nonadjacent_messages(self):
+        plan,profiles=registered_profiles()
+        duplicated=dict(plan,messages=[*plan['messages'],plan['messages'][0]])
+        with self.assertRaisesRegex(ValueError,'duplicate'):
+            payload_bytes(duplicated)
+        bad=dict(plan,messages=[dict(plan['messages'][0],edge=[0,2]),*plan['messages'][1:]])
+        profile=dict(profiles['payload_only'],internal_payload_bytes=payload_bytes(bad))
+        with self.assertRaisesRegex(ValueError,'adjacent stage pair'):
+            world(SEED,1,profile=profile)
+
+    def test_19_catalog_bytes_reach_real_internal_link_queues(self):
+        _,profiles=registered_profiles()
+        profile=profiles['compute_with_compact_payload']
+        env=world(SEED,1,profile=profile)
+        layout=np.eye(env.K,env.N,dtype=bool)
+        self.assertTrue(capacity_ok(layout,env.spec,env.capacity))
+        env.w.t=0.
+        sim=MeasuredMultistageSimulator(env,layout,lambda obs,mask:int(np.flatnonzero(mask)[0]),1,0,False)
+        access=31
+        user=int(env.w.users_by_access[access][0])
+        sim.add_arrivals([Arrival(.1,user,access,s) for s in range(len(env.c.services))])
+        sim.run_until(60.)
+        sim.verify()
+        self.assertTrue(all(r.finish is not None for r in sim.requests))
+        self.assertEqual(sim.decisions,28)
+        expected=sum(size*8/1_000_000*len(env.w.routes[a][b])
+                     for (a,b),size in profile['internal_payload_bytes'].items())
+        self.assertAlmostEqual(sim.internal_wire,expected)

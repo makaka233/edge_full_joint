@@ -21,9 +21,29 @@ from .run import ARMS, flow, rollout
 PROFILE = Path(__file__).with_name('edge_inference_profile.json')
 
 
+def payload_bytes(plan):
+    edges={}
+    header=plan['header_bytes']
+    if type(header) is not int or header<=0:
+        raise ValueError('Message header must be a positive byte count')
+    for message in plan['messages']:
+        edge=tuple(message['edge'])
+        records=message['records']
+        fields=message.get('f32',0),message.get('u32',0)
+        if (len(edge)!=2 or edge in edges or type(records) is not int or records<=0
+                or any(type(n) is not int or n<0 for n in fields) or sum(fields)==0):
+            raise ValueError(f'Invalid or duplicate stage message: {message}')
+        edges[edge]=header+records*4*sum(fields)
+    return edges
+
+
 def registered_profiles():
     plan=json.loads(PROFILE.read_bytes())
-    return plan, {name:dict(settings,users=plan['users']) for name,settings in plan['profiles'].items()}
+    edges=payload_bytes(plan)
+    profiles={name:dict(users=plan['users'],compute_multiplier=settings['compute_multiplier'],
+                       internal_payload_bytes=edges if settings['use_service_catalog'] else None)
+              for name,settings in plan['profiles'].items()}
+    return plan,profiles
 
 
 def offered_load(env):
@@ -71,7 +91,8 @@ def audit():
         raise AssertionError('Work or payload changed the common arrival trajectory')
     root=Path('runs/results')/plan['experiment_id']
     root.mkdir(parents=True,exist_ok=True)
-    output=root/'profile-audit.json'
-    record=dict(source=source(),protocol=plan,future=rng,analytical=analytical,physical=physical)
+    output=root/f'profile-audit.v{plan["catalog_version"]}.json'
+    messages=[dict(edge=edge,bytes=size) for edge,size in payload_bytes(plan).items()]
+    record=dict(source=source(),protocol=plan,messages=messages,future=rng,analytical=analytical,physical=physical)
     atomic(output,lambda f:f.write(line(record)))
     print(f'Matched rates for 12 periods; paired physical smoke tests for {len(profiles)} profiles: {output}')

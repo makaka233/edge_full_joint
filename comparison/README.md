@@ -51,4 +51,4 @@ python -m comparison.run --suite smoke --workers 1
 
 ## 高计算、紧凑载荷新场景
 
-`python -m comparison.run --stage profile-audit` 使用 3,500 个端点并匹配原环境逐期总期望到达率，验证高计算、紧凑载荷及各自单因素控制的物理配对。该入口只运行物理审计。假设、工作量和来源见 [环境设计与交接](../research/COMPARISON_EDGE_INFERENCE/AI_RESEARCH_REVIEW.md)。
+`python -m comparison.run --stage profile-audit` 使用 3,500 个端点并匹配原环境逐期总期望到达率。当前 v2 按十类服务和 18 条内部边分别定义载荷，审计写入 `profile-audit.v2.json`。该入口只运行物理审计。阶段依赖、字节预算及来源见 [环境设计与交接](../research/COMPARISON_EDGE_INFERENCE/AI_RESEARCH_REVIEW.md)。

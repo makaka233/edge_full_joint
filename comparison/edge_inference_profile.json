@@ -1,10 +1,32 @@
 {
   "experiment_id": "COMPARISON_EDGE_INFERENCE",
+  "catalog_version": 2,
   "users": 3500,
+  "header_bytes": 32,
   "profiles": {
-    "population_control": {"compute_multiplier": 1.0, "internal_payload_kib": null},
-    "compute_only": {"compute_multiplier": 2.0, "internal_payload_kib": null},
-    "payload_only": {"compute_multiplier": 1.0, "internal_payload_kib": [8, 2]},
-    "compute_with_compact_payload": {"compute_multiplier": 2.0, "internal_payload_kib": [8, 2]}
-  }
+    "population_control": {"compute_multiplier": 1.0, "use_service_catalog": false},
+    "compute_only": {"compute_multiplier": 2.0, "use_service_catalog": false},
+    "payload_only": {"compute_multiplier": 1.0, "use_service_catalog": true},
+    "compute_with_compact_payload": {"compute_multiplier": 2.0, "use_service_catalog": true}
+  },
+  "messages": [
+    {"edge": [0, 1], "message": "4 frames × 24 detections; frame slot, class, score and bounding box", "records": 96, "f32": 7},
+    {"edge": [1, 2], "message": "32 track summaries; class, start x/y, end x/y, score, track slot", "records": 32, "f32": 6, "u32": 1},
+    {"edge": [3, 4], "message": "8 cropped-object embeddings; 256 components, frame slot and object slot", "records": 8, "f32": 256, "u32": 2},
+    {"edge": [4, 5], "message": "8 objects × 5 candidates; object slot, reference ID and similarity", "records": 40, "f32": 1, "u32": 2},
+    {"edge": [6, 7], "message": "8 frames × 2 people × 33 pose landmarks; x, y, z, visibility", "records": 528, "f32": 4},
+    {"edge": [7, 8], "message": "2 fixed person slots; 64 temporal pose features per slot", "records": 2, "f32": 64},
+    {"edge": [9, 10], "message": "2 sound windows; 1024 embedding components per window", "records": 2, "f32": 1024},
+    {"edge": [10, 11], "message": "2 window summaries; anomaly score, reconstruction error, confidence, valid-frame fraction", "records": 2, "f32": 4},
+    {"edge": [12, 13], "message": "3 vibration axes; 129 single-sided Welch PSD bins per axis", "records": 3, "f32": 129},
+    {"edge": [13, 14], "message": "3 vibration axes; 16 spectral summaries per axis", "records": 3, "f32": 16},
+    {"edge": [15, 16], "message": "96 time frames × 64 log-mel bins", "records": 96, "f32": 64},
+    {"edge": [16, 17], "message": "10 audio event candidates; class ID and posterior", "records": 10, "f32": 1, "u32": 1},
+    {"edge": [18, 19], "message": "4096 points; x, y, z, intensity", "records": 4096, "f32": 4},
+    {"edge": [19, 20], "message": "64 boxes; center x/y/z, size x/y/z, yaw, score, class ID", "records": 64, "f32": 8, "u32": 1},
+    {"edge": [21, 22], "message": "60 timestamps × 6 pollutant channels", "records": 60, "f32": 6},
+    {"edge": [22, 23], "message": "6 channel summaries; baseline, prediction residual, valid fraction", "records": 6, "f32": 3},
+    {"edge": [24, 25], "message": "16 frames × 21 canonical hand landmarks; x, y, z", "records": 336, "f32": 3},
+    {"edge": [26, 27], "message": "8 fixed positions; decoded character IDs", "records": 8, "u32": 1}
+  ]
 }

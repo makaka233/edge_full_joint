@@ -45,17 +45,22 @@ def advance_at_load(world):
     set_load(world)
 
 
+def internal_edges(services):
+    return {edge for chain in services for edge in zip(chain,chain[1:])}
+
+
 def configure_workload(config, profile):
     nominal_rate = config.users * config.user_rate
     config.users = profile['users']
     config.user_rate = nominal_rate / config.users
     for stage in config.stages:
         stage[0] *= profile['compute_multiplier']
-    payloads = profile['internal_payload_kib']
+    payloads = profile['internal_payload_bytes']
     if payloads is not None:
-        for chain in config.services:
-            for a,b,kib in zip(chain[:-1],chain[1:],payloads[:len(chain)-1],strict=True):
-                config.stages[a][2] = config.stages[b][1] = kib*1024*8/1_000_000
+        if payloads.keys()!=internal_edges(config.services):
+            raise ValueError('The message catalog must define every adjacent stage pair exactly once')
+        for (source,target),size in payloads.items():
+            config.stages[source][2] = config.stages[target][1] = size*8/1_000_000
 
 
 def match_period_rate(world):

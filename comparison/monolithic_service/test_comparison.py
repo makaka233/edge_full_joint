@@ -3,9 +3,11 @@
 from contextlib import redirect_stdout
 from dataclasses import replace
 from io import StringIO
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
+from unittest.mock import patch
 
 import numpy as np
 import torch
@@ -19,6 +21,7 @@ from edge_joint.adaptive_physics import capacity_ok, footprint, switch_cost
 from edge_joint.inventory_joint import load_scale
 from scripts.exp029_long import config
 
+from comparison import run
 from comparison.run import rollout
 from comparison.profile_audit import payload_bytes, registered_profiles
 from . import training
@@ -296,3 +299,37 @@ class ComparisonTests(TestCase):
         expected=sum(size*8/1_000_000*len(env.w.routes[a][b])
                      for (a,b),size in profile['internal_payload_bytes'].items())
         self.assertAlmostEqual(sim.internal_wire,expected)
+
+    def test_20_comprised_exp1_trains_evaluates_and_resumes_for_both_architectures(self):
+        suite=run.INFERENCE_SUITE
+        plan=run.protocol(suite)
+        self.assertEqual(plan['settings']['seeds'],list(range(20261113,20261118)))
+        self.assertEqual(plan['settings']['episodes']*plan['settings']['periods'],5000)
+        plan['settings'].update(seeds=[SEED],episodes=2,periods=2,period_seconds=2.,eval_every=1)
+        plan['configs']={SEED:dict(plan['configs'][SEED],periods=2,period_seconds=2.,eval_every=1,s_batch=1)}
+        plan['futures']=plan['futures'][:1]
+        plan['evaluation']['periods']=2
+        args=['comparison.run','--suite',suite,'--workers','1']
+        with TemporaryDirectory() as directory, patch.object(run,'INFERENCE_ROOT',Path(directory)), \
+                patch.object(run,'protocol',return_value=plan), patch('sys.argv',args), redirect_stdout(StringIO()):
+            run.main()
+            root=Path(directory)
+            review=json.loads((root/f'{suite}.review.json').read_bytes())
+            for arm,name in run.INFERENCE_ARMS.items():
+                folder=root/name/suite/f'seed{SEED}'
+                for file in ('best.pt','last.pt','resume_latest.pt','train.raw.png','fixed.jsonl','updates.jsonl'):
+                    self.assertTrue((folder/file).is_file(),file)
+                self.assertEqual(len(list(folder.glob('holdout.*.json'))),4)
+                self.assertEqual(review['training'][str(SEED)][arm]['last_gs'],4)
+                self.assertEqual(review['training'][str(SEED)][arm]['s_updates'],32)
+                altered=dict(plan,training_profile='compute_only')
+                with self.assertRaisesRegex(ValueError,'independent training arm'):
+                    run.load_projection(json.loads(json.dumps(altered)),arm,SEED,'best')
+            multi=root/'proposed'/suite/f'seed{SEED}'
+            mono=root/'MSP'/suite/f'seed{SEED}'
+            name=next(multi.glob('holdout.*.json')).name
+            before=(multi/name).read_bytes()
+            (mono/name).unlink()
+            run.main()
+            self.assertEqual((multi/name).read_bytes(),before)
+            self.assertTrue((mono/name).is_file())

@@ -37,13 +37,16 @@ def payload_bytes(plan):
     return edges
 
 
+def profiles_from_catalog(plan):
+    edges=payload_bytes(plan)
+    return {name:dict(users=plan['users'],compute_multiplier=settings['compute_multiplier'],
+                      internal_payload_bytes=edges if settings['use_service_catalog'] else None)
+            for name,settings in plan['profiles'].items()}
+
+
 def registered_profiles():
     plan=json.loads(PROFILE.read_bytes())
-    edges=payload_bytes(plan)
-    profiles={name:dict(users=plan['users'],compute_multiplier=settings['compute_multiplier'],
-                       internal_payload_bytes=edges if settings['use_service_catalog'] else None)
-              for name,settings in plan['profiles'].items()}
-    return plan,profiles
+    return plan,profiles_from_catalog(plan)
 
 
 def offered_load(env):

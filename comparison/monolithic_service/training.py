@@ -50,8 +50,8 @@ def read_checkpoint(path):
     return state
 
 
-def rollout(cfg,d,s,gate,scene,split,index,**kwargs):
-    return episode(cfg,world(cfg.seed,scene,split,mono=True),d,s,gate,scene,split,index,
+def rollout(cfg,d,s,gate,scene,split,index,*,workload_profile=None,**kwargs):
+    return episode(cfg,world(cfg.seed,scene,split,mono=True,profile=workload_profile),d,s,gate,scene,split,index,
                    simulator_factory=MeasuredMonolithicSimulator,**kwargs)
 
 
@@ -75,7 +75,7 @@ def fork_resume(cfg, parent, out, episode_index):
             atomic(out/name,lambda dest:copyfileobj(file,dest))
 
 
-def train(cfg,out,target,*,resume=False):
+def train(cfg,out,target,*,resume=False,workload_profile=None,environment_id=None):
     if (not cfg.d_advantage_calibration or not cfg.d_diagnostics or cfg.freeze_ds
             or cfg.macro_mode!='redeploy' or cfg.d_observation!='original'
             or cfg.s_update_timing!='episode' or cfg.d_decoder!='link-priced'
@@ -90,10 +90,13 @@ def train(cfg,out,target,*,resume=False):
     wall=0.
     best=None
     names=('architecture','format','config','episode','origin','d','s_online','gate')
+    if environment_id is not None:
+        names+=('environment_id',)
     if resume:
         saved=read_checkpoint(resume_path)
-        if saved['config']!=asdict(cfg) or target<saved['episode']:
-            raise ValueError('Monolithic resume configuration or target differs')
+        if (saved['config']!=asdict(cfg) or target<saved['episode']
+                or saved.get('environment_id')!=environment_id):
+            raise ValueError('Monolithic resume configuration, environment or target differs')
         index,d_updates=saved['episode'],saved['d_updates']
         best,offsets,wall=saved['best'],saved['offsets'],saved['wall_seconds']
         history=saved['source_history']
@@ -121,10 +124,13 @@ def train(cfg,out,target,*,resume=False):
         nonlocal best
         current=dict(architecture=ARCHITECTURE,format=FORMAT,config=asdict(cfg),episode=index,
                      origin={'kind':'random'},**model(d,s,gate))
+        if environment_id is not None:
+            current['environment_id']=environment_id
         if evaluate:
             actions=s.actions
             with torch.inference_mode():
-                rows=[r for scene in FIXED for r in rollout(cfg,d,s,gate,scene,'fixed',index)[0]]
+                rows=[r for scene in FIXED for r in rollout(cfg,d,s,gate,scene,'fixed',index,
+                                                           workload_profile=workload_profile)[0]]
             s.actions=actions
             offsets['fixed.jsonl']=append(out/'fixed.jsonl',rows)
             value=float(np.mean([r['reward_net'] for r in rows]))
@@ -144,12 +150,14 @@ def train(cfg,out,target,*,resume=False):
         snapshot(True)
     provenance=dict(architecture=ARCHITECTURE,config=asdict(cfg),origin={'kind':'random'},
                     source_history=history,fixed_scenes=FIXED)
+    if environment_id is not None:
+        provenance['environment_id']=environment_id
     atomic(out/'manifest.json',lambda f:f.write(line(provenance)))
     for index in range(index+1,target+1):
         scene=stable_seed('EXP019',cfg.seed,'train-scene',index)
         audit={}
         rows,credit,transitions=rollout(cfg,d,s,gate,scene,'train',index,
-                                       d_audit=audit,profile=cfg.profile_periods)
+                                       workload_profile=workload_profile,d_audit=audit,profile=cfg.profile_periods)
         tick=time.perf_counter()
         change=update(cfg,d,s,opt,replay,gate,gate_opt,rows,credit,transitions,index,d_updates,
                       d_audit=audit,d_credit_offset=offset)
@@ -158,5 +166,6 @@ def train(cfg,out,target,*,resume=False):
         offsets['train.jsonl']=append(out/'train.jsonl',rows)
         offsets['updates.jsonl']=append(out/'updates.jsonl',[change])
         snapshot(index % cfg.eval_every==0 or index==target)
-        print(f'monolithic seed={cfg.seed} episode={index}/{target} GS={change["gs"]} '
+        label='MSP' if environment_id is not None else ARCHITECTURE
+        print(f'{label} seed={cfg.seed} episode={index}/{target} GS={change["gs"]} '
               f'D={d_updates} S={s.updates}',flush=True)

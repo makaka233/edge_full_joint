@@ -13,13 +13,16 @@ from scripts.exp027_run import fingerprint
 from scripts.exp029_report import summarize
 
 from .monolithic_service.environment import world
-from .run import (ARMS, ROOT, checkpoint_config, effective, evaluation_cases, evaluation_stamp, flow,
-                  outcome_path, run_files)
+from .run import (ARMS, INFERENCE_SUITE, ROOT, checkpoint_config, effective, environment_id, evaluation_cases,
+                  evaluation_stamp, flow, read_evaluation, result_root, run_files)
 
 
 LABELS={'multistage':'多阶段服务（EXP029）','monolithic':'整体服务'}
+INFERENCE_LABELS={'multistage':'分阶段服务（proposed）','monolithic':'完整服务部署（MSP）'}
 COLORS={'multistage':'#2166ac','monolithic':'#b2182b'}
 TITLES={'load':'请求提供负载','cpu':'CPU 容量倍率','wired':'有线带宽倍率','intermediate':'多阶段内部数据量倍率'}
+PROFILE_LABELS={'population_control':'原算量 / 原载荷','compute_only':'2 倍算量 / 原载荷',
+                'payload_only':'原算量 / v2 载荷','compute_with_compact_payload':'2 倍算量 / v2 载荷'}
 
 
 def records(path):
@@ -43,6 +46,7 @@ def training_evidence(plan,seed,arms=ARMS):
         want=n*s['config']['periods']*s['config']['s_updates_per_gs']
         if (tagged!=arm or s['origin']!={'kind':'random'} or s['episode']!=n or
                 checkpoint_config(plan['suite'],arm,s['config'])!=plan['configs'][str(seed)] or
+                s.get('environment_id')!=environment_id(plan) or
                 s['d_updates']!=n or s['s']['updates']!=want):
             raise ValueError(f'Incompletely trained or inconsistent {arm} seed {seed}')
         updates=list(records(paths_arm/'updates.jsonl'))
@@ -117,20 +121,21 @@ def physical_summary(rows, result, env):
     return value
 
 
-def plot_online(suite,seed,curves):
+def plot_online(suite,seed,curves,*,output=None):
     from matplotlib import pyplot as plt
 
     fig,ax=plt.subplots(2,2,figsize=(12,7),sharex=True,layout='constrained')
+    labels=INFERENCE_LABELS if suite==INFERENCE_SUITE else LABELS
     for arm,curve in curves.items():
         values=np.asarray(curve,dtype=float)
         for i,axis in enumerate(ax.flat,1):
-            axis.plot(values[:,0],values[:,i],color=COLORS[arm],lw=.8,label=LABELS[arm])
+            axis.plot(values[:,0],values[:,i],color=COLORS[arm],lw=.8,label=labels[arm])
     for axis,title in zip(ax.flat,('原始 Reward','完成 E2E（秒）','惩罚后 P95（秒）','惩罚后 P99（秒）'),strict=True):
         axis.set_title(title)
         axis.set_xlabel('真实在线 GS')
     ax[0,0].legend()
     fig.suptitle(f'独立联合训练 · {suite} · Seed {seed}')
-    fig.savefig(ROOT/f'{suite}.seed{seed}.raw.png',dpi=150)
+    fig.savefig(output if output is not None else ROOT/f'{suite}.seed{seed}.raw.png',dpi=150)
     plt.close(fig)
 
 
@@ -180,7 +185,9 @@ def plot_axes(plan, grouped):
 
     suite=plan['suite']
     primary=plan['evaluation']['primary']
-    for axis in TITLES:
+    titles={'profile':'边缘推理工作负载'} if suite==INFERENCE_SUITE else TITLES
+    labels=INFERENCE_LABELS if suite==INFERENCE_SUITE else LABELS
+    for axis in titles:
         levels=[r['value'] for r in plan['cases'] if r['axis']==axis]
         fig,axes=plt.subplots(1,2,figsize=(10,4),layout='constrained')
         for arm in ARMS:
@@ -191,15 +198,18 @@ def plot_axes(plan, grouped):
                 delay.append(1000*np.mean([sum(m['e2e']*m['completed'] for m in g if m['completed'])/
                     sum(m['completed'] for m in g) if sum(m['completed'] for m in g) else np.nan
                     for g in per_seed.values()]))
-            axes[0].plot(range(len(levels)),reward,'o-',color=COLORS[arm],label=LABELS[arm])
-            axes[1].plot(range(len(levels)),delay,'o-',color=COLORS[arm],label=LABELS[arm])
+            style='o-' if arm=='multistage' else 's--'
+            axes[0].plot(range(len(levels)),reward,style,color=COLORS[arm],label=labels[arm])
+            axes[1].plot(range(len(levels)),delay,style,color=COLORS[arm],label=labels[arm])
+        ticks=[PROFILE_LABELS[v] if axis=='profile' else '自然' if v is None else f'{v:g}' for v in levels]
         for ax,title in zip(axes,('原始 Reward','请求加权完成 E2E（ms）'),strict=True):
-            ax.set(xticks=range(len(levels)),xticklabels=['自然' if v is None else f'{v:g}' for v in levels],
-                   xlabel=TITLES[axis],title=title)
+            ax.set(xticks=range(len(levels)),xticklabels=ticks,xlabel=titles[axis],title=title)
+            if axis=='profile':
+                ax.tick_params(axis='x',labelrotation=18)
             ax.grid(alpha=.2)
             ax.legend()
-        fig.suptitle(f'{suite} 独立冻结评价 · {primary} · {TITLES[axis]}')
-        fig.savefig(ROOT/f'{suite}.holdout.{axis}.png',dpi=165)
+        fig.suptitle(f'{suite} 独立冻结评价 · {primary} · {titles[axis]}')
+        fig.savefig(result_root(suite)/f'{suite}.holdout.{axis}.png',dpi=165)
         plt.close(fig)
 
 
@@ -209,10 +219,15 @@ def report(plan):
     plt.rcParams['font.sans-serif']=['Microsoft YaHei','SimHei','DejaVu Sans']
     plt.rcParams['axes.unicode_minus']=False
     train={}
+    suite=plan['suite']
     seeds=plan['settings']['seeds']
     for seed in seeds:
         verified,curves=training_evidence(plan,seed)
-        plot_online(plan['suite'],seed,curves)
+        if suite==INFERENCE_SUITE:
+            for arm in ARMS:
+                plot_online(suite,seed,{arm:curves[arm]},output=run_files(suite,arm,seed)/'train.raw.png')
+        else:
+            plot_online(suite,seed,curves)
         train[str(seed)]=verified
     catalogs={a:world(20261113,0,mono=a=='monolithic') for a in ARMS}
     grouped=defaultdict(lambda:defaultdict(list))
@@ -220,32 +235,39 @@ def report(plan):
     paired={}
     mono_columns={}
     for case,seed,future in product(evaluation_cases(plan),seeds,plan['futures']):
-        result=json.loads(outcome_path(plan,seed,case,future).read_bytes())
-        if result['stamp']!=evaluation_stamp(plan,seed,case,future):
-            raise ValueError('Saved evaluation checkpoint or protocol fingerprint differs')
+        stamp=evaluation_stamp(plan,seed,case,future)
+        arms=read_evaluation(plan,seed,case,future,stamp)
+        if len(arms)!=len(ARMS)*len(plan['evaluation']['labels']):
+            raise ValueError(f'Incomplete holdout for seed {seed}, {case}, scene {future["scene"]}')
         reference=None
         for arm,label in product(ARMS,plan['evaluation']['labels']):
-            cell=result['arms'][f'{arm}.{label}']
+            cell=arms[f'{arm}.{label}']
             current=flow(cell['rows'])
             if reference is not None and reference!=current:
                 raise ValueError('Saved architecture evaluation flows differ')
             reference=current
             m=physical_summary(cell['rows'],cell,catalogs[arm])
-            if arm=='monolithic' and (case[0]=='intermediate' or case==('load',None)):
+            if arm=='monolithic' and (case[0] in ('intermediate','profile') or case==('load',None)):
                 mono_columns[case,seed,future['scene'],label]=fingerprint([
                     tuple(r[k] for k in ('active_matrix','reward_raw','completed_delays','penalized_delays'))
                     for r in cell['rows']])
             grouped[case,arm,label][seed].append(m)
             summary.append(dict(arm=arm,checkpoint=label,seed=seed,scenario=case,future=future,**m))
         paired[case,seed,future['scene']]=reference
+    paired_reference=('profile','population_control') if suite==INFERENCE_SUITE else ('load',None)
     for case,seed,future in product(evaluation_cases(plan),seeds,plan['futures']):
-        if case[0]!='load' and paired[case,seed,future['scene']]!=paired[('load',None),seed,future['scene']]:
-            raise ValueError('CPU, wired, or intermediate comparison altered the request stream')
+        scene=future['scene']
+        if case[0]!='load' and paired[case,seed,scene]!=paired[paired_reference,seed,scene]:
+            raise ValueError('A physical comparison altered the request stream')
+        mono_reference={('profile','payload_only'):paired_reference,
+                        ('profile','compute_with_compact_payload'):('profile','compute_only')}.get(case)
         if case[0]=='intermediate':
+            mono_reference=paired_reference
+        if mono_reference is not None:
             for label in plan['evaluation']['labels']:
-                if mono_columns[case,seed,future['scene'],label]!=mono_columns[('load',None),seed,future['scene'],label]:
+                if mono_columns[case,seed,scene,label]!=mono_columns[mono_reference,seed,scene,label]:
                     raise ValueError('An internal volume change affected the monolithic arm')
     plot_axes(plan,grouped)
     out=dict(settings=plan['settings'],axis_table=plan['cases'],training=train,independent=summary)
-    atomic(ROOT/f'{plan["suite"]}.review.json',lambda f:f.write(line(out)))
+    atomic(result_root(suite)/f'{suite}.review.json',lambda f:f.write(line(out)))
     print(f'{plan["suite"]}: reporting complete ({len(summary)} paired architecture/checkpoint cells)',flush=True)

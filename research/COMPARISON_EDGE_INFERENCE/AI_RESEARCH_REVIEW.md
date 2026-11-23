@@ -33,6 +33,18 @@ v2 用 18 份独立消息定义替换了 v1 的统一 8/2 KiB。原人口到达�
 
 [v2 可执行消息目录](../../comparison/edge_inference_profile.json) · [v2 本地物理核验](../../runs/results/COMPARISON_EDGE_INFERENCE/profile-audit.v2.json)
 
+### comprised_exp1 正式训练入口
+
+正式入口在 v2 高算量、逐服务载荷主场景下对两种架构独立随机初始化，统一进行 20261113–20261117 × 5,000 GS。固定验证选各自的 best。新独立请求轨迹每条运行 24 个连续业务期，评价四个登记工作负载、best 和 last；图以 best 为主。原环境的成熟权重继续留作历史对照。只执行了小预算的端到端验证，五种子长训由用户执行。
+
+```powershell
+$env:OPENBLAS_NUM_THREADS='1'; $env:OMP_NUM_THREADS='1'; $env:MKL_NUM_THREADS='1'; python -m comparison.run --suite comprised_exp1 --workers 3
+```
+
+重跑同一命令可恢复。历史 v1 章节中有关训练尚未接入的描述对应旧实现。
+
+[命令与种子产物目录](../../comparison/README.md)
+
 ## 历史 v1 设计与共用仿真说明
 
 ## 研究问题

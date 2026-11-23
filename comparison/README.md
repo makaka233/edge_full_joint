@@ -52,3 +52,21 @@ python -m comparison.run --suite smoke --workers 1
 ## 高计算、紧凑载荷新场景
 
 `python -m comparison.run --stage profile-audit` 使用 3,500 个端点并匹配原环境逐期总期望到达率。当前 v2 按十类服务和 18 条内部边分别定义载荷，审计写入 `profile-audit.v2.json`。该入口只运行物理审计。阶段依赖、字节预算及来源见 [环境设计与交接](../research/COMPARISON_EDGE_INFERENCE/AI_RESEARCH_REVIEW.md)。
+
+### comprised_exp1 双架构完整运行
+
+从项目根目录执行。命令自动训练两种架构的 20261113–20261117，各从随机参数完成 5,000 GS，然后执行配对独立评价并生成图表。再次执行同一条命令会恢复训练和补全未写完的独立评价；内存不足时可将 `--workers 3` 改为 `--workers 1`。
+
+```powershell
+$env:OPENBLAS_NUM_THREADS='1'; $env:OMP_NUM_THREADS='1'; $env:MKL_NUM_THREADS='1'; python -m comparison.run --suite comprised_exp1 --workers 3
+```
+
+训练在 v2 主场景进行，3,500 个端点、保留原全网到达率、2 倍算量、逐服务内部消息。每个架构和种子计划 625 次 D、40,000 次 S 更新；训练与固定验证的外生请求流逐期核对。独立评价使用两条新的共同轨迹，每条连续 24 期，冻结各自的 best 和 last。四个工作负载包括原算量/原载荷、2 倍算量/原载荷、原算量/v2 载荷、2 倍算量/v2 载荷。其余三格属于冻结策略的单因素或组合对照。
+
+| 产物 | 目录 |
+|---|---|
+| 分阶段服务（proposed） | `comparison/runs/proposed/comprised_exp1/seed<seed>/` |
+| 完整服务部署（MSP） | `comparison/runs/MSP/comprised_exp1/seed<seed>/` |
+| 共享协议、汇总及 best 对比图 | `comparison/runs/comprised_exp1.protocol.json`、`comparison/runs/comprised_exp1.review.json`、`comparison/runs/comprised_exp1.holdout.profile.png` |
+
+种子目录包含 `manifest.json`、`train.jsonl`、`fixed.jsonl`、`updates.jsonl`、架构专属的 `holdout.*.json`、`train.raw.png`，以及 `best.pt`、`last.pt`、`resume_latest.pt`。新环境检查点绑定实验协议，旧环境权重不能直接用于续训或评价。根目录的 Git 忽略规则保留本地运行结果，备份源码和说明。

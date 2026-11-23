@@ -14,7 +14,7 @@ from edge_d.physical import hasharr
 from edge_d.world import LoadAwareHeuristic, make_world, stable_seed
 from edge_joint.inventory_joint import load_scale, recover_ledgers, replay_snapshot, restore_replay
 
-from .adaptive_physics import DEPLOYMENT_MODEL, capacity_ok, solo_delay_bounds
+from .adaptive_physics import DEPLOYMENT_MODEL, PeriodSimulator, capacity_ok, solo_delay_bounds
 from .adaptive_training import Config, PeriodUpdates, components, episode, load_model, model, update
 from .adaptive_storage import append, atomic, line, publish, random_state, restore_random
 
@@ -59,16 +59,18 @@ def seed_weights(path, cfg, d, s):
     return dict(kind='exp018_weights', file=str(path.resolve()), source_gs=int(data['gs']))
 
 
-def fixed(cfg, d, s, gate, index):
+def fixed(cfg, d, s, gate, index, *, world_factory=make_world, simulator_factory=PeriodSimulator):
     action_count = s.actions
     with torch.no_grad():
         result = [row for scene in FIXED
-                  for row in episode(cfg, make_world(cfg.seed, scene, 'fixed'), d, s, gate, scene, 'fixed', index)[0]]
+                  for row in episode(cfg, world_factory(cfg.seed, scene, 'fixed'), d, s, gate, scene, 'fixed', index,
+                                     simulator_factory=simulator_factory)[0]]
     s.actions = action_count
     return result
 
 
-def train(cfg, out, target, *, resume=False, init=None):
+def train(cfg, out, target, *, resume=False, init=None, world_factory=make_world,
+          simulator_factory=PeriodSimulator, environment_id=None):
     if cfg.d_load_conditioned_credit and not cfg.d_advantage_calibration:
         raise ValueError('Load-conditioned credit extends the EXP029 calibration')
     if cfg.d_advantage_calibration and (cfg.freeze_ds or cfg.macro_mode != 'redeploy' or not cfg.d_diagnostics):
@@ -85,8 +87,8 @@ def train(cfg, out, target, *, resume=False, init=None):
     resume_path = out / 'resume_latest.pt'
     if resume:
         state = read_checkpoint(resume_path)
-        if Config(**state['config']) != cfg:
-            raise ValueError('Resume requires the same seed and training configuration')
+        if Config(**state['config']) != cfg or state.get('environment_id') != environment_id:
+            raise ValueError('Resume requires the same seed, training configuration and environment')
         if target < state['episode']:
             raise ValueError('--episodes is an absolute target and precedes the current checkpoint')
         recover_ledgers(out, dict(offsets=state['offsets'], gs=state['episode']*cfg.periods))
@@ -129,8 +131,10 @@ def train(cfg, out, target, *, resume=False, init=None):
     def snapshot(evaluate, elapsed):
         nonlocal best
         current = dict(format=FORM, config=asdict(cfg), episode=index, origin=origin, **model(d, s, gate))
+        if environment_id is not None:
+            current['environment_id'] = environment_id
         if evaluate:
-            rows = fixed(cfg, d, s, gate, index)
+            rows = fixed(cfg, d, s, gate, index, world_factory=world_factory, simulator_factory=simulator_factory)
             offsets['fixed.jsonl'] = append(out/'fixed.jsonl', rows)
             score = float(np.mean([r['reward_net'] for r in rows]))
             if best is None or score > best['fixed_reward_net']:
@@ -158,12 +162,15 @@ def train(cfg, out, target, *, resume=False, init=None):
     metadata = dict(format=FORM, deployment_model=DEPLOYMENT_MODEL,
                     config=asdict(cfg), origin=origin, source_history=history,
                     fixed_scenes=FIXED, holdout_scenes=HOLDOUT)
+    if environment_id is not None:
+        metadata['environment_id'] = environment_id
     atomic(out/'manifest.json', lambda file: file.write(line(metadata)))
     for index in range(index+1, target+1):
         scene = stable_seed('EXP019', cfg.seed, 'train-scene', index)
         period_updates = PeriodUpdates(cfg, s, replay, index) if cfg.s_update_timing == 'period' and not cfg.freeze_ds else None
         d_audit = {} if cfg.d_diagnostics else None
-        ledger, credit, transitions = episode(cfg, make_world(cfg.seed, scene), d, s, gate, scene, 'train', index,
+        ledger, credit, transitions = episode(cfg, world_factory(cfg.seed, scene, 'train'), d, s, gate,
+                                              scene, 'train', index, simulator_factory=simulator_factory,
                                               period_updates=period_updates, d_audit=d_audit,
                                               profile=cfg.profile_periods)
         if cfg.profile_periods:
@@ -177,13 +184,16 @@ def train(cfg, out, target, *, resume=False, init=None):
         offsets['train.jsonl'] = append(out/'train.jsonl', ledger)
         offsets['updates.jsonl'] = append(out/'updates.jsonl', [change])
         snapshot(index % cfg.eval_every == 0 or index == target, wall+time.perf_counter()-start)
-        print(f'episode={index}/{target} gs={change["gs"]} D_updates={d_updates} S_updates={s.updates} '
+        label = f'proposed seed={cfg.seed} ' if environment_id is not None else ''
+        print(f'{label}episode={index}/{target} gs={change["gs"]} D_updates={d_updates} S_updates={s.updates} '
               f'net_reward={np.mean([r["reward_net"] for r in ledger]):.6f}', flush=True)
     print(out.prefix.resolve(), flush=True)
 
 
 def repair_projections(out, state):
     current = {key: state[key] for key in ('format', 'config', 'episode', 'origin', 'd', 's_online', 'gate')}
+    if 'environment_id' in state:
+        current['environment_id'] = state['environment_id']
     publish(out/'last.pt', current)
     if state['best'] is not None:
         publish(out/'best.pt', state['best'])

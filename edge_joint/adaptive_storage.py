@@ -12,17 +12,21 @@ import torch
 
 @dataclass(frozen=True)
 class RunFiles:
-    """Separate seeds in a shared runs directory by filename prefix."""
+    """Locate run artifacts in a seed directory or by legacy filename prefix."""
     prefix: Path
+    nested: bool = False
 
     def __truediv__(self, name):
+        if self.nested:
+            return self.prefix / name
         return self.prefix.with_name(f'{self.prefix.name}.{name}')
 
 
 @contextmanager
 def run_lock(out):
-    out.prefix.parent.mkdir(parents=True, exist_ok=True)
-    with (out / 'run.lock').open('a+b') as lock:
+    path = out / 'run.lock'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open('a+b') as lock:
         if not lock.tell():
             lock.write(b'0')
             lock.flush()

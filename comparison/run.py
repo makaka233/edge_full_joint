@@ -2,6 +2,7 @@
 
 import argparse
 from dataclasses import asdict, replace
+from functools import partial
 from itertools import product
 import json
 from pathlib import Path
@@ -27,7 +28,24 @@ from .monolithic_service.environment import MeasuredMonolithicSimulator, Measure
 ROOT=Path('runs/results/monolithic_service_comparison')
 MATRIX=Path(__file__).with_name('experiment_matrix.json')
 ARMS=('multistage','monolithic')
+INFERENCE_SUITE='comprised_exp1'
+INFERENCE_ROOT=Path('comparison/runs')
+INFERENCE_ARMS=dict(multistage='proposed',monolithic='MSP')
 EXP029_REVISION='9c4034f9b7154a592c0849eafa449d23c360814d'
+
+
+def result_root(suite):
+    return INFERENCE_ROOT if suite==INFERENCE_SUITE else ROOT
+
+
+def profile_for(plan, name):
+    from .profile_audit import profiles_from_catalog
+
+    return profiles_from_catalog(plan['workload_catalog'])[name]
+
+
+def environment_id(plan):
+    return fingerprint(plan) if plan['suite']==INFERENCE_SUITE else None
 
 
 def checkpoint_config(suite, arm, saved):
@@ -59,7 +77,7 @@ def mature_sources(configs, target, pilot):
 
 def protocol(suite):
     rule=json.loads(MATRIX.read_bytes())
-    settings=rule['formal' if suite=='mature' else suite]
+    settings=rule['formal' if suite in ('mature',INFERENCE_SUITE) else suite]
     smoke=suite=='smoke'
     configs={s:asdict(replace(exp029_config(s),periods=settings['periods'],
                    period_seconds=float(settings['period_seconds']),eval_every=settings['eval_every'],
@@ -76,11 +94,21 @@ def protocol(suite):
     if suite=='mature':
         archive,parents=mature_sources(configs,settings['episodes'],rule['pilot'])
         plan.update(archived_multistage=archive,monolithic_parents=parents)
+    if suite==INFERENCE_SUITE:
+        from .profile_audit import registered_profiles
+
+        catalog,profiles=registered_profiles()
+        if catalog['catalog_version']!=2:
+            raise ValueError('comprised_exp1 requires the v2 service catalog')
+        plan.update(workload_catalog=catalog,training_profile='compute_with_compact_payload',
+                    architecture_labels=INFERENCE_ARMS,
+                    cases=[dict(axis='profile',value=name) for name in profiles])
+        plan['evaluation']['primary']='best'
     return plan
 
 
 def register(suite):
-    path=ROOT/f'{suite}.protocol.json'
+    path=result_root(suite)/f'{suite}.protocol.json'
     expected=json.loads(line(protocol(suite)))
     if path.exists():
         record=json.loads(path.read_bytes())
@@ -99,6 +127,8 @@ def cfg_for(plan, seed):
 
 
 def run_files(suite,arm,seed):
+    if suite==INFERENCE_SUITE:
+        return RunFiles(INFERENCE_ROOT/INFERENCE_ARMS[arm]/suite/f'seed{seed}',nested=True)
     if suite=='mature' and arm=='multistage':
         return RunFiles(Path(f'{BASES["calibrated"]}.seed{seed}'))
     return RunFiles(ROOT/f'{suite}.{arm}.seed{seed}')
@@ -111,6 +141,14 @@ def train_one(plan,arm,seed):
     out=run_files(plan['suite'],arm,seed)
     cfg=cfg_for(plan,seed)
     fn=mono.train if arm==mono.ARCHITECTURE else train_multistage
+    kwargs={}
+    if plan['suite']==INFERENCE_SUITE:
+        profile=profile_for(plan,plan['training_profile'])
+        kwargs['environment_id']=environment_id(plan)
+        if arm==mono.ARCHITECTURE:
+            kwargs['workload_profile']=profile
+        else:
+            kwargs.update(world_factory=partial(world,profile=profile),simulator_factory=MeasuredMultistageSimulator)
     with run_lock(out):
         if plan['suite']=='mature':
             parent_info=plan['monolithic_parents'].get(str(seed))
@@ -119,8 +157,8 @@ def train_one(plan,arm,seed):
                 if digest(parent/'resume_latest.pt')!=parent_info['checkpoint_sha256']:
                     raise ValueError('The registered pilot prefix changed')
                 mono.fork_resume(cfg,parent,out,parent_info['episode'])
-        fn(cfg,out,plan['settings']['episodes'],resume=(out/'resume_latest.pt').is_file())
-    return f'{out.prefix.name} trained'
+        fn(cfg,out,plan['settings']['episodes'],resume=(out/'resume_latest.pt').is_file(),**kwargs)
+    return f'{out.prefix} trained'
 
 
 def effective(case):
@@ -139,6 +177,28 @@ def outcome_path(plan,seed,case,future):
     return ROOT/f'{plan["suite"]}.holdout.{axis}.{scale}.seed{seed}.scene{future["scene"]}.json'
 
 
+def evaluation_files(plan,seed,case,future):
+    suite=plan['suite']
+    if suite==INFERENCE_SUITE:
+        name=f'holdout.{case[1]}.scene{future["scene"]}.json'
+        return {arm:run_files(suite,arm,seed)/name for arm in ARMS}
+    return {'paired':outcome_path(plan,seed,case,future)}
+
+
+def read_evaluation(plan,seed,case,future,stamp):
+    saved={}
+    for group,path in evaluation_files(plan,seed,case,future).items():
+        if not path.is_file():
+            continue
+        record=json.loads(path.read_bytes())
+        arms=ARMS if group=='paired' else (group,)
+        expected={f'{arm}.{label}' for arm,label in product(arms,plan['evaluation']['labels'])}
+        if record['stamp']!=stamp or set(record['arms'])!=expected:
+            raise ValueError(f'Existing evaluation belongs to other inputs: {path}')
+        saved.update(record['arms'])
+    return saved
+
+
 def flow(rows):
     return [(r['start'],r['end'],r['requests'],r['trace_sha256']) for r in rows]
 
@@ -148,6 +208,7 @@ def load_projection(plan,arm,seed,label):
     state=(mono.read_checkpoint if arm==mono.ARCHITECTURE else multistage_checkpoint)(path)
     cfg=cfg_for(plan,seed)
     if (state['origin']!={'kind':'random'} or checkpoint_config(plan['suite'],arm,state['config'])!=asdict(cfg)
+            or state.get('environment_id')!=environment_id(plan)
             or state['episode']>plan['settings']['episodes']
             or label=='last' and state['episode']!=plan['settings']['episodes']):
         raise ValueError(f'This does not match a completed independent training arm: {path}')
@@ -191,40 +252,48 @@ def evaluation_stamp(plan,seed,case,future):
 
 def evaluate_one(plan,seed,case,future):
     torch.set_num_threads(1)
-    out=outcome_path(plan,seed,case,future)
+    paths=evaluation_files(plan,seed,case,future)
     stamp=evaluation_stamp(plan,seed,case,future)
-    if out.exists():
-        if json.loads(out.read_bytes())['stamp']!=stamp:
-            raise ValueError(f'Existing evaluation belongs to other inputs: {out}')
-        return f'{out.name} reused'
+    saved=read_evaluation(plan,seed,case,future,stamp)
+    name=next(iter(paths.values())).name
+    if len(saved)==len(ARMS)*len(plan['evaluation']['labels']):
+        return f'seed{seed} {name} reused'
+    profile=profile_for(plan,case[1]) if case[0]=='profile' else None
+    physical_case=('load',None) if profile is not None else case
     start=time.perf_counter()
     arms={}
     reference=None
     for arm in ARMS:
         cache={}
         for label in plan['evaluation']['labels']:
-            cfg,state=load_projection(plan,arm,seed,label)
-            gs=state['episode']*cfg.periods
-            if gs not in cache:
-                d,s,_,_,gate,_=(mono.components if arm==mono.ARCHITECTURE else components)(cfg)
-                load_model(state,d,s,gate)
-                cache[gs]=rollout(replace(cfg,periods=plan['evaluation']['periods'],freeze_ds=True),
-                                  d,s,gate,arm,case,future,state['episode'])
-            current=cache[gs]
+            key=f'{arm}.{label}'
+            current=saved.get(key)
+            if current is None:
+                cfg,state=load_projection(plan,arm,seed,label)
+                gs=state['episode']*cfg.periods
+                if gs not in cache:
+                    d,s,_,_,gate,_=(mono.components if arm==mono.ARCHITECTURE else components)(cfg)
+                    load_model(state,d,s,gate)
+                    cache[gs]=dict(gs=gs,**rollout(replace(cfg,periods=plan['evaluation']['periods'],freeze_ds=True),
+                                                 d,s,gate,arm,physical_case,future,state['episode'],profile=profile))
+                current=cache[gs]
             trace=flow(current['rows'])
             if reference is not None and (trace!=reference[0] or not np.isclose(
                     current['offered_cpu_work'],reference[1],atol=1e-7,rtol=0.)):
                 raise AssertionError('Comparison architectures did not receive the same requests and CPU work')
             reference=(trace,current['offered_cpu_work'])
-            arms[f'{arm}.{label}']=dict(gs=gs,**current)
-    result=dict(stamp=stamp,arms=arms,wall_seconds=time.perf_counter()-start,source=source())
-    atomic(out,lambda f:f.write(line(result)))
-    return f'{out.name} evaluated'
+            arms[key]=current
+    provenance=dict(stamp=stamp,wall_seconds=time.perf_counter()-start,source=source())
+    for group,path in paths.items():
+        selection=arms if group=='paired' else {k:v for k,v in arms.items() if k.startswith(f'{group}.')}
+        if any(k not in saved for k in selection):
+            atomic(path,lambda f:f.write(line(dict(provenance,arms=selection))))
+    return f'seed{seed} {name} evaluated'
 
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--suite',choices=('smoke','pilot','formal','mature'),default='pilot')
+    parser.add_argument('--suite',choices=('smoke','pilot','formal','mature',INFERENCE_SUITE),default='pilot')
     parser.add_argument('--stage',choices=('all','train','learning','evaluate','report','profile-audit'))
     parser.add_argument('--workers',type=int,default=6)
     args=parser.parse_args()
@@ -236,7 +305,7 @@ def main():
         audit()
         return
     stage=args.stage or ('train' if args.suite=='mature' else 'all')
-    with run_lock(RunFiles(ROOT/args.suite)):
+    with run_lock(RunFiles(result_root(args.suite)/args.suite)):
         registration=register(args.suite)
         plan=registration['protocol']
         seeds=plan['settings']['seeds']

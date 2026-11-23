@@ -86,7 +86,7 @@ def pooled_interactions(data, plan):
             for i, k in enumerate(fields)}
 
 
-def plots(data, raw):
+def plots(data, raw, *, destination=RESULTS, prefix='counterfactual', experiment='EXP032'):
     from matplotlib import pyplot as plt
 
     plt.rcParams['font.sans-serif'] = ['Microsoft YaHei','SimHei','DejaVu Sans']
@@ -105,8 +105,8 @@ def plots(data, raw):
     for axis in axes[1]:
         axis.set_xticks(ticks, [c['id'].removeprefix('new.') for c in data], rotation=30)
         axis.set_xlabel('每个状态对含四条独立请求流，各连续 24 期')
-    fig.suptitle('EXP032 冻结反事实 · 全部逐期物理轨迹')
-    fig.savefig(RESULTS/'counterfactual.raw.png',dpi=160)
+    fig.suptitle(f'{experiment} 冻结反事实 · 全部逐期物理轨迹')
+    fig.savefig(destination/f'{prefix}.raw.png',dpi=160)
     plt.close(fig)
 
     fig, axes = plt.subplots(1,2,figsize=(12,5),sharey=True,layout='constrained')
@@ -123,8 +123,8 @@ def plots(data, raw):
         axis.grid(axis='x',alpha=.2)
     axes[0].set_yticks(range(len(data)),[r['id'].removeprefix('new.') for r in data])
     axes[0].legend()
-    fig.suptitle('EXP032 部署排序 · 四条配对未来请求流的 95% 区间')
-    fig.savefig(RESULTS/'counterfactual.sorting.png',dpi=160)
+    fig.suptitle(f'{experiment} 部署排序 · 四条配对未来请求流的 95% 区间')
+    fig.savefig(destination/f'{prefix}.sorting.png',dpi=160)
     plt.close(fig)
 
 

@@ -13,7 +13,8 @@ from scripts.exp027_run import fingerprint
 from scripts.exp029_report import summarize
 
 from .monolithic_service.environment import world
-from .run import ARMS, ROOT, effective, evaluation_cases, evaluation_stamp, flow, outcome_path, run_files
+from .run import (ARMS, ROOT, checkpoint_config, effective, evaluation_cases, evaluation_stamp, flow,
+                  outcome_path, run_files)
 
 
 LABELS={'multistage':'多阶段服务（EXP029）','monolithic':'整体服务'}
@@ -30,10 +31,10 @@ def count_actions(row):
     return row['s_decisions']+row.get('drain_decisions',0)
 
 
-def training_evidence(plan,seed):
-    paths=[run_files(plan['suite'],arm,seed) for arm in ARMS]
+def training_evidence(plan,seed,arms=ARMS):
+    paths=[run_files(plan['suite'],arm,seed) for arm in arms]
     summaries,curves={},{}
-    for arm,paths_arm in zip(ARMS,paths,strict=True):
+    for arm,paths_arm in zip(arms,paths,strict=True):
         s=torch.load(paths_arm/'resume_latest.pt',weights_only=True,map_location='cpu',mmap=True)
         tagged=s.get('architecture','multistage')
         settings=plan['settings']
@@ -41,7 +42,8 @@ def training_evidence(plan,seed):
         expected_gs=n*settings['periods']
         want=n*s['config']['periods']*s['config']['s_updates_per_gs']
         if (tagged!=arm or s['origin']!={'kind':'random'} or s['episode']!=n or
-                s['config']!=plan['configs'][str(seed)] or s['d_updates']!=n or s['s']['updates']!=want):
+                checkpoint_config(plan['suite'],arm,s['config'])!=plan['configs'][str(seed)] or
+                s['d_updates']!=n or s['s']['updates']!=want):
             raise ValueError(f'Incompletely trained or inconsistent {arm} seed {seed}')
         updates=list(records(paths_arm/'updates.jsonl'))
         if len(updates)!=n or any(row['d_change']<=0 or row['s_change']<=0 for row in updates):
@@ -77,12 +79,13 @@ def training_evidence(plan,seed):
                             coverage_minimum=min(min(r['active_replicas']) for r in online),
                             matrix_fingerprints=len({r['active_matrix'] for r in online}),
                             source_history=s['source_history'])
-    for a,b in zip(*(records(p/'train.jsonl') for p in paths),strict=True):
-        if (a['gs'],a['scene'],flow([a]))!=(b['gs'],b['scene'],flow([b])):
-            raise ValueError('Training requests are not paired')
-    for a,b in zip(*(records(p/'fixed.jsonl') for p in paths),strict=True):
-        if (a['episode'],a['scene'],flow([a]))!=(b['episode'],b['scene'],flow([b])):
-            raise ValueError('Fixed validation requests are not paired')
+    if len(paths)==2:
+        for a,b in zip(*(records(p/'train.jsonl') for p in paths),strict=True):
+            if (a['gs'],a['scene'],flow([a]))!=(b['gs'],b['scene'],flow([b])):
+                raise ValueError('Training requests are not paired')
+        for a,b in zip(*(records(p/'fixed.jsonl') for p in paths),strict=True):
+            if (a['episode'],a['scene'],flow([a]))!=(b['episode'],b['scene'],flow([b])):
+                raise ValueError('Fixed validation requests are not paired')
     return summaries,curves
 
 
@@ -129,6 +132,47 @@ def plot_online(suite,seed,curves):
     fig.suptitle(f'独立联合训练 · {suite} · Seed {seed}')
     fig.savefig(ROOT/f'{suite}.seed{seed}.raw.png',dpi=150)
     plt.close(fig)
+
+
+def learning_report(plan):
+    from matplotlib import pyplot as plt
+
+    plt.rcParams['font.sans-serif']=['Microsoft YaHei','SimHei','DejaVu Sans']
+    plt.rcParams['axes.unicode_minus']=False
+    prefix=f'{plan["suite"]}.learning'
+    arm='monolithic'
+    periods=plan['settings']['periods']
+    output={}
+    fig,axes=plt.subplots(1,2,figsize=(11,4),layout='constrained')
+    for seed in plan['settings']['seeds']:
+        summary,curves=training_evidence(plan,seed,(arm,))
+        plot_online(prefix,seed,curves)
+        paths=run_files(plan['suite'],arm,seed)
+        fixed=defaultdict(list)
+        for row in records(paths/'fixed.jsonl'):
+            fixed[row['episode']].append(row)
+        validation=[dict(gs=episode*periods,net_reward=float(np.mean([r['reward_net'] for r in rows])),
+                         **summarize(rows)) for episode,rows in sorted(fixed.items())]
+        best_gs=summary[arm]['best_gs']
+        for ax,key,factor in zip(axes,('net_reward','e2e'),(1,1000),strict=True):
+            ax.plot([r['gs'] for r in validation],
+                    [r[key]*factor if r[key] is not None else np.nan for r in validation],label=str(seed))
+        online=list(records(paths/'train.jsonl'))
+        n=len(online)
+        window=min(1000,n//2)
+        blocks=[dict(first_gs=part[0]['gs'],last_gs=part[-1]['gs'],**summarize(part))
+                for part in (online[:window],online[n-2*window:n-window],online[n-window:]) if part]
+        output[str(seed)]=dict(training=summary[arm],fixed=validation,online_blocks=blocks,
+                               best_fixed=next(r for r in validation if r['gs']==best_gs),
+                               last_fixed=validation[-1])
+    for ax,title in zip(axes,('固定验证净 Reward','固定验证请求加权完成 E2E（ms）'),strict=True):
+        ax.set(xlabel='真实在线 GS',title=title)
+        ax.grid(alpha=.2)
+        ax.legend()
+    fig.savefig(ROOT/f'{prefix}.fixed.png',dpi=165)
+    plt.close(fig)
+    atomic(ROOT/f'{prefix}.review.json',lambda f:f.write(line(output)))
+    print(f'{prefix}: {len(output)} independently trained monolithic seeds audited',flush=True)
 
 
 def plot_axes(plan, grouped):

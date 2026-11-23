@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from dataclasses import asdict
+from shutil import copyfileobj
 import time
 
 import numpy as np
@@ -52,6 +53,26 @@ def read_checkpoint(path):
 def rollout(cfg,d,s,gate,scene,split,index,**kwargs):
     return episode(cfg,world(cfg.seed,scene,split,mono=True),d,s,gate,scene,split,index,
                    simulator_factory=MeasuredMonolithicSimulator,**kwargs)
+
+
+def fork_resume(cfg, parent, out, episode_index):
+    """Copy a completed prefix into a new experiment without touching its evidence."""
+    resume=out/'resume_latest.pt'
+    if resume.exists():
+        return
+    saved=read_checkpoint(parent/'resume_latest.pt')
+    if (saved['config']!=asdict(cfg) or saved['episode']!=episode_index
+            or saved['origin']!={'kind':'random'} or saved['d_updates']!=episode_index
+            or saved['s']['updates']!=episode_index*cfg.periods*cfg.s_updates_per_gs):
+        raise ValueError('A complete, matching monolithic training prefix is required')
+    ledgers=('train.jsonl','fixed.jsonl','updates.jsonl')
+    if set(saved['offsets'])!=set(ledgers) or any(
+            (parent/name).stat().st_size!=saved['offsets'][name] for name in ledgers):
+        raise ValueError('Parent log boundaries differ from the checkpoint')
+    # Publish the recovery snapshot last. An interrupted copy can restart safely.
+    for name in (*ledgers,'resume_latest.pt'):
+        with (parent/name).open('rb') as file:
+            atomic(out/name,lambda dest:copyfileobj(file,dest))
 
 
 def train(cfg,out,target,*,resume=False):

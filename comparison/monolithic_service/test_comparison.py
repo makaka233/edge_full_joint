@@ -198,15 +198,22 @@ class ComparisonTests(TestCase):
 
     def test_14_checkpoint_resume_reproduces_continuous_training(self):
         with TemporaryDirectory() as directory, redirect_stdout(StringIO()):
-            a,b=(RunFiles(Path(directory)/name) for name in ('continuous','resumed'))
+            a,b,fork=(RunFiles(Path(directory)/name) for name in ('continuous','resumed','fork'))
             training.train(self.cfg,a,2)
             training.train(self.cfg,b,1)
+            artifacts=('resume_latest.pt','train.jsonl','fixed.jsonl','updates.jsonl')
+            original={name:(b/name).read_bytes() for name in artifacts}
+            training.fork_resume(self.cfg,b,fork,1)
+            training.train(self.cfg,fork,2,resume=True)
+            self.assertEqual({name:(b/name).read_bytes() for name in artifacts},original)
             training.train(self.cfg,b,2,resume=True)
-            states=[training.read_checkpoint(x/'resume_latest.pt') for x in (a,b)]
-            for key in ('d','s','d_optimizer','gate_optimizer','gate','replay','d_credit_offset','s_actions'):
-                torch.testing.assert_close(states[0][key],states[1][key],rtol=0,atol=0)
-            self.assertEqual(states[1]['d_updates'],2)
-            self.assertEqual(states[1]['s']['updates'],32)
+            first=training.read_checkpoint(a/'resume_latest.pt')
+            for path in (b,fork):
+                state=training.read_checkpoint(path/'resume_latest.pt')
+                for key in ('d','s','d_optimizer','gate_optimizer','gate','replay','d_credit_offset','s_actions'):
+                    torch.testing.assert_close(first[key],state[key],rtol=0,atol=0)
+                self.assertEqual(state['d_updates'],2)
+                self.assertEqual(state['s']['updates'],32)
 
     def test_15_state_and_checkpoint_dimensions_do_not_mix(self):
         self.assertEqual(self.layouts[0].shape,(28,32))

@@ -10,7 +10,22 @@
 $env:OPENBLAS_NUM_THREADS="1"; $env:OMP_NUM_THREADS="1"; $env:MKL_NUM_THREADS="1"; python -m comparison.run --suite pilot --workers 6
 ```
 
-`pilot` 对 Seed13、16、17 各训练两组 512 GS（64 次 D、4,096 次 S 更新），然后从冻结的 best 和 last 出发跑独立评价并生成图。命令的 `--stage train`、`--stage evaluate`、`--stage report` 可单独运行对应阶段。Windows 本地多进程管道不可用时可改为 `--workers 1`。确认两组训练闭环正常且决定扩展预算后，再用 `--suite formal` 启动五种子 5,000 GS 批次。
+`pilot` 对 Seed13、16、17 各训练两组 512 GS（64 次 D、4,096 次 S 更新），然后从冻结的 best 和 last 出发跑独立评价并生成图。本轮已经完成，结论见交接。命令的 `--stage train`、`--stage evaluate`、`--stage report` 可单独运行对应阶段。Windows 本地多进程管道不可用时可改为 `--workers 1`。
+
+### 只长训整体服务
+
+```powershell
+$env:OPENBLAS_NUM_THREADS="1"; $env:OMP_NUM_THREADS="1"; $env:MKL_NUM_THREADS="1"; python -m comparison.run --suite mature --stage train --workers 5
+```
+
+整体服务的 Seed13/16/17 从 pilot 的完整 GS512 状态接续，Seed14/15 从随机初始化开始，五个种子各自达到 **总计 GS5000**。中断后重跑同一条命令。产物前缀为 `mature.monolithic.seed<seed>`，用 `mature.learning.review.json` 和 `mature.learning.fixed.png` 查看学习与后期稳定性。原始 `pilot.*` 和 `runs/results/EXP029/` 照常保留。旧 EXP029 文件缺少 EXP030 可选负载条件信用字段，读取时按旧算法的 `false` 解释；其余配置严格匹配。
+
+确认长期学习表现后，再在全新共同请求流上冻结对比。多阶段直接读取历史 EXP029 的五组 best/last，整体服务使用本次训练的五组 best/last。先完成配对评价，再单独汇总。
+
+```powershell
+$env:OPENBLAS_NUM_THREADS="1"; $env:OMP_NUM_THREADS="1"; $env:MKL_NUM_THREADS="1"; python -m comparison.run --suite mature --stage evaluate --workers 5
+python -m comparison.run --suite mature --stage report --workers 1
+```
 
 ```powershell
 python -m unittest comparison.monolithic_service.test_comparison -v

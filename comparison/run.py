@@ -17,7 +17,7 @@ from edge_joint.adaptive_storage import RunFiles, atomic, line, run_lock
 from edge_joint.adaptive_training import RolloutControl, components, episode, load_model
 from scripts.exp027_run import WorkLedger, fingerprint, verify_periods
 from scripts.exp028_run import jobs
-from scripts.exp029_long import config as exp029_config
+from scripts.exp029_long import BASES, config as exp029_config
 from scripts.exp029_run import digest
 
 from .monolithic_service import training as mono
@@ -27,11 +27,39 @@ from .monolithic_service.environment import MeasuredMonolithicSimulator, Measure
 ROOT=Path('runs/results/monolithic_service_comparison')
 MATRIX=Path(__file__).with_name('experiment_matrix.json')
 ARMS=('multistage','monolithic')
+EXP029_REVISION='9c4034f9b7154a592c0849eafa449d23c360814d'
+
+
+def checkpoint_config(suite, arm, saved):
+    if suite=='mature' and arm=='multistage':
+        # EXP029 predates the optional EXP030 load-conditioned calibration flag.
+        return {'d_load_conditioned_credit':False,**saved}
+    return saved
+
+
+def mature_sources(configs, target, pilot):
+    archive, parents={},{}
+    for seed,cfg in configs.items():
+        out=run_files('mature','multistage',seed)
+        manifest=json.loads((out/'manifest.json').read_bytes())
+        last=multistage_checkpoint(out/'last.pt')
+        best=multistage_checkpoint(out/'best.pt')
+        history=manifest['source_history']
+        if (not history or any(h['commit']!=EXP029_REVISION or h['tracked_dirty'] for h in history)
+                or last['episode']!=target or not 0<=best['episode']<=last['episode']
+                or any(checkpoint_config('mature','multistage',m['config'])!=cfg or
+                       m['origin']!={'kind':'random'} for m in (manifest,best,last))):
+            raise ValueError(f'Historical EXP029 does not match the comparison protocol for {seed}')
+        archive[str(seed)]={label:digest(out/f'{label}.pt') for label in ('best','last')}
+        if seed in pilot['seeds']:
+            parent=run_files('pilot','monolithic',seed)
+            parents[str(seed)]=dict(episode=pilot['episodes'],checkpoint_sha256=digest(parent/'resume_latest.pt'))
+    return archive,parents
 
 
 def protocol(suite):
     rule=json.loads(MATRIX.read_bytes())
-    settings=rule[suite]
+    settings=rule['formal' if suite=='mature' else suite]
     smoke=suite=='smoke'
     configs={s:asdict(replace(exp029_config(s),periods=settings['periods'],
                    period_seconds=float(settings['period_seconds']),eval_every=settings['eval_every'],
@@ -42,9 +70,13 @@ def protocol(suite):
     cases=[dict(axis=k,value=v) for k,levels in rule['axes'].items()
            for v in ([None,levels[-1]] if smoke and k=='load' else [levels[-1]] if smoke else levels)]
     physics={n:digest(CONFIG_DIR/n) for n in ('world.json','experiment.json')}
-    return dict(suite=suite,settings=settings,configs=configs,arms=list(ARMS),physics=physics,
-                matrix_sha256=digest(MATRIX),futures=futures,cases=cases,
-                evaluation=dict(rule['evaluation'],periods=settings['periods'] if smoke else rule['evaluation']['periods']))
+    plan=dict(suite=suite,settings=settings,configs=configs,arms=list(ARMS),physics=physics,
+               matrix_sha256=digest(MATRIX),futures=futures,cases=cases,
+               evaluation=dict(rule['evaluation'],periods=settings['periods'] if smoke else rule['evaluation']['periods']))
+    if suite=='mature':
+        archive,parents=mature_sources(configs,settings['episodes'],rule['pilot'])
+        plan.update(archived_multistage=archive,monolithic_parents=parents)
+    return plan
 
 
 def register(suite):
@@ -67,15 +99,26 @@ def cfg_for(plan, seed):
 
 
 def run_files(suite,arm,seed):
+    if suite=='mature' and arm=='multistage':
+        return RunFiles(Path(f'{BASES["calibrated"]}.seed{seed}'))
     return RunFiles(ROOT/f'{suite}.{arm}.seed{seed}')
 
 
 def train_one(plan,arm,seed):
+    if plan['suite']=='mature' and arm!=mono.ARCHITECTURE:
+        raise ValueError('Mature multistage checkpoints are read-only')
     torch.set_num_threads(1)
     out=run_files(plan['suite'],arm,seed)
     cfg=cfg_for(plan,seed)
     fn=mono.train if arm==mono.ARCHITECTURE else train_multistage
     with run_lock(out):
+        if plan['suite']=='mature':
+            parent_info=plan['monolithic_parents'].get(str(seed))
+            if parent_info is not None and not (out/'resume_latest.pt').is_file():
+                parent=run_files('pilot',arm,seed)
+                if digest(parent/'resume_latest.pt')!=parent_info['checkpoint_sha256']:
+                    raise ValueError('The registered pilot prefix changed')
+                mono.fork_resume(cfg,parent,out,parent_info['episode'])
         fn(cfg,out,plan['settings']['episodes'],resume=(out/'resume_latest.pt').is_file())
     return f'{out.prefix.name} trained'
 
@@ -104,7 +147,7 @@ def load_projection(plan,arm,seed,label):
     path=run_files(plan['suite'],arm,seed)/f'{label}.pt'
     state=(mono.read_checkpoint if arm==mono.ARCHITECTURE else multistage_checkpoint)(path)
     cfg=cfg_for(plan,seed)
-    if (state['origin']!={'kind':'random'} or state['config']!=asdict(cfg)
+    if (state['origin']!={'kind':'random'} or checkpoint_config(plan['suite'],arm,state['config'])!=asdict(cfg)
             or state['episode']>plan['settings']['episodes']
             or label=='last' and state['episode']!=plan['settings']['episodes']):
         raise ValueError(f'This does not match a completed independent training arm: {path}')
@@ -180,27 +223,33 @@ def evaluate_one(plan,seed,case,future):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--suite',choices=('smoke','pilot','formal'),default='pilot')
-    parser.add_argument('--stage',choices=('all','train','evaluate','report'),default='all')
+    parser.add_argument('--suite',choices=('smoke','pilot','formal','mature'),default='pilot')
+    parser.add_argument('--stage',choices=('all','train','learning','evaluate','report'))
     parser.add_argument('--workers',type=int,default=6)
     args=parser.parse_args()
     if args.workers<1:
         parser.error('--workers must be positive')
+    stage=args.stage or ('train' if args.suite=='mature' else 'all')
     with run_lock(RunFiles(ROOT/args.suite)):
         registration=register(args.suite)
         plan=registration['protocol']
         seeds=plan['settings']['seeds']
-        if args.stage in ('all','train'):
-            work=[(plan,a,s) for a,s in product(ARMS,seeds)]
+        if stage in ('all','train'):
+            train_arms=('monolithic',) if args.suite=='mature' else ARMS
+            work=[(plan,a,s) for a,s in product(train_arms,seeds)]
             jobs(train_one,work,min(args.workers,len(work)))
-        if args.stage in ('all','evaluate'):
+        if stage=='learning' or (stage=='train' and args.suite=='mature'):
+            from .report import learning_report
+
+            learning_report(plan)
+        if stage in ('all','evaluate'):
             from .report import training_evidence
 
             for seed in seeds:
                 training_evidence(plan,seed)
             work=[(plan,s,c,f) for s,c,f in product(seeds,evaluation_cases(plan),plan['futures'])]
             jobs(evaluate_one,work,min(args.workers,len(work)))
-        if args.stage in ('all','report'):
+        if stage in ('all','report'):
             from .report import report
 
             report(plan)

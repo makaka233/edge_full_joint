@@ -165,11 +165,96 @@ def passes(a,b):
             and all(b[k]<=a[k] for k in ('censored','terminal','dropped')))
 
 
+def plot_online_trends(series):
+    from matplotlib import pyplot as plt
+
+    fig, axes = plt.subplots(len(series),2,figsize=(11,7),sharex=True,layout='constrained')
+    for (seed,data), row in zip(series.items(),axes,strict=True):
+        for (label,values), color in zip(data.items(),('#2166ac','#b2182b'),strict=True):
+            blocks = [values[i:i+32] for i in range(0,len(values),32)]
+            gs = 8*START+np.cumsum([len(block) for block in blocks])
+            row[0].plot(gs,[block[:,0].mean() for block in blocks],label=label,color=color)
+            row[1].plot(gs,[block[:,1].mean()*1000 for block in blocks],color=color)
+        row[0].set_ylabel(f'Seed {str(seed)[-2:]}')
+        for axis in row:
+            axis.grid(alpha=.2)
+    axes[0,0].set_title('原始 Reward 分块均值')
+    axes[0,1].set_title('逐期完成 E2E 分块均值（ms）')
+    axes[0,0].legend()
+    for axis in axes[-1]:
+        axis.set_xlabel('每块的末期在线 GS')
+    fig.suptitle('EXP030 三种子有界续训 · 每 32 GS 一块，含全部在线样本')
+    fig.savefig(RESULTS/'bounded.three-seed.trend.png',dpi=150)
+    plt.close(fig)
+
+
+def plot_holdout(results):
+    from matplotlib import pyplot as plt
+
+    fig, axes = plt.subplots(3,1,figsize=(11,7.5),layout='constrained')
+    row_labels, rows = [], []
+    for seed,value in results.items():
+        for label in ('best','last'):
+            row_labels.append(f'Seed {seed[-2:]} {label}')
+            rows.append([r for r in value['holdout'] if r['label']==label])
+    columns = ('自然 1','自然 2','突发 1','突发 2','持续 0.55 1','持续 0.55 2',
+               '持续 0.70 1','持续 0.70 2')
+    for axis,(key,title,scale,direction) in zip(axes,(
+            ('reward','Reward 差',1.,-1.),('e2e','完成 E2E 差（ms）',1000.,1.),
+            ('p99','惩罚后 P99 差（ms）',1000.,1.)),strict=True):
+        values = np.asarray([[(r['b'][key]-r['a'][key])*scale for r in row] for row in rows])
+        severity = direction*values/max(float(np.abs(values).max()),1e-12)
+        axis.imshow(severity,cmap='RdYlGn_r',vmin=-1.,vmax=1.,aspect='auto')
+        axis.set(title=title,yticks=range(len(rows)),xticks=range(len(columns)))
+        axis.set_yticklabels(row_labels)
+        axis.set_xticklabels(columns)
+        spec = '+.3f' if key=='reward' else '+.1f'
+        for (i,j),value in np.ndenumerate(values):
+            axis.text(j,i,format(value,spec),ha='center',va='center',fontsize=9,
+                      color='white' if abs(severity[i,j])>.72 else 'black',
+                      weight='normal' if rows[i][j]['strict'] else 'bold')
+    fig.suptitle('EXP030 有界独立评价 · 候选减 EXP029 · 暖色为退化，粗体为严格非劣未通过')
+    fig.savefig(RESULTS/'bounded.holdout-differences.png',dpi=150)
+    plt.close(fig)
+
+
+def plot_fixed_validation():
+    from matplotlib import pyplot as plt
+
+    fig, axes = plt.subplots(len(SEEDS), 2, figsize=(11, 7), sharex=True, layout='constrained')
+    for seed, row in zip(SEEDS, axes, strict=True):
+        fixed = [read(prefix(seed, arm, 'bounded')/'fixed.jsonl') for arm in ARMS]
+        assert_flow(*fixed)
+        for rows, label, color in zip(fixed, LABELS, ('#2166ac', '#b2182b'), strict=True):
+            by_episode = {}
+            for record in rows:
+                by_episode.setdefault(record['episode'], []).append(record)
+            points = []
+            for episode, batch in sorted(by_episode.items()):
+                metrics = summarize(batch)
+                points.append((8*episode, np.mean([r['reward_net'] for r in batch]), 1000*metrics['e2e']))
+            gs, reward, e2e = np.asarray(points).T
+            row[0].plot(gs, reward, 'o-', color=color, label=label)
+            row[1].plot(gs, e2e, 'o-', color=color)
+        row[0].set_ylabel(f'Seed {str(seed)[-2:]}')
+        for axis in row:
+            axis.grid(alpha=.2)
+    axes[0, 0].set_title('固定验证净 Reward')
+    axes[0, 1].set_title('固定验证请求加权完成 E2E（ms）')
+    axes[0, 0].legend()
+    for axis in axes[-1]:
+        axis.set_xlabel('检查点 GS')
+    fig.suptitle('EXP030 固定验证 · 每检查点两条轨迹，共 16 期')
+    fig.savefig(RESULTS/'bounded.fixed-validation.png', dpi=150)
+    plt.close(fig)
+
+
 def report():
     from matplotlib import pyplot as plt
     plt.rcParams['font.sans-serif'] = ['Microsoft YaHei','SimHei','DejaVu Sans']
     plt.rcParams['axes.unicode_minus'] = False
     results = {}
+    series = {}
     used = archive_flows()
     frozen = json.loads((RESULTS/'frozen.review.json').read_text(encoding='utf8'))
     used.update(h for g in frozen['groups'].values() for case in g['cases'] for h in case['flow'])
@@ -178,6 +263,7 @@ def report():
         logs = verify_online(seed,TARGET,'bounded')
         xy = {label:np.asarray([[r[k] for k in ('reward_raw','e2e_completed','p95','p99')]
                                for r in logs[arm]],dtype=float) for arm,label in zip(ARMS,LABELS,strict=True)}
+        series[seed] = xy
         trajectories(seed,np.arange(8*START+1,8*TARGET+1),xy,'完整在线轨迹','bounded',
                      destination=RESULTS,experiment='EXP030')
         used.update(r['trace_sha256'] for r in logs['exp029'])
@@ -226,6 +312,9 @@ def report():
                      for v in results.values() for label in ('best','last'))
     advance = (qualifiers and np.mean([r['b']['reward']-r['a']['reward'] for r in stress])>=.02
                and np.mean([r['b']['e2e']-r['a']['e2e'] for r in stress])<0.)
+    plot_online_trends(series)
+    plot_holdout(results)
+    plot_fixed_validation()
     atomic(RESULTS/'bounded.review.json',lambda f:f.write(line(dict(seeds=results,advance=bool(advance)))))
     print('Bounded evaluation complete. Five-seed trial eligible:',bool(advance))
 

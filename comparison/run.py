@@ -155,8 +155,9 @@ def load_projection(plan,arm,seed,label):
 
 
 @torch.inference_mode()
-def rollout(cfg,d,s,gate,arm,case,future,index):
-    env=world(future['environment'],future['scene'],'holdout',mono=arm==mono.ARCHITECTURE,scenario=case)
+def rollout(cfg,d,s,gate,arm,case,future,index,*,profile=None):
+    env=world(future['environment'],future['scene'],'holdout',mono=arm==mono.ARCHITECTURE,
+              scenario=case,profile=profile)
     factory=MeasuredMonolithicSimulator if arm==mono.ARCHITECTURE else MeasuredMultistageSimulator
     ledger=WorkLedger()
     rows,_,_=episode(cfg,env,d,s,gate,future['scene'],'holdout',index,
@@ -224,11 +225,16 @@ def evaluate_one(plan,seed,case,future):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--suite',choices=('smoke','pilot','formal','mature'),default='pilot')
-    parser.add_argument('--stage',choices=('all','train','learning','evaluate','report'))
+    parser.add_argument('--stage',choices=('all','train','learning','evaluate','report','profile-audit'))
     parser.add_argument('--workers',type=int,default=6)
     args=parser.parse_args()
     if args.workers<1:
         parser.error('--workers must be positive')
+    if args.stage=='profile-audit':
+        from .profile_audit import audit
+
+        audit()
+        return
     stage=args.stage or ('train' if args.suite=='mature' else 'all')
     with run_lock(RunFiles(ROOT/args.suite)):
         registration=register(args.suite)

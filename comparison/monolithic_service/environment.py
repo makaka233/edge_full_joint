@@ -45,11 +45,46 @@ def advance_at_load(world):
     set_load(world)
 
 
-def world(seed, scene, split='train', *, mono=False, scenario=None):
-    env = make_world(seed,scene,split)
+def configure_workload(config, profile):
+    nominal_rate = config.users * config.user_rate
+    config.users = profile['users']
+    config.user_rate = nominal_rate / config.users
+    for stage in config.stages:
+        stage[0] *= profile['compute_multiplier']
+    payloads = profile['internal_payload_kib']
+    if payloads is not None:
+        for chain in config.services:
+            for a,b,kib in zip(chain[:-1],chain[1:],payloads[:len(chain)-1],strict=True):
+                config.stages[a][2] = config.stages[b][1] = kib*1024*8/1_000_000
+
+
+def match_period_rate(world):
+    reference = world.comparison_rate_reference
+    if world.amplitude != 0 or reference.amplitude != 0:
+        raise ValueError('Period rate matching requires within-period stationary demand')
+    world.scale *= reference.rates(reference.t).sum()/world.rates(world.t).sum()
+
+
+def advance_at_matched_rate(world):
+    from edge_d._engine.dynamic import DynamicWorld
+
+    DynamicWorld.advance(world)
+    world.comparison_rate_reference.advance()
+    match_period_rate(world)
+
+
+def world(seed, scene, split='train', *, mono=False, scenario=None, profile=None):
+    if profile is None:
+        env = make_world(seed,scene,split)
+    else:
+        env = make_world(seed,scene,split,configure=lambda c: configure_workload(c,profile))
+        env.w.comparison_rate_reference = make_world(seed,scene,split).w
+        match_period_rate(env.w)
+        env.w.advance = MethodType(advance_at_matched_rate,env.w)
     c,w = env.c,env.w
     env.service_stages = tuple(tuple(group) for group in c.services)
-    env.reference_work = min(s[0] for s in c.stages)
+    reference = w.comparison_rate_reference if profile is not None else w
+    env.reference_work = float(reference.stages[:,0].min())
     env.service_work = np.asarray([sum(c.stages[k][0] for k in group) for group in c.services])
     axis,value = ('load',None) if scenario is None else scenario
     if axis not in ('load','cpu','wired','intermediate'):
@@ -81,6 +116,8 @@ def world(seed, scene, split='train', *, mono=False, scenario=None):
     env.old = np.zeros((env.K,env.N),dtype=bool)
     env.draft = np.zeros_like(env.old)
     if axis == 'load' and value is not None:
+        if profile is not None:
+            raise ValueError('A target CPU load would change the matched external arrival rate')
         w.comparison_target = value
         w.comparison_cpu = float(w.nodes[:,0].sum())
         w.comparison_service_work = env.service_work
@@ -135,4 +172,6 @@ class MeasuredMonolithicSimulator(WireAccounting, MonolithicSimulator):
 
 
 class MeasuredMultistageSimulator(WireAccounting, PeriodSimulator):
-    pass
+    def __init__(self, env, *args, **kwargs):
+        super().__init__(env,*args,**kwargs)
+        self.cpu_reference_work = env.reference_work

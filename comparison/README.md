@@ -48,3 +48,7 @@ python -m comparison.run --suite smoke --workers 1
 在 `runs/results/monolithic_service_comparison/` 查看协议、架构训练与梯度账本、原始物理日志、`best.pt`、`last.pt`、`resume_latest.pt`。`pilot.review.json` 按 seed、物理条件、外生流和检查点提供指标，每条结果同时保留资源用量和尾部。四张 `pilot.holdout.*.png` 为独立冻结对比，`pilot.seed*.raw.png` 为原始训练轨迹。GS、优化器步骤、实际调度次数和到达请求数分别记录。
 
 [实现细节](monolithic_service/README.md) · [单文件研究交接](../research/COMPARISON_MONOLITHIC/AI_RESEARCH_REVIEW.md)
+
+## 高计算、紧凑载荷新场景
+
+`python -m comparison.run --stage profile-audit` 使用 3,500 个端点并匹配原环境逐期总期望到达率，验证高计算、紧凑载荷及各自单因素控制的物理配对。该入口只运行物理审计。假设、工作量和来源见 [环境设计与交接](../research/COMPARISON_EDGE_INFERENCE/AI_RESEARCH_REVIEW.md)。

@@ -12,6 +12,7 @@ import torch
 
 from edge_d._engine.edge_rl.model import Arrival
 from edge_d.physical import hasharr
+from edge_d.world import make_world
 from edge_joint.adaptive_storage import RunFiles
 from edge_joint.adaptive_training import components as multistage_components, decode_placement
 from edge_joint.adaptive_physics import capacity_ok, footprint, switch_cost
@@ -19,6 +20,7 @@ from edge_joint.inventory_joint import load_scale
 from scripts.exp029_long import config
 
 from comparison.run import rollout
+from comparison.profile_audit import registered_profiles
 from . import training
 from .environment import MeasuredMonolithicSimulator, MeasuredMultistageSimulator, world
 
@@ -229,3 +231,36 @@ class ComparisonTests(TestCase):
             torch.save({'format':2},path)
             with self.assertRaises(ValueError):
                 training.read_checkpoint(path)
+
+    def test_16_inference_population_preserves_stationary_network_rate(self):
+        _,profiles=registered_profiles()
+        original=make_world(SEED,7,'holdout')
+        profile=profiles['population_control']
+        modified=world(SEED,7,'holdout',profile=profile)
+        self.assertEqual(len(modified.w.user_access),3500)
+        self.assertEqual(modified.w.user_counts.sum(),3500)
+        self.assertAlmostEqual(modified.c.users*modified.c.user_rate,20.)
+        for _ in range(8):
+            np.testing.assert_allclose(modified.w.rates(modified.w.t).sum(),
+                                       original.w.rates(original.w.t).sum(),rtol=0,atol=1e-12)
+            modified.w.advance()
+            original.w.advance()
+
+    def test_17_inference_profile_only_changes_declared_workload(self):
+        _,profiles=registered_profiles()
+        profile=profiles['compute_with_compact_payload']
+        multi=world(SEED,1,profile=profile)
+        mono=world(SEED,1,mono=True,profile=profile)
+        np.testing.assert_array_equal(multi.w.nodes,self.multi.w.nodes)
+        self.assertEqual(multi.w.directed,self.multi.w.directed)
+        self.assertEqual(multi.reference_work,self.multi.reference_work)
+        self.assertEqual(multi.cost,self.multi.cost)
+        np.testing.assert_array_equal(multi.spec,self.multi.spec)
+        np.testing.assert_array_equal(multi.service_work,2*self.multi.service_work)
+        np.testing.assert_array_equal(mono.w.stages[:,0],multi.service_work)
+        for chain in multi.c.services:
+            self.assertEqual(multi.w.stages[chain[0],1],self.multi.w.stages[chain[0],1])
+            self.assertEqual(multi.w.stages[chain[-1],2],self.multi.w.stages[chain[-1],2])
+            for a,b,kib in zip(chain[:-1],chain[1:],(8,2),strict=False):
+                self.assertEqual(multi.w.stages[a,2],kib*1024*8/1_000_000)
+                self.assertEqual(multi.w.stages[a,2],multi.w.stages[b,1])

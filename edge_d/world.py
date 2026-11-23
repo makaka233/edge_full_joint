@@ -4,6 +4,7 @@ IMPORTANT: The checked-in configuration reflects the audited legacy benchmark,
 not the original 7200-CU/s / 300-Mbps research wish list.
 """
 from __future__ import annotations
+from collections.abc import Callable
 import json, hashlib
 from pathlib import Path
 import numpy as np
@@ -18,12 +19,14 @@ SPLITS=("train","fixed","holdout")
 def stable_seed(*tokens):
     return int.from_bytes(hashlib.sha256("\0".join(map(str,tokens)).encode()).digest()[:4],"big")
 
-def make_world(seed:int, scene:int, split:str="train"):
+def make_world(seed:int, scene:int, split:str="train", *, configure:Callable[[Config], None]|None=None):
     """Independent population/demand by seed and split; deterministic per identity."""
     if split not in SPLITS: raise ValueError(f"unknown split: {split}")
     if scene<0: raise ValueError("scene must be nonnegative")
     cfg=json.loads((CONFIG_DIR/"experiment.json").read_text(encoding="utf8"))
     c=Config.load(CONFIG_DIR/"world.json")
+    if configure is not None:
+        configure(c)
     c.cpu_allocator=cfg["cpu_allocator"]
     c.s_next_context=bool(cfg.get("s_next_context",True))
     c.s_competition_context=bool(cfg.get("s_competition_context",False))

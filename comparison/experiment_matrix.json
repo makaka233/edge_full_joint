@@ -1,0 +1,13 @@
+{
+  "architecture": ["multistage", "monolithic"],
+  "pilot": {"seeds": [20261113, 20261116, 20261117], "episodes": 64, "periods": 8, "period_seconds": 24, "eval_every": 8},
+  "formal": {"seeds": [20261113, 20261114, 20261115, 20261116, 20261117], "episodes": 625, "periods": 8, "period_seconds": 24, "eval_every": 8},
+  "smoke": {"seeds": [20261113], "episodes": 2, "periods": 2, "period_seconds": 2, "eval_every": 1},
+  "evaluation": {"periods": 24, "future_count": 2, "labels": ["best", "last"], "primary": "last"},
+  "axes": {
+    "load": [null, 0.40, 0.55, 0.70],
+    "cpu": [0.7, 1.0, 1.3, 1.6],
+    "wired": [0.5, 1.0, 1.5, 2.0],
+    "intermediate": [0.5, 1.0, 2.0, 4.0]
+  }
+}

@@ -109,7 +109,8 @@ def common_prefix(case, pool, *, pair_loader=load_pair, namespace='EXP029'):
     cfg, index, d, s, gate = pair_loader(pool, 'A')
     control = RolloutControl(environment_seed=environment, loads=(None, *case['loads']),
                              epsilon=0., sample_d=False, trace_requests=True)
-    options = replace(cfg, periods=PERIODS+1, freeze_ds=True)
+    periods = len(case['loads'])
+    options = replace(cfg, periods=periods+1, freeze_ds=True)
     state = []
 
     def capture(world, sim, period, phase):
@@ -119,7 +120,7 @@ def common_prefix(case, pool, *, pair_loader=load_pair, namespace='EXP029'):
 
     try:
         episode(options, env, d, s, gate, scene, 'holdout', index,
-                recorded_matrices=[None]*(PERIODS+1), initial_deployment=initial,
+                recorded_matrices=[None]*(periods+1), initial_deployment=initial,
                 control=control, simulator_factory=ObservedSimulator, boundary=capture)
     except PrefixReady:
         pass
@@ -128,7 +129,7 @@ def common_prefix(case, pool, *, pair_loader=load_pair, namespace='EXP029'):
                    demand=world.w.node_demand().tolist(),
                    flow_keys=[[stable_seed('EXP019', environment, 'holdout', scene, p, key)
                                for key in ('traffic', 'schedule', 'policy', 'decode')]
-                              for p in range(1, PERIODS+1)])
+                              for p in range(1, periods+1)])
     return world, sim, opening, replace(control, loads=(None, None, *case['loads'][1:]))
 
 

@@ -8,7 +8,7 @@ import torch
 
 from edge_joint.adaptive_storage import atomic, line
 from scripts.exp019_report import check_continuous_episode, check_period
-from scripts.exp024_evaluate import assert_flow
+from scripts.exp024_evaluate import FIELDS, assert_flow
 from scripts.exp024_report import read
 from scripts.exp027_run import PROFILES
 from scripts.exp029_continue import ARMS, SEEDS, START, TARGET, prefix, registration
@@ -127,24 +127,51 @@ def plot_holdout(seed, holdout):
     plt.close(fig)
 
 
+def plot_blocks(raw):
+    fig, axes = plt.subplots(1, 3, figsize=(13, 4.3), layout='constrained')
+    for arm, label in zip(ARMS, ('EXP028 原学习续训', 'EXP029 滞后优势校准'), strict=True):
+        checkpoints = list(range(8*START+64, 8*TARGET+1, 64))
+        blocks = [[summarize(records[arm][i*64:(i+1)*64]) for records in raw]
+                  for i in range(len(checkpoints))]
+        for ax, (metric, title) in zip(axes, (('reward', '原始 Reward'), ('e2e', '完成 E2E（秒）'),
+                                             ('p99', '惩罚后 P99（秒）')), strict=True):
+            ax.plot(checkpoints, [np.mean([row[metric] for row in block]) for block in blocks],
+                    label=label, marker='o', markersize=4)
+            ax.set(title=title, xlabel='64 GS 分块的末期 GS')
+            ax.grid(alpha=.2)
+    axes[0].legend()
+    fig.suptitle('EXP029 后期续训 · 三种子等权 · 每 64 GS 聚合，包含全部样本')
+    fig.savefig(RESULTS/'late.three-seed.trend.png', dpi=145)
+    plt.close(fig)
+
+
 def main():
     torch.set_num_threads(1)
     plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'DejaVu Sans']
     plt.rcParams['axes.unicode_minus'] = False
     output = {}
+    trend = []
     for seed in SEEDS:
         a, raw_a, fixed_a = verify(seed, ARMS[0])
         b, raw_b, fixed_b = verify(seed, ARMS[1])
         assert_flow(raw_a, raw_b)
         assert_flow(fixed_a, fixed_b)
+        initial_pair_equal = all(all(a[field] == b[field] for field in FIELDS+('cpu', 'wired', 's_decisions'))
+                                 for a, b in zip(raw_a[:8], raw_b[:8], strict=True))
+        if not initial_pair_equal:
+            raise ValueError(f'Seed {seed} diverged before the first fork optimizer step')
         runs = dict(zip(ARMS, (a, b), strict=True))
         holdout = evaluate(seed, runs)
         before, after = a['online'], b['online']
         online_ok = after['reward'] >= before['reward']-.03 and after['e2e'] <= before['e2e']*1.01
-        output[seed] = dict(runs=runs, holdout=holdout, online_gate=online_ok)
-        plot(seed, dict(zip(ARMS, (raw_a, raw_b), strict=True)))
+        output[seed] = dict(runs=runs, holdout=holdout, online_gate=online_ok,
+                            initial_fork_physical_ledger_equal=initial_pair_equal)
+        raw = dict(zip(ARMS, (raw_a, raw_b), strict=True))
+        trend.append(raw)
+        plot(seed, raw)
         plot(seed, {arm: r['fixed'] for arm, r in runs.items()}, fixed=True)
         plot_holdout(seed, holdout)
+    plot_blocks(trend)
     atomic(RESULTS/'late.review.json', lambda file: file.write(line(output)))
     print(json.dumps({s: dict(online=r['online_gate'], sustained=r['holdout']['sustained_improvement'],
                               strict=sum(g['pass_gate'] for g in r['holdout']['gates'].values()))

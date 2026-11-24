@@ -82,7 +82,10 @@ def proposal_features(env,old,new,demand):
 
 
 @torch.inference_mode()
-def rollout(base,case,model,choose,*,capture=(),opening=None,innovation=None):
+def rollout(base,case,model,choose,*,capture=(),opening=None,innovation=None,
+            with_proposal=True,use_proposal_input=False,audit_policy=False):
+    if use_proposal_input and not with_proposal:
+        raise ValueError('Proposal features require a decoded proposal')
     cfg,d,s,gate=model
     loads=list(case['loads'][:cfg.periods]); ctx=ClockState(); previous_cohort=None
     continuation=None
@@ -101,20 +104,26 @@ def rollout(base,case,model,choose,*,capture=(),opening=None,innovation=None):
         if phase=='start' and p in capture:
             captures[p]=(p,fork(e,sim),deepcopy(ctx))
         if phase=='end':ctx.close(e,sim,p)
-    def timing(e,sim,demand,_,p,x,target):
+    def timing(e,sim,demand,_,p,x,target=None):
         state=ctx.observe(e,sim,demand,p,x)
-        features=proposal_features(e,sim.deployment,target,demand)
-        action=int(choose(state,p)); extra=[features[k] for k in FOCUS]
-        records[p]=dict(state=state+extra,action=action,proposal=matrix_hex(target),features=features,
+        features=proposal_features(e,sim.deployment,target,demand) if target is not None else {}
+        extra=[features[k] for k in FOCUS] if features else []
+        decision=choose(state+extra if use_proposal_input else state,p)
+        action, q, explored=decision if audit_policy else (decision,None,False)
+        records[p]=dict(state=state+extra,action=int(action),
+                        proposal=matrix_hex(target) if target is not None else None,features=features,
                         age_hours=2*(p-ctx.since),drift=float(np.expm1(state[14])))
+        if audit_policy:
+            records[p].update(q=q,explored=explored)
         return bool(action)
     rows=episode(cfg,env,d,s,gate,case['scene'],'holdout',1,control=ctl,simulator_factory=TimingSimulator,
-                 boundary=boundary,timing_policy=timing,continuation=continuation,observe_proposal=True,profile=True)[0]
+                 boundary=boundary,timing_policy=timing,continuation=continuation,observe_proposal=with_proposal,
+                 profile=True)[0]
     verify_periods(env,rows); verify_work(rows)
     for r in rows:
         a=records.get(r['period']); r['timing']=a
         if a is None: continue
-        applied=r['active_matrix']==a['proposal'] and r['switch_cost']==a['features']['switch']
+        applied=a['proposal'] is None or (r['active_matrix']==a['proposal'] and r['switch_cost']==a['features']['switch'])
         kept=r['active_matrix']==r['old_matrix'] and r['switch_cost']==0.
         if not (applied if a['action'] else kept):
             raise AssertionError('Gate observation and executed deployment/accounting disagree')

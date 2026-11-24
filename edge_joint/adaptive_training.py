@@ -304,6 +304,7 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
         decode_key = stable_seed('EXP019', decoder_seed, split, scene, i, 'decode')
         if profile:
             decode_tick = time.perf_counter()
+            proposal_decode_seconds = 0.
         if recorded_matrices is None and action in ('BOOTSTRAP', 'REDEPLOY'):
             mean = d(env) if base is None else d.mean_from_features(base, extra_signal)
             draw = mean.detach()
@@ -315,7 +316,11 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
             if sample and collect:
                 d_logp = torch.distributions.Normal(mean, cfg.sigma).log_prob(draw).sum()
             latent, latent_mean = draw.tolist(), mean.detach().tolist()
+            if profile and observe_proposal and sim is not None:
+                proposal_tick = time.perf_counter()
             proposal = decode_placement(cfg, env, draw.numpy(), decode_key)
+            if profile and observe_proposal and sim is not None:
+                proposal_decode_seconds = time.perf_counter() - proposal_tick
             target, fallback = proposal.matrix, proposal.coverage_fallback
             if observe_proposal and sim is not None:
                 target.setflags(write=False)
@@ -408,6 +413,8 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
                 **{name: value - physical_before[name] for name, value in sim.profile.items()},
                 placement_features_seconds=resource_seconds, placement_policy_decode_seconds=decode_seconds,
                 stale_events=sim.stale_events - stale_before)
+            if observe_proposal:
+                rows[-1]['profile']['proposal_decode_seconds'] = proposal_decode_seconds
         if boundary is not None:
             boundary(env, sim, period, 'end')
         credit.append((gate_logp, d_logp, value))

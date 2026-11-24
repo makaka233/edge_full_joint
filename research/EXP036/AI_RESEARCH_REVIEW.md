@@ -53,4 +53,8 @@ python -m comparison.run --suite exp036 --smoke --workers 2
 
 `runs/results/EXP036/` 保存 `proposed.protocol.json` 和 `proposed.seed<seed>.*`。每种子有 `train.jsonl`、`updates.jsonl`、`fixed.jsonl`、`manifest.json`、`best.pt`、`last.pt`、`resume_latest.pt`、`raw.png` 和逐轨迹独立评估。汇总写入 `proposed.summary.json`，含固定验证及每个种子、每个负载、每个检查点的配对评分。正式运行的实际 Git SHA 保存在协议和清单的 `source_history` 中，从本地结果读取。
 
+## 已执行验证
+
+在源码提交 `52335e3c95f66f82b6667743eaf705b6edcbd3eb` 上完成真实烟测。Seed20261113 跑完 8 GS，训练请求逐期匹配历史 Proposed，实际完成 1 次 D 和 64 次 S 优化，首次更新在 GS1 结束。自然和持续 0.70 的短窗口冻结评估通过同流和物理工作量核对，并成功生成原始图与汇总。再次执行烟测复用完整检查点和已有评估。两项跨期转移、预算与恢复回归和 21 项原对比模块测试通过。[烟测汇总](../../runs/results/EXP036/proposed.smoke.summary.json)
+
 正式训练和长队列结果待用户运行后审核。现阶段只检验工程路径与短时物理推进。

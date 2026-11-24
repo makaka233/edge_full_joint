@@ -35,3 +35,6 @@
 - 下一轮应先收口 EXP039，再决定是否开展独立的多轨迹、同预算对比实验。
 
 详细审阅结论由主分支研究文档和各实验的 `AI_RESEARCH_REVIEW.md` 维护。
+
+DeepSeek 对 EXP039 的完整接手、证据汇总和研究判断见
+[`DEEPSEEK_HANDOVER.md`](DEEPSEEK_HANDOVER.md)。

@@ -150,10 +150,14 @@ def audit_training(plan,seed,target):
         raise AssertionError('Exploration clocks differ')
     for gs in fixed['original']:
         paired(*(fixed[arm][gs] for arm in TRAIN))
-    pre_update=('reward_raw','active_matrix','trace_sha256','completed_delays','penalized_delays','cpu','wired')
-    for left,right in [(a[0],b[0]),*zip(*(fixed[arm]['0'] for arm in TRAIN),strict=True)]:
-        if any(left[k]!=right[k] for k in pre_update):
-            raise AssertionError('GS0 or GS1 differs before training updates')
+    pre_update=('active_matrix','trace_sha256','d_latent','s_decisions','cpu','wired','wireless','backlog_out')
+    if any(a[0][key]!=b[0][key] for key in pre_update):
+        raise AssertionError('GS1 physics differs before training updates')
+    # GS1 cohort scores include completions after its first optimizer boundary.
+    fixed_fields=(*pre_update,'reward_raw','completed_delays','penalized_delays')
+    for left,right in zip(*(fixed[arm]['0'] for arm in TRAIN),strict=True):
+        if any(left[k]!=right[k] for k in fixed_fields):
+            raise AssertionError('GS0 random initialization differs')
     return result
 
 

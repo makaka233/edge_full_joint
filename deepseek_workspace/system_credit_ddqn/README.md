@@ -1,5 +1,9 @@
 # DeepSeek 系统级时延信用 DDQN
 
+> **最终状态：有效负结果。** 信用数学和全局转移语义通过，但 64 GS 训练和
+> 24/24 独立评价单元均未超过原局部信用或仅资源先验。详见
+> [`AI_RESEARCH_REVIEW.md`](AI_RESEARCH_REVIEW.md)。
+
 本目录是 DeepSeek 独立研究原型。主工程中的 `edge_d/`、`edge_s/`、
 `edge_joint/`、`scripts/`、`tests/`、`research/` 和 `runs/` 均只读。
 

@@ -186,6 +186,10 @@ def evaluate_seed(
 def compare(run):
     """Derive policy-level residuals without comparing internal TD losses."""
 
+    metrics = (
+        "reward", "e2e", "e2e_penalized", "p95", "p99", "spikes",
+        "censored", "post_cutoff", "terminal", "dropped", "backlog", "cpu", "wire",
+    )
     output = {}
     for key, case in run["cases"].items():
         cells = case["cells"]
@@ -196,8 +200,7 @@ def compare(run):
             "prior_only": prior,
             "residual": {
                 name: system[name] - prior[name]
-                for name in ("reward", "e2e", "e2e_penalized", "p95", "p99",
-                             "censored", "terminal", "dropped")
+                for name in metrics
             },
         }
         value["action_relations"] = case["action_relations"]
@@ -207,8 +210,7 @@ def compare(run):
                 value[arm] = local
                 value[f"system_minus_{arm}"] = {
                     name: system[name] - local[name]
-                    for name in ("reward", "e2e", "e2e_penalized", "p95", "p99",
-                                 "censored", "terminal", "dropped")
+                    for name in metrics
                 }
         output[key] = value
     return output

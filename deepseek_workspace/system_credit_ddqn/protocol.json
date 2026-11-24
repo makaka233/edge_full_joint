@@ -2,6 +2,8 @@
   "experiment": "DEEPSEEK_SYSTEM_CREDIT_DDQN",
   "owner": "DeepSeek",
   "branch": "deepseek-workspace",
+  "status": "completed_negative",
+  "integration_recommendation": "do_not_integrate",
   "source_basis": {
     "exp038_commit": "c765d26f7facf407503ca1bc1fccee589640687f",
     "exp039_commit": "6953236577fc1e8cca6be6ec2870ff164b7d75c9",

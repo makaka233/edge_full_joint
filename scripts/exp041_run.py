@@ -227,6 +227,19 @@ def run_seed(plan,seed):
     return f'EXP041 {seed}: completed archive audit and cold-start forks'
 
 
+def severe_period(seed,scenario,arm,row,terms,capacity,work=None):
+    node,cpu=max(enumerate(row['cpu']),key=lambda x:x[1]['work_pending'])
+    link,wire=max(enumerate(row['wired']),key=lambda x:x[1]['work_pending'])
+    return dict(seed=seed,scenario=scenario,arm=arm,scene=row['scene'],gs=row['gs'],period=row['period'],
+                reward=row['reward_raw'],e2e_completed=row['e2e_completed'],
+                e2e_penalized=row['e2e_penalized'],p99=row['p99'],censored=row['censored'],
+                backlog_in=row['backlog_in'],backlog_out=row['backlog_out'],
+                busiest_cpu_end=dict(node=node,**cpu),busiest_link_end=dict(index=link,**wire),
+                cpu_work=None if work is None else work['cpu'][node],
+                reward_components=terms,rho=capacity['rho'],singleton=capacity['singleton'],
+                matrix=row['active_matrix'],trace=row['trace_sha256'])
+
+
 def report(saved):
     import matplotlib
     matplotlib.use('Agg')
@@ -235,6 +248,7 @@ def report(saved):
                          'axes.unicode_minus':False})
     plan=saved['plan']
     summary={}
+    severe=[]
     labels={'original':'原始随机 Q（历史对照）','resource':'现行资源先验 DDQN'}
     for seed in plan['seeds']:
         data=json.loads((ROOT/f'seed{seed}.json').read_bytes())
@@ -243,9 +257,15 @@ def report(saved):
         archive=data['archive']
         curves={arm:[[r['gs'],r['reward_raw'],r['e2e_completed'],r['p95'],r['p99']] for r in cell['online']]
                 for arm,cell in archive.items()}
-        plot_online('EXP041',seed,curves,output=ROOT/f'seed{seed}.raw.png',labels=labels)
+        plot_online('EXP041 复核 EXP037',seed,curves,output=ROOT/f'seed{seed}.raw.png',labels=labels)
         part={}
         for arm,cell in archive.items():
+            for name,p in cell['phases'].items():
+                for record in p['periods']:
+                    row=record['raw']
+                    if row['reward_raw']<=plan['extreme_reward']:
+                        severe.append(severe_period(seed,name,arm,row,record['reward_components'],
+                                                    record['deployment']))
             part[arm]={name:dict(metrics=p['metrics'],max_rho=max(r['deployment']['rho'] for r in p['periods']),
                                  avg_costs={k:mean(r['reward_components'][k] for r in p['periods'])
                                             for k in p['periods'][0]['reward_components']})
@@ -255,12 +275,17 @@ def report(saved):
         for name,cells in data['cells'].items():
             diagnostics[name]={}
             for arm,cell in cells.items():
+                for row,work in zip(cell['rows'],cell['work'],strict=True):
+                    if row['reward_raw']<=plan['extreme_reward']:
+                        severe.append(severe_period(seed,name,arm,row,row['reward_components'],
+                                                    row['deployment'],work))
                 diagnostics[name][arm]=dict(metrics=cell['metrics'],
                     max_rho=max(r['deployment']['rho'] for r in cell['rows']),
                     flips=cell['flips'],decisions=cell['decisions'],random_actions=cell['random_actions'],
                     gs1=summarize(cell['rows'][:1]),worst=min(cell['rows'],key=lambda r:r['reward_raw'])['period'])
         summary[str(seed)]=dict(archive=part,diagnostic=diagnostics,wall_seconds=data['wall_seconds'])
     atomic(ROOT/'summary.json',lambda f:f.write(line(dict(registration=saved,seeds=summary))))
+    atomic(ROOT/'severe-periods.jsonl',lambda f:f.writelines(line(row) for row in severe))
 
 
 def main():

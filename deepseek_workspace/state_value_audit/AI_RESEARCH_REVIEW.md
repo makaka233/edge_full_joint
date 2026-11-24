@@ -21,6 +21,7 @@ Agent-S 输入。更强的一致证据是：当前 DDQN 的合法动作价值排
 | 项目 | 内容 |
 |---|---|
 | 数据采集源码基线 | `69f99f94151b3200de5fa4fe629082e0fe7f5a9a` |
+| 原型实现提交 | `e8f7e30298ffcc46edc5f56af12b877f3e171824` |
 | 采集时状态 | `dirty=true`，`tracked_dirty=false` |
 | 采集源码哈希 | `3b2422afbf4275a443d5c3ef93b8fe83355ec8503c98ecf1368f5d9c92aa91f2` |
 

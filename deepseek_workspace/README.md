@@ -41,3 +41,7 @@ DeepSeek 对 EXP039 的完整接手、证据汇总和研究判断见
 
 系统级时延信用 DDQN 原型位于
 [`system_credit_ddqn/`](system_credit_ddqn/)，包括独立代码、测试、结果和交接。
+
+Agent-S 状态充分性与动作价值审计位于
+[`state_value_audit/`](state_value_audit/)，包括 24 维状态源码审计、真实物理
+反事实、Q 排序和离线可预测性比较。

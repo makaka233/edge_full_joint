@@ -1,0 +1,36 @@
+{
+  "experiment": "DEEPSEEK_STATE_VALUE_AUDIT",
+  "owner": "DeepSeek",
+  "branch": "deepseek-workspace",
+  "write_scope": "deepseek_workspace/state_value_audit/",
+  "source_seeds": [20261113, 20261115, 20261117],
+  "checkpoints": ["GS0", "GS16", "GS64", "SC64"],
+  "loads": ["natural", "sustained070"],
+  "source_periods": 7,
+  "state_periods": [3, 4, 5, 6],
+  "counterfactual_periods": 2,
+  "target_states": [60, 120],
+  "max_actions_per_state": 3,
+  "similarity": {
+    "status": "post-collection exploratory threshold",
+    "feature": "action-independent mean, standard deviation, maximum and legal-node count of the original candidate-node 24D observation",
+    "normalization": "z-score across collected states",
+    "distance": "RMS Euclidean distance",
+    "threshold": 0.25,
+    "comparison_constraint": "same checkpoint, load profile, current stage, and legal action mask"
+  },
+  "decision_rule": "first residual flip at least 4 seconds after period start, otherwise first multi-legal decision",
+  "action_rule": "prior argmax, full-Q argmax, residual argmax, full-Q argmin; first three distinct legal actions",
+  "offline_split": {
+    "train_seeds": [20261113, 20261115],
+    "validation": "seed20261115 sustained070 trajectories",
+    "test_seed": 20261117
+  },
+  "forbidden": [
+    "future request completions",
+    "future arrivals",
+    "counterfactual outcomes as online features",
+    "new RL training",
+    "main source modification"
+  ]
+}

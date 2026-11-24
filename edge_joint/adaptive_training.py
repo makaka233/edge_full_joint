@@ -267,6 +267,8 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
         carried = sum(r.pending is not None for r in sim.requests) if sim is not None else 0
         epsilon = max(.05, .25 - .20 * (gs - 1) / (cfg.epsilon_steps - 1)) if online and not cfg.freeze_ds else 0.
         log_cold_start = hasattr(cfg, 's_uniform_before_first_update')
+        log_work = getattr(cfg, 'log_physical_work', False)
+        log_dispatch = log_cold_start or log_work
         if collect and getattr(cfg, 's_uniform_before_first_update', False) and s.updates == 0:
             epsilon = 1.
         intervene = control.focal_period in (None, period)
@@ -283,7 +285,7 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
                                             legal=np.flatnonzero(mask).tolist(), explores=explores))
                 return action
             scheduler = traced
-        if log_cold_start:
+        if log_dispatch:
             dispatch_counts = [0] * env.N
 
             def counted(obs, mask, base=scheduler, counts=dispatch_counts):
@@ -333,6 +335,8 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
         events = sim.events
         if action == 'REDEPLOY':
             switch = sim.redeploy(target)
+        if log_work:
+            opening = [(r.outstanding(), r.submitted) for r in sim.resources]
         arrivals = env.w.arrivals(start, end,
                                   np.random.default_rng(stable_seed('EXP019', traffic_seed, split, scene, i, 'traffic')))
         first = len(sim.requests)
@@ -351,6 +355,10 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
                 utilization = (r.served - served[offset]) / (r.capacity * cfg.period_seconds)
                 resources.append(dict(utilization=utilization, peak_jobs=r.peak_active,
                                       end_jobs=len(r.jobs), work_pending=r.outstanding()))
+                if log_work:
+                    work_in, submitted = opening[offset]
+                    resources[-1].update(work_at_start=work_in, work_injected=r.submitted-submitted,
+                                         work_served=r.served-served[offset])
                 offset += 1
         rows.append(dict(seed=cfg.seed, episode=index, period=period, gs=gs, scene=scene, split=split, mode=mode,
                          start=start, end=end, epsilon=epsilon, s_policy_version=s.version,
@@ -372,7 +380,7 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
                          wireless=resources[-len(sim.wireless):], conservation_error=error,
                          capacity_error=cap_error, events=sim.events-events, s_decisions=sim.decisions-decisions,
                          wall_seconds=time.perf_counter()-period_tick, **switch))
-        if log_cold_start:
+        if log_dispatch:
             rows[-1].update(s_updates_at_decision=s.updates, s_dispatch_counts=dispatch_counts.copy())
         if observation is not None:
             rows[-1]['placement_observation'] = observation

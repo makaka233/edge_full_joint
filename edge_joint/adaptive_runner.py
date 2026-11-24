@@ -70,7 +70,7 @@ def fixed(cfg, d, s, gate, index, *, world_factory=make_world, simulator_factory
 
 
 def train(cfg, out, target, *, resume=False, init=None, world_factory=make_world,
-          simulator_factory=PeriodSimulator, environment_id=None):
+          simulator_factory=PeriodSimulator, environment_id=None, initial_snapshot=None):
     pool_factor=getattr(cfg,'s_laber_pool_factor',1)
     if pool_factor!=1 and (pool_factor<2 or cfg.s_update_timing!='period' or not getattr(cfg,'s_resource_q_prior',False)):
         raise ValueError('Large-batch replay requires the resource-prior DDQN with period updates')
@@ -152,6 +152,8 @@ def train(cfg, out, target, *, resume=False, init=None, world_factory=make_world
             full['d_credit_offset'] = d_credit_offset.tolist()
         if d_load_moments is not None:
             full['d_load_credit_moments'] = d_load_moments.tolist()
+        if index == 0 and not evaluate and initial_snapshot is not None:
+            initial_snapshot(full)
         publish(resume_path, full)
         publish(out/'last.pt', current)
         if best is not None:

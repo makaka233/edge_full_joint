@@ -22,11 +22,54 @@ from edge_joint.adaptive_physics import PeriodSimulator, capacity_ok, solo_delay
 from edge_joint.adaptive_runner import evaluate, train
 from edge_joint.adaptive_storage import RunFiles
 from edge_s.agent import SchedulingAgent, resource_advantage
+from edge_d._engine.edge_rl.replay import laber_selection
 
 
 class ContinuousDeploymentTests(unittest.TestCase):
     def setUp(self):
         torch.set_num_threads(1)
+
+    def test_laber_weights_preserve_conditional_uniform_objective(self):
+        class DrawAll:
+            def choice(self,n,*,size,replace,p):
+                self.probability=p
+                self.assertion=(n,size,replace)
+                return np.arange(n)
+        rng=DrawAll()
+        q=np.array([0.,.2,1.,.05])
+        picked,weights=laber_selection(q,4,rng)
+        np.testing.assert_array_equal(picked,np.arange(4))
+        self.assertEqual(rng.assertion,(4,4,True))
+        np.testing.assert_allclose(rng.probability*weights,np.full(4,.25),rtol=0.,atol=1e-15)
+        self.assertLessEqual(weights.max(),10.)
+        _,weights=laber_selection(np.zeros(4),4,rng)
+        np.testing.assert_array_equal(weights,np.ones(4))
+
+    def test_laber_resume_preserves_actual_training(self):
+        from scripts.exp040_run import ReplayConfig
+
+        cfg=ReplayConfig(seed=20261115,macro_mode='redeploy',periods=2,period_seconds=2.,
+                         eval_every=1,s_batch=4,s_update_timing='period',s_resource_q_prior=True,
+                         s_laber_pool_factor=4)
+        with tempfile.TemporaryDirectory() as directory, redirect_stdout(StringIO()):
+            a,b=(RunFiles(Path(directory)/name) for name in ('continuous','resumed'))
+            train(cfg,a,2)
+            train(cfg,b,1)
+            train(cfg,b,2,resume=True)
+            check=['reward_raw','active_matrix','s_boundary','trace_sha256']
+            rows=[(out/'train.jsonl').read_text(encoding='utf-8').splitlines() for out in (a,b)]
+            left,right=[[{k:r[k] for k in check} for r in map(json.loads,source)] for source in rows]
+            self.assertEqual(left,right)
+            self.assertTrue(all(r['s_boundary']['optimizer_steps']==8 and
+                                0<r['s_boundary']['s_is_ess']<=4.00001 for r in left))
+            x,y=[torch.load(out/'resume_latest.pt',weights_only=True,map_location='cpu') for out in (a,b)]
+            for name in ('d','s','d_optimizer','replay'):
+                torch.testing.assert_close(x[name],y[name],atol=0.,rtol=0.)
+            torch.testing.assert_close(x['rng']['torch'],y['rng']['torch'],atol=0.,rtol=0.)
+            torch.testing.assert_close(x['rng']['numpy'][1],y['rng']['numpy'][1],atol=0.,rtol=0.)
+            self.assertEqual(x['rng']['numpy'][0],y['rng']['numpy'][0])
+            self.assertEqual(x['rng']['numpy'][2:],y['rng']['numpy'][2:])
+            self.assertEqual(x['rng']['python'],y['rng']['python'])
 
     def test_centered_resource_advantage_uses_current_legal_resource_time(self):
         obs=torch.zeros((2,4,24))

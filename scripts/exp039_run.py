@@ -148,6 +148,7 @@ class Decisions:
         self.events,self.flips={},[]
         self.count=0
         self.old_flips=0
+        self.disagreement_count=0
         self.exploration=None
         self.random_actions=0
         self.legal_sizes=legal_sizes
@@ -169,6 +170,7 @@ class Decisions:
                 chosen=int(rng.choice(np.flatnonzero(mask)))
                 self.random_actions+=1
         self.count+=1
+        self.disagreement_count+=int(p!=q)
         forced=self.forced is not None and tuple(self.forced['key'])==key
         if forced:
             node=self.forced.get('node',p)

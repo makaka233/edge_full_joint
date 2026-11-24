@@ -4,6 +4,7 @@ import numpy as np
 import torch
 from torch import nn
 from torch.nn import functional as F
+from .replay import laber_selection
 
 def soft_target(reward, discount, terminated, value):
     # Time-limit truncation bootstraps; true termination does not.
@@ -149,8 +150,10 @@ class SchedulingAgent:
                 out[i]=t.reward+self.c.gamma_s*((1-w)*next_value+w*float(out[i+1]))
         return out
 
-    def update(self,batch,fresh=None,fresh_targets=None):
+    def update(self,batch,fresh=None,fresh_targets=None,*,laber_rng=None,laber_size=None):
         if not batch: return {}
+        if laber_rng is not None and (fresh is not None or laber_size is None):
+            raise ValueError('Large-batch replay requires an ordinary replay pool and a minibatch size')
         nf=len(fresh) if fresh is not None else 0
         if nf:batch=list(batch)+list(fresh)
         def tensor(values,dtype=torch.float32): return torch.as_tensor(np.asarray(values),dtype=dtype,device=self.device)
@@ -162,12 +165,30 @@ class SchedulingAgent:
             value=double_dqn_value(self.team_q(nx),self.team_q(nx,True),nm)
             target=soft_target(reward,torch.full_like(reward,self.c.gamma_s),terminal,value)
             if nf:target[-nf:]=tensor(fresh_targets)
-        q=self.team_q(x).gather(1,action[:,None]).squeeze(1)
-        loss=F.smooth_l1_loss(q,target)
+        diagnostics={}
+        if laber_rng is None:
+            q=self.team_q(x).gather(1,action[:,None]).squeeze(1)
+            loss=F.smooth_l1_loss(q,target)
+        else:
+            with torch.no_grad():
+                q_pool=self.team_q(x).gather(1,action[:,None]).squeeze(1)
+                error=(target-q_pool).abs()
+                # Magnitude of the derivative of the original Huber loss w.r.t. Q.
+                picked,weights=laber_selection(error.clamp_max(1).cpu().numpy(),laber_size,laber_rng)
+                idx=torch.as_tensor(picked,dtype=torch.long,device=self.device)
+                w=torch.as_tensor(weights,dtype=q_pool.dtype,device=self.device)
+                pressure=torch.expm1(x[torch.arange(len(x),device=self.device),action,16])>=.5
+                diagnostics=dict(s_pool_td=float(error.mean()),s_sample_td=float(error[idx].mean()),
+                                 s_pool_pressure=float(pressure.float().mean()),
+                                 s_sample_pressure=float(pressure[idx].float().mean()),
+                                 s_is_ess=float(w.sum().square()/w.square().sum()),
+                                 s_weight_mean=float(w.mean()))
+            q=self.team_q(x[idx]).gather(1,action[idx,None]).squeeze(1)
+            loss=(F.smooth_l1_loss(q,target[idx],reduction='none')*w).mean()
         self.optimizer.zero_grad(); loss.backward(); grad_norm=nn.utils.clip_grad_norm_(self.online.parameters(),10,error_if_nonfinite=True)
         self.optimizer.step(); polyak(self.target,self.online,self.c.tau)
         self.updates+=1
-        return dict(s_loss=float(loss.detach()),s_grad_norm=float(grad_norm))
+        return dict(s_loss=float(loss.detach()),s_grad_norm=float(grad_norm),**diagnostics)
 
     def state_dict(self):
         out=dict(online=self.online.state_dict(),target=self.target.state_dict(),optimizer=self.optimizer.state_dict(),version=self.version,updates=self.updates)

@@ -1,6 +1,19 @@
 """Bounded scheduling replay."""
 import numpy as np
 
+
+def laber_selection(gradient_proxy, size, rng):
+    """Resample a uniform pool, preserving its objective in expectation."""
+    proxy = np.asarray(gradient_proxy, dtype=np.float64)
+    if proxy.ndim != 1 or len(proxy) < size or size <= 0 or not np.isfinite(proxy).all() or (proxy < 0).any():
+        raise ValueError('Invalid large-batch replay priorities')
+    total = proxy.sum()
+    # The uniform mass retains support for all entries and bounds IS weights by ten.
+    probability = 0.1 / len(proxy) + 0.9 * proxy / total if total > 0 else np.full(len(proxy), 1. / len(proxy))
+    picked = rng.choice(len(proxy), size=size, replace=True, p=probability)
+    return picked, 1. / (len(proxy) * probability[picked])
+
+
 class SReplay:
     def __init__(self, capacity, max_age):
         self.capacity, self.max_age = capacity, max_age

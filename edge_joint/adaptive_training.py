@@ -69,15 +69,23 @@ class PeriodUpdates:
         self.budget += self.cfg.s_updates_per_gs
         used = self.budget if len(self.replay) >= self.cfg.s_batch else 0
         self.budget -= used
-        batch_metrics = [self.s.update(self.replay.sample(self.cfg.s_batch, gs, self.rng)) for _ in range(used)]
+        factor = getattr(self.cfg, 's_laber_pool_factor', 1)
+        if factor == 1:
+            batch_metrics = [self.s.update(self.replay.sample(self.cfg.s_batch, gs, self.rng)) for _ in range(used)]
+        else:
+            batch_metrics = [self.s.update(self.replay.sample(factor*self.cfg.s_batch, gs, self.rng),
+                                           laber_rng=self.rng,laber_size=self.cfg.s_batch)
+                             for _ in range(used)]
         self.metrics.extend(batch_metrics)
         if used:
             self.s.version += 1
+        extra = {key:float(np.mean([m[key] for m in batch_metrics])) for key in batch_metrics[0]
+                 if key not in ('s_loss','s_grad_norm')} if batch_metrics and factor!=1 else {}
         return dict(completed_transitions=len(fresh), cross_period_transitions=cross_period,
                     optimizer_steps=used, optimizer_steps_total=self.s.updates, deferred_steps=self.budget,
                     replay_size=len(self.replay), next_policy_version=self.s.version,
                     loss=float(np.mean([m['s_loss'] for m in batch_metrics])) if used else None,
-                    grad_norm=float(np.mean([m['s_grad_norm'] for m in batch_metrics])) if used else None)
+                    grad_norm=float(np.mean([m['s_grad_norm'] for m in batch_metrics])) if used else None, **extra)
 
 
 class Gate(nn.Module):

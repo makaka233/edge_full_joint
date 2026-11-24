@@ -142,7 +142,7 @@ def centered_rank(values,legal):
 
 
 class Decisions:
-    def __init__(self,agent,earlier,policy,forced=None,collect=True):
+    def __init__(self,agent,earlier,policy,forced=None,collect=True,legal_sizes=()):
         self.agent,self.earlier,self.policy=agent,earlier,policy
         self.forced,self.collect=forced,collect
         self.events,self.flips={},[]
@@ -150,6 +150,7 @@ class Decisions:
         self.old_flips=0
         self.exploration=None
         self.random_actions=0
+        self.legal_sizes=legal_sizes
 
     @torch.no_grad()
     def action(self,sim,r,obs,mask):
@@ -170,14 +171,15 @@ class Decisions:
         self.count+=1
         forced=self.forced is not None and tuple(self.forced['key'])==key
         if forced:
-            if sim.now!=self.forced['time'] or not np.array_equal(obs,self.forced['obs']) or not mask[p]:
+            node=self.forced.get('node',p)
+            if sim.now!=self.forced['time'] or not np.array_equal(obs,self.forced['obs']) or node not in legal:
                 raise AssertionError('The single-action probe did not reach the exact registered decision')
-            chosen=p
+            chosen=node
         if not self.collect and not forced:
             return chosen
         old=self.earlier.team_q(x)[0].numpy() if self.earlier is not None else total
         self.old_flips+=int(legal[int(np.argmax(old[legal]))]!=p)
-        if p==q and not forced:
+        if p==q and not forced and len(legal) not in self.legal_sizes:
             return chosen
         stage=sim.c.services[r.arrival.service][r.index]
         chain=sim.c.services[r.arrival.service]
@@ -199,7 +201,8 @@ class Decisions:
                    prior_gap=float(prior[p]-prior[q]),residual_gain=float(residual[q]-residual[p]),
                    q_gain=float(total[q]-total[p]))
         self.events[key]=value
-        self.flips.append(value)
+        if p!=q:
+            self.flips.append(value)
         return chosen
 
     @torch.no_grad()
@@ -278,7 +281,7 @@ def reconstruct(plan,spec,gs32):
     return captured
 
 
-def frozen(captured,p,count,policy,forced=None,archived_epsilon=False):
+def frozen(captured,p,count,policy,forced=None,archived_epsilon=False,legal_sizes=()):
     env,sim=fork(*captured['state'])
     # A native training fork still carries the learner's dispatch tags. Frozen
     # events must not look up those tags after replay collection has been disabled.
@@ -288,7 +291,8 @@ def frozen(captured,p,count,policy,forced=None,archived_epsilon=False):
     if loads:
         loads[p-1]=None   # The saved boundary already incorporates this period's demand setting.
     ctl=RolloutControl(environment_seed=captured['env_seed'],epsilon=0.,trace_requests=True,loads=tuple(loads))
-    sim.audit=Decisions(captured['agent'],captured['s16'],policy,forced,collect=forced is None and not archived_epsilon)
+    sim.audit=Decisions(captured['agent'],captured['s16'],policy,forced,
+                        collect=forced is None and not archived_epsilon,legal_sizes=legal_sizes)
     ledger=WorkLedger(p)
     expected=captured['reference']
     matrices=[None]*(p-1)+[unpack(env,r['active_matrix']) for r in expected[p-1:p+count-1]]

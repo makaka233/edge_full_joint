@@ -82,3 +82,5 @@ $env:OPENBLAS_NUM_THREADS='1'; $env:OMP_NUM_THREADS='1'; $env:MKL_NUM_THREADS='1
 ```
 
 图输出为 `comparison/runs/comprised_exp1.latency.{load,cpu,wired,intermediate}.png`；独立结果保存在原架构/种子目录下的 `latency.*.json`。评估全部完成后，仅重新绘图使用 `python -m comparison.latency_sweep --report-only`。
+
+负载轴用聚合之前的统一服务级计算量调整两种架构的到达强度，并核对逐期请求轨迹哈希。升级到统一算法后可继续复用此前通过配对的评估文件，恢复仍使用原命令。

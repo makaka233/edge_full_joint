@@ -121,8 +121,8 @@ def world(seed, scene, split='train', *, mono=False, scenario=None, profile=None
     env.old = np.zeros((env.K,env.N),dtype=bool)
     env.draft = np.zeros_like(env.old)
     if axis == 'load' and value is not None:
-        if profile is not None:
-            raise ValueError('A target CPU load would change the matched external arrival rate')
+        # Both arms use the same service totals computed before stage aggregation.
+        # An explicit load sweep supersedes reference-rate matching for every period.
         w.comparison_target = value
         w.comparison_cpu = float(w.nodes[:,0].sum())
         w.comparison_service_work = env.service_work

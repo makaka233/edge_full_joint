@@ -60,6 +60,12 @@ $env:OPENBLAS_NUM_THREADS='1'; $env:OMP_NUM_THREADS='1'; $env:MKL_NUM_THREADS='1
 
 [五种子训练趋势](../../comparison/runs/comprised_exp1.training.mean5.png) · [四场景五种子平均图](../../comparison/runs/comprised_exp1.holdout.mean5.png) · [完整独立指标](../../comparison/runs/comprised_exp1.review.json)
 
+### 单因素时延图与负载轴复现
+
+首次补评时，负载轴分别用分阶段和整体服务的目录求和，再反算到达强度。同一业务流在 0.55 目标负载的第 8 期出现浮点舍入差异，引发请求时间戳哈希不同。修复后两臂使用相同的、聚合前计算出的每服务 CPU 工作量，保持逐期精确配对校验。回归核对两个外生场景、三个目标负载、每条连续 24 期。修复时复核到 95 个已成功配对的评估，三条非负载轴已可生成五种子时延图，负载轴还有 25 个配对待续评。
+
+[算力与时延](../../comparison/runs/comprised_exp1.latency.cpu.png) · [带宽与时延](../../comparison/runs/comprised_exp1.latency.wired.png) · [阶段间数据量与时延](../../comparison/runs/comprised_exp1.latency.intermediate.png)
+
 ## 历史 v1 设计与共用仿真说明
 
 ## 研究问题

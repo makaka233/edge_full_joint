@@ -102,11 +102,11 @@ def evaluate_level(plan, protocol, seed, case, future):
     return f'{case} seed {seed} scene {future["scene"]}: {len(result)-len(saved)} new evaluations'
 
 
-def aggregate(plan, protocol):
+def aggregate(plan, protocol, *, axes=AXES):
     means={}
     baselines={(seed,future['scene']):saved_level(plan,protocol,seed,BASE,future)
                for seed,future in product(plan['settings']['seeds'],plan['futures'])}
-    for axis in AXES:
+    for axis in axes:
         values=[]
         for level in protocol['axes'][axis]:
             case=effective(dict(axis=axis,value=level))

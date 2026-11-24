@@ -14,7 +14,7 @@ import torch
 
 from edge_d._engine.edge_rl.model import Arrival
 from edge_d.physical import hasharr
-from edge_d.world import make_world
+from edge_d.world import make_world, stable_seed
 from edge_joint.adaptive_storage import RunFiles
 from edge_joint.adaptive_training import components as multistage_components, decode_placement
 from edge_joint.adaptive_physics import capacity_ok, footprint, switch_cost
@@ -299,6 +299,27 @@ class ComparisonTests(TestCase):
         expected=sum(size*8/1_000_000*len(env.w.routes[a][b])
                      for (a,b),size in profile['internal_payload_bytes'].items())
         self.assertAlmostEqual(sim.internal_wire,expected)
+
+    def test_v2_load_targets_use_identical_request_traces_over_full_trajectory(self):
+        plan=run.protocol(run.INFERENCE_SUITE)
+        _,profiles=registered_profiles()
+        profile=profiles[plan['training_profile']]
+        for target in (0.40,0.55,0.70):
+            for future in plan['futures']:
+                population,scene=future['environment'],future['scene']
+                worlds=[world(population,scene,'holdout',mono=mono,scenario=('load',target),profile=profile)
+                        for mono in (False,True)]
+                for env in worlds:
+                    env.w.t=0.
+                for i in range(plan['evaluation']['periods']):
+                    start,end=24.*i,24.*(i+1)
+                    seed=stable_seed('EXP019',population,'holdout',scene,i,'traffic')
+                    first,second=[hasharr(env.w.arrivals(start,end,np.random.default_rng(seed))) for env in worlds]
+                    self.assertEqual(first,second,(target,scene,i+1))
+                    for env in worlds:
+                        self.assertAlmostEqual(load_scale(env),target,places=12)
+                        env.w.advance()
+                        env.w.t=end
 
     def test_20_comprised_exp1_trains_evaluates_and_resumes_for_both_architectures(self):
         suite=run.INFERENCE_SUITE

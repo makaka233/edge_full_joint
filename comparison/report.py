@@ -1,7 +1,7 @@
 """Audit paired training and summarize each frozen resource intervention."""
 
 from collections import defaultdict
-from itertools import product
+from itertools import islice, product
 import json
 
 import numpy as np
@@ -13,8 +13,9 @@ from scripts.exp027_run import fingerprint
 from scripts.exp029_report import summarize
 
 from .monolithic_service.environment import world
-from .run import (ARMS, INFERENCE_SUITE, ROOT, checkpoint_config, effective, environment_id, evaluation_cases,
-                  evaluation_stamp, flow, read_evaluation, result_root, run_files)
+from .run import (ARMS, INFERENCE_SUITE, PERIOD_ROOT, ROOT, checkpoint_config, effective, environment_id,
+                  evaluation_cases, evaluation_stamp, flow, period_evaluation_path, period_files,
+                  read_evaluation, result_root, run_files)
 
 
 LABELS={'multistage':'多阶段服务（EXP029）','monolithic':'整体服务'}
@@ -121,15 +122,15 @@ def physical_summary(rows, result, env):
     return value
 
 
-def plot_online(suite,seed,curves,*,output=None):
+def plot_online(suite,seed,curves,*,output=None,labels=None):
     from matplotlib import pyplot as plt
 
     fig,ax=plt.subplots(2,2,figsize=(12,7),sharex=True,layout='constrained')
-    labels=INFERENCE_LABELS if suite==INFERENCE_SUITE else LABELS
+    labels=labels or (INFERENCE_LABELS if suite==INFERENCE_SUITE else LABELS)
     for arm,curve in curves.items():
         values=np.asarray(curve,dtype=float)
         for i,axis in enumerate(ax.flat,1):
-            axis.plot(values[:,0],values[:,i],color=COLORS[arm],lw=.8,label=labels[arm])
+            axis.plot(values[:,0],values[:,i],color=COLORS.get(arm),lw=.8,label=labels[arm])
     for axis,title in zip(ax.flat,('原始 Reward','完成 E2E（秒）','惩罚后 P95（秒）','惩罚后 P99（秒）'),strict=True):
         axis.set_title(title)
         axis.set_xlabel('真实在线 GS')
@@ -137,6 +138,112 @@ def plot_online(suite,seed,curves,*,output=None):
     fig.suptitle(f'独立联合训练 · {suite} · Seed {seed}')
     fig.savefig(output if output is not None else ROOT/f'{suite}.seed{seed}.raw.png',dpi=150)
     plt.close(fig)
+
+
+def period_training_evidence(plan,seed):
+    """Audit the candidate against the historical read-only Proposed request trace."""
+    out=period_files(plan,seed,'period')
+    baseline=period_files(plan,seed,'episode')
+    settings=plan['settings']
+    periods,episodes=settings['periods'],settings['episodes']
+    gs_total=periods*episodes
+    config=plan['configs'][str(seed)]
+    state=torch.load(out/'resume_latest.pt',weights_only=True,map_location='cpu',mmap=True)
+    if (state['episode']!=episodes
+            or state['environment_id']!=fingerprint(plan) or state['config']!=config
+            or state['origin']!={'kind':'random'} or state['d_updates']!=episodes):
+        raise ValueError(f'Seed {seed} is not a completed EXP036 run')
+    for name,offset in state['offsets'].items():
+        if (out/name).stat().st_size!=offset:
+            raise ValueError(f'Uncommitted bytes in {out/name}. Resume before analysis.')
+    curves={'episode':[],'period':[]}
+    scores={arm:dict(delay_sum=0.,completed=0,requests=0,actions=0,censored=0,terminal=0,
+                     cpu=0.,wire=0.) for arm in curves}
+    steps,first_update,actual_gs=0,None,0
+    reference=records(baseline/'train.jsonl')
+    if plan['tag']=='proposed.smoke':
+        reference=islice(reference,gs_total)
+    for gs,(a,b) in enumerate(zip(reference,records(out/'train.jsonl'),strict=True),1):
+        actual_gs=gs
+        if (a['gs']!=gs or b['gs']!=gs or a['scene']!=b['scene'] or a['epsilon']!=b['epsilon']
+                or flow([a])!=flow([b])):
+            raise ValueError(f'Seed {seed} GS{gs} does not match the historical exogenous flow')
+        boundary=b['s_boundary']
+        steps+=boundary['optimizer_steps']
+        if steps!=boundary['optimizer_steps_total']:
+            raise ValueError(f'Seed {seed} GS{gs} has inconsistent DDQN steps')
+        if first_update is None and steps:
+            first_update=gs
+        for arm,r in (('episode',a),('period',b)):
+            curves[arm].append([gs,r['reward_raw'],r['e2e_completed'],r['p95'],r['p99']])
+            m=scores[arm]
+            m['delay_sum']+=sum(r['completed_delays'])
+            m['actions']+=count_actions(r)
+            for key in ('completed','requests','censored'):
+                m[key]+=r[key]
+            m['terminal']+=r.get('residual_requests',0)
+            m['cpu']=max(m['cpu'],max(n['work_pending'] for n in r['cpu']))
+            m['wire']=max(m['wire'],max(n['work_pending'] for n in r['wired']))
+    updates=list(records(out/'updates.jsonl'))
+    if (actual_gs!=gs_total or len(updates)!=episodes
+            or [r['d_updates'] for r in updates]!=list(range(1,episodes+1))
+            or sum(r['s_updates_this_episode'] for r in updates)!=steps
+            or steps!=state['s']['updates'] or scores['period']['actions']!=state['s_actions']):
+        raise ValueError(f'Seed {seed} online ledger does not match its optimizer or checkpoint')
+    for arm,m in scores.items():
+        rewards=np.asarray([r[1] for r in curves[arm]])
+        tail=np.sort(rewards)
+        n1,n5=(gs_total+99)//100,(gs_total+19)//20
+        m.update(reward=float(rewards.mean()),worst=float(tail[0]),worst_gs=int(rewards.argmin()+1),
+                 worst1=float(tail[:n1].mean()),worst1_n=n1,worst5=float(tail[:n5].mean()),worst5_n=n5,
+                 spikes=int((rewards<=-20).sum()),e2e=m.pop('delay_sum')/m['completed'] if m['completed'] else None)
+    fixed={}
+    for arm,paths in (('episode',baseline),('period',out)):
+        checks=defaultdict(list)
+        for row in records(paths/'fixed.jsonl'):
+            if row['episode']<=episodes:
+                checks[row['episode']].append(row)
+        fixed[arm]=[dict(gs=i*periods,**summarize(rows)) for i,rows in sorted(checks.items())]
+    best=max(fixed['period'],key=lambda r:r['reward'])
+    if best['gs']!=state['best']['episode']*periods:
+        raise ValueError(f'Seed {seed} best checkpoint does not match fixed validation')
+    if plan['tag']=='proposed':
+        for a,b in zip(records(baseline/'fixed.jsonl'),records(out/'fixed.jsonl'),strict=True):
+            if (a['episode'],a['scene'],flow([a]))!=(b['episode'],b['scene'],flow([b])):
+                raise ValueError(f'Seed {seed} fixed-validation requests differ')
+    return dict(online=scores,curves=curves,fixed=fixed,source_history=state['source_history'],
+                best_gs=best['gs'],last_gs=gs_total,wall_seconds=state['wall_seconds'],
+                d_updates=episodes,s_updates=steps,s_budget=gs_total*config['s_updates_per_gs'],
+                first_s_update_after_gs=first_update)
+
+
+def period_report(registration,online):
+    from matplotlib import pyplot as plt
+
+    plt.rcParams.update({'font.sans-serif':['Microsoft YaHei','SimHei','DejaVu Sans'],
+                         'axes.unicode_minus':False})
+    plan=registration['protocol']
+    labels={'episode':'原 Proposed · 每 8 GS 更新 S','period':'EXP036 · 每 GS 更新 S'}
+    holdout=[]
+    by_case={}
+    for seed,result in online.items():
+        out=period_files(plan,seed,'period')
+        plot_online('EXP036',seed,result.pop('curves'),output=out/'raw.png',labels=labels)
+        for case in plan['evaluation']['cases']:
+            record=json.loads(period_evaluation_path(plan,seed,case).read_bytes())
+            evaluations=record['evaluations']
+            token=(case['profile'],case['scene'])
+            actual=flow(evaluations['period.last']['rows'])
+            if by_case.setdefault(token,actual)!=actual:
+                raise ValueError(f'EXP036 holdout request flow differs across training seeds: {token}')
+            for label in plan['evaluation']['labels']:
+                pair={}
+                for arm in labels:
+                    cell=evaluations[f'{arm}.{label}']
+                    pair[arm]=dict(gs=cell['gs'],**summarize(cell['rows']))
+                holdout.append(dict(seed=seed,case=case,checkpoint=label,**pair))
+    atomic(PERIOD_ROOT/f'{plan["tag"]}.summary.json',lambda f:f.write(line(dict(
+        registration=registration,online=online,holdout=holdout))))
 
 
 def learning_report(plan):

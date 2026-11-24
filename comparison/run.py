@@ -1,4 +1,4 @@
-"""Train both architectures independently and evaluate paired physical scenarios."""
+"""Train edge service policies and evaluate paired physical scenarios."""
 
 import argparse
 from dataclasses import asdict, replace
@@ -32,6 +32,10 @@ INFERENCE_SUITE='comprised_exp1'
 INFERENCE_ROOT=Path('comparison/runs')
 INFERENCE_ARMS=dict(multistage='proposed',monolithic='MSP')
 EXP029_REVISION='9c4034f9b7154a592c0849eafa449d23c360814d'
+PERIOD_ROOT=Path('runs/results/EXP036')
+PERIOD_BASELINE_REVISION='c108d7453bf740d8088ae701fa6f13a0684ba68e'
+PERIOD_LOADS={'natural':(), 'burst':(None,)*8+(.70,)*4+(None,)*12,
+              'sustained055':(.55,)*24, 'sustained070':(.70,)*24}
 
 
 def result_root(suite):
@@ -216,13 +220,14 @@ def load_projection(plan,arm,seed,label):
 
 
 @torch.inference_mode()
-def rollout(cfg,d,s,gate,arm,case,future,index,*,profile=None):
+def rollout(cfg,d,s,gate,arm,case,future,index,*,profile=None,loads=()):
     env=world(future['environment'],future['scene'],'holdout',mono=arm==mono.ARCHITECTURE,
               scenario=case,profile=profile)
     factory=MeasuredMonolithicSimulator if arm==mono.ARCHITECTURE else MeasuredMultistageSimulator
     ledger=WorkLedger()
     rows,_,_=episode(cfg,env,d,s,gate,future['scene'],'holdout',index,
-                     control=RolloutControl(environment_seed=future['environment'],epsilon=0.,sample_d=False),
+                     control=RolloutControl(environment_seed=future['environment'],epsilon=0.,sample_d=False,
+                                            loads=loads),
                      simulator_factory=factory,boundary=ledger)
     verify_periods(env,rows)
     sim=ledger.sim
@@ -291,14 +296,151 @@ def evaluate_one(plan,seed,case,future):
     return f'seed{seed} {name} evaluated'
 
 
+def period_files(plan,seed,timing):
+    if timing=='episode':
+        return run_files(INFERENCE_SUITE,'multistage',seed)
+    return RunFiles(PERIOD_ROOT/f'{plan["tag"]}.seed{seed}')
+
+
+def period_register(smoke):
+    """Freeze the historical Proposed protocol with the new DDQN update timing."""
+    historical_file=INFERENCE_ROOT/f'{INFERENCE_SUITE}.protocol.json'
+    historical=json.loads(historical_file.read_bytes())['protocol']
+    if historical!=json.loads(line(protocol(INFERENCE_SUITE))):
+        raise ValueError('Current Proposed world differs from the historical training protocol')
+    settings=dict(historical['settings'])
+    if smoke:
+        settings.update(seeds=settings['seeds'][:1],episodes=1)
+    periods=4 if smoke else 24
+    profiles=('natural','sustained070') if smoke else PERIOD_LOADS
+    cases=[dict(profile=name,loads=list(PERIOD_LOADS[name][:periods]),
+                environment=stable_seed('EXP036','population',i),scene=stable_seed('EXP036','scene',i))
+           for name,i in product(profiles,range(1 if smoke else 2))]
+    plan=dict(experiment='EXP036',tag='proposed.smoke' if smoke else 'proposed',
+              historical=historical, settings=settings,
+              configs={str(seed):dict(historical['configs'][str(seed)],s_update_timing='period')
+                       for seed in settings['seeds']},
+              evaluation=dict(periods=periods,cases=cases,labels=['best','last']))
+    for seed in settings['seeds']:
+        out=period_files(plan,seed,'episode')
+        manifest=json.loads((out/'manifest.json').read_bytes())
+        if (manifest['origin']!={'kind':'random'} or manifest['config']!=historical['configs'][str(seed)]
+                or manifest['environment_id']!=fingerprint(historical) or not manifest['source_history']
+                or any(r['commit']!=PERIOD_BASELINE_REVISION or r['tracked_dirty']
+                       for r in manifest['source_history'])):
+            raise ValueError(f'Historical Proposed manifest does not match the baseline for seed {seed}')
+        for name in ('train.jsonl','fixed.jsonl','best.pt','last.pt'):
+            if not (out/name).is_file():
+                raise FileNotFoundError(out/name)
+    path=PERIOD_ROOT/f'{plan["tag"]}.protocol.json'
+    if path.exists():
+        registration=json.loads(path.read_bytes())
+        if registration['protocol']!=plan:
+            raise ValueError('Saved EXP036 protocol differs from the requested run')
+    else:
+        registration=dict(protocol=plan,source=source())
+        atomic(path,lambda f:f.write(line(registration)))
+    return registration
+
+
+def period_train(plan,seed):
+    torch.set_num_threads(1)
+    out=period_files(plan,seed,'period')
+    historical=plan['historical']
+    factory=partial(world,profile=profile_for(historical,historical['training_profile']))
+    with run_lock(out):
+        train_multistage(cfg_for(plan,seed),out,plan['settings']['episodes'],
+                         resume=(out/'resume_latest.pt').is_file(),environment_id=fingerprint(plan),
+                         world_factory=factory,simulator_factory=MeasuredMultistageSimulator)
+    return f'EXP036 seed={seed} training complete'
+
+
+def period_evaluation_path(plan,seed,case):
+    return period_files(plan,seed,'period')/f'holdout.{case["profile"]}.scene{case["scene"]}.json'
+
+
+def period_evaluate(plan,seed,case):
+    torch.set_num_threads(1)
+    historical=plan['historical']
+    profile=profile_for(historical,historical['training_profile'])
+    models={key:period_files(plan,seed,key[0])/f'{key[1]}.pt'
+            for key in product(('episode','period'),plan['evaluation']['labels'])}
+    stamp=fingerprint(dict(plan=fingerprint(plan),seed=seed,case=case,
+                           checkpoints={'.'.join(key):digest(path) for key,path in models.items()}))
+    path=period_evaluation_path(plan,seed,case)
+    if path.exists():
+        if json.loads(path.read_bytes())['stamp']!=stamp:
+            raise ValueError(f'Stale EXP036 evaluation: {path}')
+        return f'{path.name} reused'
+    evaluations={}
+    reference=None
+    for timing,arm in (('episode',historical),('period',plan)):
+        cfg=cfg_for(arm,seed)
+        cfg_eval=replace(cfg,periods=plan['evaluation']['periods'],freeze_ds=True)
+        cache={}
+        for label in plan['evaluation']['labels']:
+            state=multistage_checkpoint(models[timing,label])
+            index=state['episode']
+            target=arm['settings']['episodes']
+            if (state['origin']!={'kind':'random'} or state['config']!=asdict(cfg)
+                    or state['environment_id']!=fingerprint(arm) or not 0<=index<=target
+                    or label=='last' and index!=target):
+                raise ValueError(f'Invalid EXP036 comparator checkpoint: {models[timing,label]}')
+            if index not in cache:
+                d,s,_,_,gate,_=components(cfg)
+                load_model(state,d,s,gate)
+                result=rollout(cfg_eval,d,s,gate,'multistage',('load',None),case,index,
+                               profile=profile,loads=tuple(case['loads']))
+                if any(r['epsilon']!=0 for r in result['rows']):
+                    raise AssertionError('EXP036 holdout used exploratory scheduling')
+                cache[index]=dict(gs=index*cfg.periods,**result)
+            result=cache[index]
+            signature=(flow(result['rows']),result['offered_cpu_work'])
+            if reference is None:
+                reference=signature
+            elif signature[0]!=reference[0] or not np.isclose(signature[1],reference[1],rtol=0.,atol=1e-7):
+                raise AssertionError('EXP036 frozen policies did not receive the same requests and work')
+            evaluations[f'{timing}.{label}']=result
+    atomic(path,lambda f:f.write(line(dict(stamp=stamp,case=case,seed=seed,source=source(),evaluations=evaluations))))
+    return f'{path.name} evaluated'
+
+
+def run_period_ddqn(stage,workers,smoke):
+    from .report import period_report, period_training_evidence
+
+    with run_lock(RunFiles(PERIOD_ROOT/('proposed.smoke' if smoke else 'proposed'))):
+        registration=period_register(smoke)
+        plan=registration['protocol']
+        seeds=plan['settings']['seeds']
+        print(f'EXP036 {"smoke" if smoke else "formal"} · S=period · '
+              f'{len(seeds)} seeds × {plan["settings"]["episodes"]*plan["settings"]["periods"]} GS',flush=True)
+        if stage in ('train','all'):
+            jobs(period_train,[(plan,seed) for seed in seeds],min(workers,len(seeds)))
+        if stage in ('evaluate','all','report'):
+            online={seed:period_training_evidence(plan,seed) for seed in seeds}
+        if stage in ('evaluate','all'):
+            work=list(product((plan,),seeds,plan['evaluation']['cases']))
+            jobs(period_evaluate,work,min(workers,len(work)))
+        if stage in ('report','all'):
+            period_report(registration,online)
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--suite',choices=('smoke','pilot','formal','mature',INFERENCE_SUITE),default='pilot')
-    parser.add_argument('--stage',choices=('all','train','learning','evaluate','report','profile-audit'))
+    parser.add_argument('--suite',choices=('smoke','pilot','formal','mature',INFERENCE_SUITE,'exp036'),default='pilot')
+    parser.add_argument('--stage',choices=('all','train','learning','evaluate','report','profile-audit','register'))
     parser.add_argument('--workers',type=int,default=6)
+    parser.add_argument('--smoke',action='store_true',help='Run the isolated EXP036 smoke protocol')
     args=parser.parse_args()
     if args.workers<1:
         parser.error('--workers must be positive')
+    if args.suite=='exp036':
+        if args.stage in ('learning','profile-audit'):
+            parser.error('EXP036 supports register, train, evaluate, report and all')
+        run_period_ddqn(args.stage or 'all',args.workers,args.smoke)
+        return
+    if args.smoke or args.stage=='register':
+        parser.error('--smoke and --stage register require --suite exp036')
     if args.stage=='profile-audit':
         from .profile_audit import audit
 

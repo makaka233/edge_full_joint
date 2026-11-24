@@ -133,6 +133,7 @@ def main():
     parser.add_argument("--stage", choices=("register", "train", "evaluate", "report", "all"), default="all")
     parser.add_argument("--target-episodes", type=int, default=2)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--seeds", nargs="+", type=int, default=list(SEEDS))
     parser.add_argument("--arms", nargs="+", choices=("system", "local_period", "local_episode"),
                         default=("system", "local_period", "local_episode"))
     args = parser.parse_args()
@@ -140,13 +141,13 @@ def main():
         parser.error("target episodes must be one of 1, 2, 4, or 8")
     registered = register()
     if args.stage in ("train", "all"):
-        for arm, seed in product(args.arms, SEEDS):
+        for arm, seed in product(args.arms, args.seeds):
             train_one(arm, seed, args.target_episodes, args.resume)
     if args.stage in ("evaluate", "all"):
         if args.target_episodes != 8:
             raise SystemExit("Independent evaluation requires the registered GS64 checkpoint")
         cases = registered["protocol"]["cases"]
-        for seed in SEEDS:
+        for seed in args.seeds:
             evaluate_seed(
                 seed=seed,
                 cfg_by_arm={arm: _cfg(seed, arm) for arm in args.arms},

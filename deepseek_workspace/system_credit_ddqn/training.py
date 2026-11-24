@@ -112,11 +112,13 @@ def _system_s_update(cfg, s, replay, transitions, index):
         raise ValueError("System-credit DDQN requires a positive update budget")
     rng = np.random.default_rng(stable_seed("DEEPSEEK", cfg.seed, index, "system-replay"))
     metrics = []
-    for update_index in range(total_updates):
+    for _ in range(total_updates):
         batch = replay.sample(cfg.s_batch, index * cfg.periods, rng)
         metrics.append(s.update_event_time(batch))
-        if (update_index + 1) % cfg.s_updates_per_gs == 0:
-            s.version += 1
+    # All global transitions are admitted after the cohort denominators close.
+    # The full episode therefore forms one behavior-policy version, matching the
+    # original episode-end local-credit control.
+    s.version += 1
     return dict(
         s_updates_this_episode=total_updates,
         s_loss=float(np.mean([row["s_loss"] for row in metrics])),

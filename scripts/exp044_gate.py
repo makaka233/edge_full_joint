@@ -176,6 +176,16 @@ def gate_files(seed):
     return RunFiles(ROOT/f'gate.seed{seed}')
 
 
+def read_resume(path):
+    # The first local run bundled a NumPy float in the rollout ledger. Restrict
+    # compatibility to that scalar type and keep weights-only loading enabled.
+    with torch.serialization.safe_globals([np._core.multiarray.scalar,np.dtype,np.dtypes.Float64DType]):
+        state=torch.load(path,weights_only=True,map_location='cpu')
+    if 'rollout_json' in state:
+        state['data']=json.loads(state['rollout_json'])
+    return state
+
+
 def train_one(plan,base,settings,seed):
     torch.set_num_threads(1)
     model=frozen(base,plan,seed,PERIODS)
@@ -188,7 +198,7 @@ def train_one(plan,base,settings,seed):
     with run_lock(f):
         resume=f/'resume_latest.pt'
         if resume.exists():
-            saved=torch.load(resume,weights_only=True,map_location='cpu')
+            saved=read_resume(resume)
             if saved['stamp']!=stamp:
                 raise ValueError('Stale Gate checkpoint')
             net.load_state_dict(saved['q']); target.load_state_dict(saved['target']); opt.load_state_dict(saved['optimizer'])
@@ -231,9 +241,14 @@ def train_one(plan,base,settings,seed):
                 best=dict(block=i+1,q=deepcopy(net.state_dict()),reward=score,stamp=stamp)
             data['blocks'].append(dict(rows=rows,updates=updates,theta_l2=changed,epsilon=settings['epsilon'][i]))
             publish(resume,dict(stamp=stamp,q=net.state_dict(),target=target.state_dict(),optimizer=opt.state_dict(),
-                                data=data,best=best,wall_seconds=prior_wall+perf_counter()-started,source=source()))
+                                rollout_json=json.dumps(data,allow_nan=False,separators=(',',':')),
+                                best=best,wall_seconds=prior_wall+perf_counter()-started,source=source()))
             print(f'EXP044 {seed} block {i+1}/{BLOCKS}, 24 GS, {UPDATES} Gate updates, fixed Reward {score:.4f}',flush=True)
-        state=torch.load(resume,weights_only=True,map_location='cpu')
+        state=read_resume(resume)
+        if 'rollout_json' not in state:
+            # Normalize completed checkpoints as well, without replaying any blocks.
+            state['rollout_json']=json.dumps(state.pop('data'),allow_nan=False,separators=(',',':'))
+            publish(resume,state)
         publish(f/'last.pt',dict(block=BLOCKS,q=state['q'],stamp=stamp))
         publish(f/'best.pt',best)
         write(f/'training.json',dict(data=data,wall_seconds=state['wall_seconds'],source=state['source']))

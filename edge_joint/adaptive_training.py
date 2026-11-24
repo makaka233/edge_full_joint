@@ -48,6 +48,7 @@ class RolloutControl:
     trace: bool = False
     observe_period: int | None = None
     trace_requests: bool = False
+    arrival_innovation: int | None = None
 
 
 class PeriodUpdates:
@@ -181,13 +182,15 @@ def request_metrics(requests, deadline, penalty):
 def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_matrices=None,
             control=RolloutControl(), period_updates=None, d_audit=None,
             simulator_factory=PeriodSimulator, boundary=None, profile=False,
-            initial_deployment=None, continuation=None, timing_policy=None):
+            initial_deployment=None, continuation=None, timing_policy=None, observe_proposal=False):
     """Run all business periods on one event queue."""
     started = time.perf_counter()
     online = split == 'train'
     collect = online and not cfg.freeze_ds and recorded_matrices is None
     if timing_policy is not None and (not cfg.freeze_ds or recorded_matrices is not None):
         raise ValueError('External timing decisions require frozen D/S and no recorded matrices')
+    if observe_proposal and (timing_policy is None or control.sample_d is not False or control.focal_latent is not None):
+        raise ValueError('Proposal-aware timing requires one frozen mean proposal per decision')
     if period_updates is not None and not collect:
         raise ValueError('Incremental DDQN needs a collecting online episode')
     mode = cfg.macro_mode if mode is None else mode
@@ -258,7 +261,7 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
         elif recorded_matrices is not None:
             action = 'KEEP' if target is None else 'REDEPLOY'
         elif timing_policy is not None:
-            action = 'REDEPLOY' if timing_policy(env, sim, demand, previous, period, x) else 'KEEP'
+            action = 'REDEPLOY' if observe_proposal or timing_policy(env, sim, demand, previous, period, x) else 'KEEP'
         else:
             choose = rng.random() < p if online else p >= .5
             action = 'REDEPLOY' if choose else 'KEEP'
@@ -314,6 +317,11 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
             latent, latent_mean = draw.tolist(), mean.detach().tolist()
             proposal = decode_placement(cfg, env, draw.numpy(), decode_key)
             target, fallback = proposal.matrix, proposal.coverage_fallback
+            if observe_proposal and sim is not None:
+                target.setflags(write=False)
+                if not timing_policy(env, sim, demand, previous, period, x, target):
+                    action, target, fallback = 'KEEP', None, None
+                    latent = latent_mean = None
             if d_audit is not None and period == 2:
                 d_audit['anchor'] = (env, demand.copy(), decode_key, base, extra_signal, mean.detach())
         elif intervene and control.focal_latent is not None:
@@ -341,8 +349,10 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
             switch = sim.redeploy(target)
         if log_work:
             opening = [(r.outstanding(), r.submitted) for r in sim.resources]
-        arrivals = env.w.arrivals(start, end,
-                                  np.random.default_rng(stable_seed('EXP019', traffic_seed, split, scene, i, 'traffic')))
+        arrival_key = stable_seed('EXP019', traffic_seed, split, scene, i, 'traffic')
+        if control.arrival_innovation is not None:
+            arrival_key = stable_seed(arrival_key, control.arrival_innovation)
+        arrivals = env.w.arrivals(start, end, np.random.default_rng(arrival_key))
         first = len(sim.requests)
         sim.add_arrivals(arrivals)
         if profile:

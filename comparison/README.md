@@ -70,3 +70,5 @@ $env:OPENBLAS_NUM_THREADS='1'; $env:OMP_NUM_THREADS='1'; $env:MKL_NUM_THREADS='1
 | 共享协议、汇总及 best 对比图 | `comparison/runs/comprised_exp1.protocol.json`、`comparison/runs/comprised_exp1.review.json`、`comparison/runs/comprised_exp1.holdout.profile.png` |
 
 种子目录包含 `manifest.json`、`train.jsonl`、`fixed.jsonl`、`updates.jsonl`、架构专属的 `holdout.*.json`、`train.raw.png`，以及 `best.pt`、`last.pt`、`resume_latest.pt`。新环境检查点绑定实验协议，旧环境权重不能直接用于续训或评价。根目录的 Git 忽略规则保留本地运行结果，备份源码和说明。
+
+正式运行完成后，`python -m comparison.plot_means` 从已有逐 GS 训练记录和独立评估汇总生成 `comparison/runs/comprised_exp1.training.mean5.png` 和 `comparison/runs/comprised_exp1.holdout.mean5.png`。训练图同时保留完整原始五种子均值和 128 GS 滚动趋势；四场景图比较两种架构各自的 best。

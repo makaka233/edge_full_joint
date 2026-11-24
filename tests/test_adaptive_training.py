@@ -14,6 +14,8 @@ import numpy as np
 import torch
 
 from edge_d._engine.edge_rl.model import Arrival
+from edge_d._engine.edge_rl.physics import STransition
+from edge_d._engine.edge_rl.replay import SReplay
 from edge_d.placement import decode
 from edge_d.world import make_world
 from edge_joint import adaptive_cli
@@ -44,6 +46,62 @@ class ContinuousDeploymentTests(unittest.TestCase):
         self.assertLessEqual(weights.max(),10.)
         _,weights=laber_selection(np.zeros(4),4,rng)
         np.testing.assert_array_equal(weights,np.ones(4))
+
+    def test_watkins_target_masks_cuts_and_terminates(self):
+        s=SchedulingAgent(20261113)
+        gamma=s.c.gamma_s
+        middle=np.array([[1,8],[4,5],[80,90]],dtype=np.float32)
+        end=np.array([[2,11],[99,88],[1,7]],dtype=np.float32)
+        m1=np.array([True,True,False]); m2=np.array([True,False,True])
+        def transition(action,reward,nx,mask,done=False,stage=0,step=1,window=0):
+            return STransition(middle,m1,action,reward,nx,mask,done,False,0,step,0,stage,window)
+        first=transition(0,1.,middle,m1)
+        continued=transition(1,2.,end,m2,stage=1,step=2,window=1)
+        exploratory=replace(continued,action=0)
+        terminal=replace(continued,terminated=True)
+        index=SReplay(4,2,index_successors=True)
+        index.add([first])
+        self.assertEqual(index.successors([first]),[None])
+        index.add([continued,replace(continued,collection_step=9,window_index=0)])
+        self.assertIs(index.successors([first])[0],continued)
+        index.prune(5)
+        self.assertEqual(index.successors([first]),[None])
+
+        parameter=next(s.online.parameters())[0,0]
+        def q(x,target=False):
+            return x[:,:,1 if target else 0]+(parameter-parameter.detach())
+        with patch.object(s,'team_q',side_effect=q), patch(
+                'edge_d._engine.edge_rl.agents.F.smooth_l1_loss',wraps=torch.nn.functional.smooth_l1_loss) as loss:
+            result=s.update([first]*4,successors=[continued,exploratory,terminal,None])
+        expected=[1+gamma*(2+gamma*11),1+gamma*5,1+gamma*2,1+gamma*5]
+        torch.testing.assert_close(loss.call_args.args[1],torch.tensor(expected))
+        self.assertEqual(result['s_successor_share'],.75)
+        self.assertEqual(result['s_two_step_share'],.5)
+
+    def test_watkins_resume_reconstructs_successors(self):
+        from scripts.exp042_run import WatkinsConfig
+
+        cfg=WatkinsConfig(seed=20261115,macro_mode='redeploy',periods=2,period_seconds=2.,
+                          eval_every=1,s_batch=4,s_update_timing='period',s_resource_q_prior=True,
+                          s_two_step_watkins=True)
+        with tempfile.TemporaryDirectory() as directory, redirect_stdout(StringIO()):
+            a,b=(RunFiles(Path(directory)/name) for name in ('continuous','resumed'))
+            train(cfg,a,2)
+            train(cfg,b,1)
+            train(cfg,b,2,resume=True)
+            check=('reward_raw','active_matrix','s_boundary','trace_sha256')
+            rows=[list(map(json.loads,(out/'train.jsonl').read_text(encoding='utf-8').splitlines())) for out in (a,b)]
+            self.assertEqual(*[[[r[k] for k in check] for r in source] for source in rows])
+            self.assertTrue(any(r['s_boundary']['s_two_step_share']>0 for r in rows[0]))
+            left,right=[torch.load(out/'resume_latest.pt',weights_only=True,map_location='cpu') for out in (a,b)]
+            for name in ('d','s','d_optimizer','replay'):
+                torch.testing.assert_close(left[name],right[name],atol=0.,rtol=0.)
+            l_rng,r_rng=(state['rng'] for state in (left,right))
+            torch.testing.assert_close(l_rng['torch'],r_rng['torch'],atol=0.,rtol=0.)
+            torch.testing.assert_close(l_rng['numpy'][1],r_rng['numpy'][1],atol=0.,rtol=0.)
+            self.assertEqual(l_rng['numpy'][0],r_rng['numpy'][0])
+            self.assertEqual(l_rng['numpy'][2:],r_rng['numpy'][2:])
+            self.assertEqual(l_rng['python'],r_rng['python'])
 
     def test_laber_resume_preserves_actual_training(self):
         from scripts.exp040_run import ReplayConfig

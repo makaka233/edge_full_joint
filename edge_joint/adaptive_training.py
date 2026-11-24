@@ -70,7 +70,12 @@ class PeriodUpdates:
         used = self.budget if len(self.replay) >= self.cfg.s_batch else 0
         self.budget -= used
         factor = getattr(self.cfg, 's_laber_pool_factor', 1)
-        if factor == 1:
+        if getattr(self.cfg, 's_two_step_watkins', False):
+            batch_metrics = []
+            for _ in range(used):
+                batch = self.replay.sample(self.cfg.s_batch, gs, self.rng)
+                batch_metrics.append(self.s.update(batch, successors=self.replay.successors(batch)))
+        elif factor == 1:
             batch_metrics = [self.s.update(self.replay.sample(self.cfg.s_batch, gs, self.rng)) for _ in range(used)]
         else:
             batch_metrics = [self.s.update(self.replay.sample(factor*self.cfg.s_batch, gs, self.rng),
@@ -80,7 +85,7 @@ class PeriodUpdates:
         if used:
             self.s.version += 1
         extra = {key:float(np.mean([m[key] for m in batch_metrics])) for key in batch_metrics[0]
-                 if key not in ('s_loss','s_grad_norm')} if batch_metrics and factor!=1 else {}
+                 if key not in ('s_loss','s_grad_norm')} if batch_metrics else {}
         return dict(completed_transitions=len(fresh), cross_period_transitions=cross_period,
                     optimizer_steps=used, optimizer_steps_total=self.s.updates, deferred_steps=self.budget,
                     replay_size=len(self.replay), next_policy_version=self.s.version,

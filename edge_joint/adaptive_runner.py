@@ -74,6 +74,9 @@ def train(cfg, out, target, *, resume=False, init=None, world_factory=make_world
     pool_factor=getattr(cfg,'s_laber_pool_factor',1)
     if pool_factor!=1 and (pool_factor<2 or cfg.s_update_timing!='period' or not getattr(cfg,'s_resource_q_prior',False)):
         raise ValueError('Large-batch replay requires the resource-prior DDQN with period updates')
+    if getattr(cfg,'s_two_step_watkins',False) and (
+            cfg.s_update_timing!='period' or pool_factor!=1 or not getattr(cfg,'s_resource_q_prior',False)):
+        raise ValueError('Two-step DDQN requires resource-prior scheduling with uniform period replay')
     if cfg.d_load_conditioned_credit and not cfg.d_advantage_calibration:
         raise ValueError('Load-conditioned credit extends the EXP029 calibration')
     if cfg.d_advantage_calibration and (cfg.freeze_ds or cfg.macro_mode != 'redeploy' or not cfg.d_diagnostics):

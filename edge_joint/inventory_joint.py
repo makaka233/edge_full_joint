@@ -66,7 +66,9 @@ def initialize(cfg):
     torch.manual_seed(_identity(cfg,'train','initial',0))
     d = PlacementPolicy()
     s = scheduler_for(cfg)
-    return d,s,torch.optim.Adam(d.parameters(),lr=cfg.d_lr),SReplay(cfg.replay_capacity,cfg.replay_age)
+    replay = SReplay(cfg.replay_capacity, cfg.replay_age,
+                     index_successors=getattr(cfg, 's_two_step_watkins', False))
+    return d,s,torch.optim.Adam(d.parameters(),lr=cfg.d_lr),replay
 
 
 def scheduler_for(cfg):
@@ -236,6 +238,7 @@ def restore_replay(replay,state):
         for values in zip(*(arrays[k] for k in fields),strict=True):
             replay.data.append(STransition(*values))
     replay.position = state['position']
+    replay.rebuild_successors()
 
 
 def save(path,cfg,d,s,optimizer,replay,gs,totals,best,offsets):

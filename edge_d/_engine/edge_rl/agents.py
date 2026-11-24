@@ -11,8 +11,12 @@ def soft_target(reward, discount, terminated, value):
     return reward+discount*(~terminated).float()*value
 
 
+def greedy_actions(online, mask):
+    return online.masked_fill(~mask, -1e9).argmax(-1)
+
+
 def double_dqn_value(online, target, mask):
-    action = online.masked_fill(~mask, -1e9).argmax(-1)
+    action = greedy_actions(online, mask)
     return target.gather(1, action[:,None]).squeeze(1)
 
 
@@ -150,10 +154,12 @@ class SchedulingAgent:
                 out[i]=t.reward+self.c.gamma_s*((1-w)*next_value+w*float(out[i+1]))
         return out
 
-    def update(self,batch,fresh=None,fresh_targets=None,*,laber_rng=None,laber_size=None):
+    def update(self,batch,fresh=None,fresh_targets=None,*,laber_rng=None,laber_size=None,successors=None):
         if not batch: return {}
         if laber_rng is not None and (fresh is not None or laber_size is None):
             raise ValueError('Large-batch replay requires an ordinary replay pool and a minibatch size')
+        if successors is not None and (len(successors)!=len(batch) or fresh is not None or laber_rng is not None):
+            raise ValueError('Two-step DDQN requires one successor slot per ordinary replay item')
         nf=len(fresh) if fresh is not None else 0
         if nf:batch=list(batch)+list(fresh)
         def tensor(values,dtype=torch.float32): return torch.as_tensor(np.asarray(values),dtype=dtype,device=self.device)
@@ -161,11 +167,28 @@ class SchedulingAgent:
         nm=tensor([t.next_mask for t in batch],torch.bool)
         action=tensor([t.action for t in batch],torch.long)
         reward=tensor([t.reward for t in batch]); terminal=tensor([t.terminated for t in batch],torch.bool)
-        with torch.no_grad():
-            value=double_dqn_value(self.team_q(nx),self.team_q(nx,True),nm)
-            target=soft_target(reward,torch.full_like(reward,self.c.gamma_s),terminal,value)
-            if nf:target[-nf:]=tensor(fresh_targets)
         diagnostics={}
+        with torch.no_grad():
+            greedy=greedy_actions(self.team_q(nx),nm)
+            value=self.team_q(nx,True).gather(1,greedy[:,None]).squeeze(1)
+            gamma=self.c.gamma_s
+            target=soft_target(reward,torch.full_like(reward,gamma),terminal,value)
+            if successors is not None:
+                # A non-greedy behavior action cuts the Watkins trace at s(t+1).
+                available=sum(t is not None for t in successors)
+                selected=[(i,t) for i,(t,a) in enumerate(zip(successors,greedy.tolist(),strict=True))
+                          if t is not None and not batch[i].terminated and t.action==a]
+                diagnostics.update(s_successor_share=available/len(batch),s_two_step_share=len(selected)/len(batch))
+                if selected:
+                    indices, following=zip(*selected)
+                    idx=tensor(indices,torch.long)
+                    endpoint=tensor([t.next_obs for t in following])
+                    mask=tensor([t.next_mask for t in following],torch.bool)
+                    second=tensor([t.reward for t in following])
+                    ended=tensor([t.terminated for t in following],torch.bool)
+                    continuation=double_dqn_value(self.team_q(endpoint),self.team_q(endpoint,True),mask)
+                    target[idx]=reward[idx]+gamma*soft_target(second,torch.full_like(second,gamma),ended,continuation)
+            if nf:target[-nf:]=tensor(fresh_targets)
         if laber_rng is None:
             q=self.team_q(x).gather(1,action[:,None]).squeeze(1)
             loss=F.smooth_l1_loss(q,target)

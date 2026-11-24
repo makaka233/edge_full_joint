@@ -15,14 +15,32 @@ def laber_selection(gradient_proxy, size, rng):
 
 
 class SReplay:
-    def __init__(self, capacity, max_age):
+    def __init__(self, capacity, max_age, *, index_successors=False):
         self.capacity, self.max_age = capacity, max_age
         self.data, self.position = [], 0
+        self.by_stage = {} if index_successors else None
+
+    @staticmethod
+    def stage_key(t, offset=0):
+        # Both clocks mark dispatch, even when completion crosses a GS boundary.
+        return t.collection_step-t.window_index, t.request_id, t.stage_index+offset
+
+    def rebuild_successors(self):
+        if self.by_stage is not None:
+            self.by_stage = {self.stage_key(t): t for t in self.data}
+
+    def successors(self, batch):
+        return [None if t.terminated else self.by_stage.get(self.stage_key(t, 1)) for t in batch]
 
     def add(self, transitions):
         for transition in transitions:
             if len(self.data) < self.capacity: self.data.append(transition)
-            else: self.data[self.position] = transition
+            else:
+                if self.by_stage is not None:
+                    del self.by_stage[self.stage_key(self.data[self.position])]
+                self.data[self.position] = transition
+            if self.by_stage is not None:
+                self.by_stage[self.stage_key(transition)] = transition
             self.position = (self.position+1) % self.capacity
 
     def prune(self, step):
@@ -30,6 +48,7 @@ class SReplay:
         ordered=(self.data[self.position:]+self.data[:self.position]) if len(self.data)==self.capacity else self.data
         self.data = [t for t in ordered if step-t.collection_step <= self.max_age]
         self.position = len(self.data) % self.capacity
+        self.rebuild_successors()
 
     def __len__(self): return len(self.data)
     def sample(self, batch_size, step, rng):

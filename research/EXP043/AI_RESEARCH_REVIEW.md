@@ -28,10 +28,20 @@ $env:OPENBLAS_NUM_THREADS='1'; $env:OMP_NUM_THREADS='1'; $env:MKL_NUM_THREADS='1
 
 交付前只做 2 GS 小对照。启用记录前后的请求、原始 Reward、完整矩阵、完成时延及优化账本一致，各完成一次 D 与 16 次 S 更新。新增资源账本通过守恒核验，GS0 快照含真实随机权重、空优化器历史和 RNG。该烟测与正式随机种子结果使用不同文件前缀。
 
+### 从已完成的 GS504 恢复独立评价
+
+首次正式运行完成了五种子训练。冻结评估覆盖了调度回调，导致训练用派发直方图未收到记录，原守恒检查因此报错。修复将冻结评估的派发统计接到实际执行节点，并分别核对逐期决策与含排空期的决策总数。训练 Checkpoint、物理、选节点逻辑与预登记协议保持原样。直接执行以下命令从独立阶段继续，成功后生成正式结论。
+
+```powershell
+$env:OPENBLAS_NUM_THREADS='1'; $env:OMP_NUM_THREADS='1'; $env:MKL_NUM_THREADS='1'
+python -m scripts.exp043_run --stage evaluate --workers 5
+if ($LASTEXITCODE -eq 0) { python -m scripts.exp043_run --stage report }
+```
+
 ## 实测结果
 
 <!-- EXP043_RESULTS_START -->
 
-等待用户执行正式 504 GS 与独立评价。尚无实测收敛结论。
+五个种子的正式训练已完成。待独立评价与报告阶段结束后生成收敛结论。
 
 <!-- EXP043_RESULTS_END -->

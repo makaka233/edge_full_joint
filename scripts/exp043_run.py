@@ -110,6 +110,27 @@ def case_path(seed,case):
     return ROOT/f'independent.{case["profile"]}.{case["ordinal"]}.seed{seed}.json'
 
 
+class DispatchDecisions(Decisions):
+    """Count the actions that actually pass through the frozen policy override."""
+
+    def __init__(self,agent,policy):
+        super().__init__(agent,None,policy,collect=False)
+        self.period_counts=[]
+        self.dispatches=[]
+
+    def boundary(self,env,sim,period,phase):
+        if phase=='start':
+            self.dispatches=[0]*env.N
+        else:
+            # Freeze the period histogram before the final episode drain.
+            self.period_counts.append(self.dispatches.copy())
+
+    def action(self,sim,request,obs,mask):
+        node=super().action(sim,request,obs,mask)
+        self.dispatches[node]+=1
+        return node
+
+
 @torch.inference_mode()
 def evaluate_one(plan,seed,case):
     torch.set_num_threads(1)
@@ -128,7 +149,7 @@ def evaluate_one(plan,seed,case):
         d,s,_,_,gate,_=components(cfg)
         state=models['initial' if arm.startswith('gs0') else 'last']
         load_model(state,d,s,gate)
-        observer=Decisions(s,None,'prior' if arm.endswith('prior') else 'full',collect=False)
+        observer=DispatchDecisions(s,'prior' if arm.endswith('prior') else 'full')
         def simulator(*args,**kwargs):
             sim=ProbeSimulator(*args,**kwargs)
             sim.audit=observer
@@ -136,7 +157,12 @@ def evaluate_one(plan,seed,case):
         env=world(case['environment'],case['scene'],'holdout',profile=profile)
         control=RolloutControl(environment_seed=case['environment'],loads=tuple(case['loads']),epsilon=0.,sample_d=False)
         rows=episode(cfg,env,d,s,gate,case['scene'],'holdout',state['episode'],control=control,
-                     simulator_factory=simulator)[0]
+                     simulator_factory=simulator,boundary=observer.boundary)[0]
+        # ProbeSimulator.ready replaces the scheduler wrapped by episode's training counter.
+        for row,counts in zip(rows,observer.period_counts,strict=True):
+            row['s_dispatch_counts']=counts
+        if observer.count!=sum(r['s_decisions']+r.get('drain_decisions',0) for r in rows):
+            raise AssertionError('Frozen policy decision count differs from the episode including drain')
         verify_periods(env,rows)
         verify_work(rows)
         if cells:
@@ -152,8 +178,10 @@ def evaluate_one(plan,seed,case):
 def verify_work(rows):
     worst=0.
     for row in rows:
-        if sum(row['s_dispatch_counts'])!=row['s_decisions']:
-            raise AssertionError('Dispatch histogram differs from physical decision count')
+        recorded=sum(row['s_dispatch_counts'])
+        if recorded!=row['s_decisions']:
+            raise AssertionError(f"Scene {row['scene']} period {row['period']}: "
+                                 f"dispatch histogram {recorded} != physical decisions {row['s_decisions']}")
         for kind in ('cpu','wired','wireless'):
             for r in row[kind]:
                 error=abs(r['work_at_start']+r['work_injected']-r['work_served']-r['work_pending'])

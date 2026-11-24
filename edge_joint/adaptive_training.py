@@ -253,6 +253,9 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
         backlog = sim.active_requests if sim is not None else 0
         carried = sum(r.pending is not None for r in sim.requests) if sim is not None else 0
         epsilon = max(.05, .25 - .20 * (gs - 1) / (cfg.epsilon_steps - 1)) if online and not cfg.freeze_ds else 0.
+        log_cold_start = hasattr(cfg, 's_uniform_before_first_update')
+        if collect and getattr(cfg, 's_uniform_before_first_update', False) and s.updates == 0:
+            epsilon = 1.
         intervene = control.focal_period in (None, period)
         if intervene and control.epsilon is not None:
             epsilon = control.epsilon
@@ -267,6 +270,15 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
                                             legal=np.flatnonzero(mask).tolist(), explores=explores))
                 return action
             scheduler = traced
+        if log_cold_start:
+            dispatch_counts = [0] * env.N
+
+            def counted(obs, mask, base=scheduler, counts=dispatch_counts):
+                action = base(obs, mask)
+                counts[action] += 1
+                return action
+
+            scheduler = counted
         decode_key = stable_seed('EXP019', decoder_seed, split, scene, i, 'decode')
         if profile:
             decode_tick = time.perf_counter()
@@ -347,6 +359,8 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
                          wireless=resources[-len(sim.wireless):], conservation_error=error,
                          capacity_error=cap_error, events=sim.events-events, s_decisions=sim.decisions-decisions,
                          wall_seconds=time.perf_counter()-period_tick, **switch))
+        if log_cold_start:
+            rows[-1].update(s_updates_at_decision=s.updates, s_dispatch_counts=dispatch_counts.copy())
         if observation is not None:
             rows[-1]['placement_observation'] = observation
         if d_audit is not None:

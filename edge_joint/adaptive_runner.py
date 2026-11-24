@@ -87,7 +87,7 @@ def train(cfg, out, target, *, resume=False, init=None, world_factory=make_world
     resume_path = out / 'resume_latest.pt'
     if resume:
         state = read_checkpoint(resume_path)
-        if Config(**state['config']) != cfg or state.get('environment_id') != environment_id:
+        if type(cfg)(**state['config']) != cfg or state.get('environment_id') != environment_id:
             raise ValueError('Resume requires the same seed, training configuration and environment')
         if target < state['episode']:
             raise ValueError('--episodes is an absolute target and precedes the current checkpoint')

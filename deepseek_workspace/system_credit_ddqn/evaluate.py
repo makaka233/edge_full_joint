@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import hashlib
 from pathlib import Path
 
 import torch
@@ -58,6 +59,42 @@ def rollout(cfg, d, s, gate, case, world_factory, index):
     return rows
 
 
+def traced_rollout(cfg, d, s, gate, case, world_factory, index):
+    original = s.scheduler
+    actions = []
+
+    def scheduler(rng, epsilon=0.0):
+        selected = original(rng, epsilon)
+
+        def select(obs, mask):
+            action = int(selected(obs, mask))
+            actions.append(action)
+            return action
+
+        return select
+
+    s.scheduler = scheduler
+    try:
+        rows = rollout(cfg, d, s, gate, case, world_factory, index)
+    finally:
+        s.scheduler = original
+    payload = ",".join(map(str, actions)).encode("ascii")
+    return rows, actions, hashlib.sha256(payload).hexdigest()
+
+
+def action_relation(left, right):
+    common = min(len(left), len(right))
+    first = next((index for index in range(common) if left[index] != right[index]), None)
+    if first is None and len(left) != len(right):
+        first = common
+    return {
+        "left_count": len(left),
+        "right_count": len(right),
+        "first_divergence": first,
+        "common_prefix": common if first is None else first,
+    }
+
+
 def evaluate_seed(
     *,
     seed,
@@ -81,7 +118,7 @@ def evaluate_seed(
         cells = {}
         reference_flow = None
         for arm, (d, s, gate, state) in loaded.items():
-            rows = rollout(
+            rows, actions, action_sha = traced_rollout(
                 cfg_by_arm[arm],
                 d,
                 s,
@@ -95,14 +132,20 @@ def evaluate_seed(
                 reference_flow = flow
             elif flow != reference_flow:
                 raise AssertionError(f"Paired exogenous flow differs for {arm}")
-            cells[arm] = dict(rows=rows, metric=summarize(rows), episode=int(state["episode"]))
+            cells[arm] = dict(
+                rows=rows,
+                metric=summarize(rows),
+                episode=int(state["episode"]),
+                actions=actions,
+                action_sha256=action_sha,
+            )
 
         d, s, gate, state = loaded["system"]
         with torch.no_grad():
             saved = {key: value.detach().clone() for key, value in s.online.state_dict().items()}
             for parameter in s.online.parameters():
                 parameter.zero_()
-            prior_rows = rollout(
+            prior_rows, prior_actions, prior_sha = traced_rollout(
                 cfg_by_arm["system"],
                 d,
                 s,
@@ -121,8 +164,21 @@ def evaluate_seed(
             rows=prior_rows,
             metric=summarize(prior_rows),
             episode=int(state["episode"]),
+            actions=prior_actions,
+            action_sha256=prior_sha,
         )
-        result["cases"][f"{case['profile']}.{case['scene']}"] = dict(case=case, cells=cells)
+        relations = {
+            "system_vs_prior": action_relation(cells["system"]["actions"], cells["prior_only"]["actions"]),
+        }
+        if "local_period" in cells:
+            relations["system_vs_local_period"] = action_relation(
+                cells["system"]["actions"], cells["local_period"]["actions"]
+            )
+        result["cases"][f"{case['profile']}.{case['scene']}"] = dict(
+            case=case,
+            cells=cells,
+            action_relations=relations,
+        )
     atomic(out, lambda file: file.write(line(result)))
     return result
 
@@ -144,6 +200,7 @@ def compare(run):
                              "censored", "terminal", "dropped")
             },
         }
+        value["action_relations"] = case["action_relations"]
         for arm in ("local_period", "local_episode"):
             if arm in cells:
                 local = cells[arm]["metric"]

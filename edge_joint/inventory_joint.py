@@ -76,7 +76,7 @@ def scheduler_for(cfg):
     if hasattr(cfg,'exploration_arm'):
         from edge_joint.exploration import EarlyExplorer
         return EarlyExplorer(cfg.seed,cfg.exploration_arm)
-    return SchedulingAgent(cfg.seed)
+    return SchedulingAgent(cfg.seed,resource_q_prior=getattr(cfg,'s_resource_q_prior',False))
 
 
 def parameters(module):

@@ -37,19 +37,44 @@ def observation_dim(c):
     else:base=16 if getattr(c,'s_next_context',False) else 12
     return base+4*c.k if getattr(c,'s_structured_context',False) else base
 
+
+def resource_advantage(obs, latency_ref):
+    """Negative causal resource time, centered over the legal nodes in the 24-feature state."""
+    cpu_rate = obs[..., 0] * 20
+    own_work = obs[..., 8] * 2
+    service_time = own_work / cpu_rate.clamp_min(torch.finfo(obs.dtype).eps)
+    cpu_queue, cpu_inflight, route_queue = torch.expm1(obs[..., 16:19]).unbind(-1)
+    solo_wire = obs[..., 5]
+    time = service_time + cpu_queue + cpu_inflight + route_queue + solo_wire
+    proxy = torch.log1p(time / latency_ref)
+    legal = obs[..., 7] > .5
+    center = (proxy * legal).sum(-1, keepdim=True) / legal.sum(-1, keepdim=True).clamp_min(1)
+    return (center - proxy).masked_fill(~legal, 0.)
+
+
 class SchedulingAgent(OriginalSchedulingAgent):
     """Uses original online/target/optimizer/update/local-auxiliary/structured-Q code.
 
     Only constructor and optional action accounting are adapted to clean CLI.
     """
-    def __init__(self,seed=0,features=None,hidden=64,lr=.0003,gamma=.99,tau=.01):
+    def __init__(self,seed=0,features=None,hidden=64,lr=.0003,gamma=.99,tau=.01,*,resource_q_prior=False):
         self.config=original_s_config(seed,hidden,lr,gamma,tau)
         self.features=observation_dim(self.config)
+        self.resource_q_prior=resource_q_prior
+        if resource_q_prior and (self.features!=24 or not getattr(self.config,'s_competition_context',False)
+                                 or getattr(self.config,'s_resource_credit',False)):
+            raise ValueError('Resource Q requires the original 24-feature stage-delay DDQN')
         if features is not None and int(features)!=self.features:
             raise ValueError(f'S feature dimension mismatch: expected {self.features}, configured {features}')
         torch.manual_seed(int(seed)+941)
         super().__init__(self.config)
         self.actions=0
+
+    def team_q(self,x,target=False):
+        value=super().team_q(x,target)
+        if self.resource_q_prior:
+            value=value+resource_advantage(x,self.config.latency_ref_seconds)
+        return value
 
     def act(self,obs,mask,rng,epsilon=0.):
         return self.scheduler(rng,epsilon)(obs,mask)

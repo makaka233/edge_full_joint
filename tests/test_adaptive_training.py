@@ -21,11 +21,46 @@ from edge_joint.adaptive_training import Config, components, credit_targets
 from edge_joint.adaptive_physics import PeriodSimulator, capacity_ok, solo_delay_bounds
 from edge_joint.adaptive_runner import evaluate, train
 from edge_joint.adaptive_storage import RunFiles
+from edge_s.agent import SchedulingAgent, resource_advantage
 
 
 class ContinuousDeploymentTests(unittest.TestCase):
     def setUp(self):
         torch.set_num_threads(1)
+
+    def test_centered_resource_advantage_uses_current_legal_resource_time(self):
+        obs=torch.zeros((2,4,24))
+        obs[0,:,0]=.5
+        obs[0,:,8]=1.
+        obs[0,:3,7]=1
+        obs[0,1,17]=torch.log1p(torch.tensor(1.))
+        obs[0,2,18]=torch.log1p(torch.tensor(.5))
+        advantage=resource_advantage(obs,1.)
+        self.assertTrue(torch.isfinite(advantage).all())
+        self.assertGreater(advantage[0,0],advantage[0,2])
+        self.assertGreater(advantage[0,2],advantage[0,1])
+        torch.testing.assert_close(advantage[0].sum(),torch.tensor(0.))
+        self.assertEqual(advantage[0,3].item(),0.)
+        self.assertFalse(advantage[1].any())
+        obs[0,1:3,7]=0
+        self.assertFalse(resource_advantage(obs,1.).any())
+
+    def test_resource_prior_preserves_random_weights_and_enters_both_q_functions(self):
+        baseline=SchedulingAgent(20261116)
+        candidate=SchedulingAgent(20261116,resource_q_prior=True)
+        for left,right in zip(baseline.online.parameters(),candidate.online.parameters(),strict=True):
+            torch.testing.assert_close(left,right,rtol=0.,atol=0.)
+        obs=torch.zeros((1,32,24))
+        obs[...,0]=.5
+        obs[...,8]=1.
+        obs[0,1:3,7]=1.
+        obs[0,2,16]=2.
+        expected=resource_advantage(obs,candidate.config.latency_ref_seconds)
+        for target in (False,True):
+            torch.testing.assert_close(candidate.team_q(obs,target)-baseline.team_q(obs,target),expected)
+        mask=obs[0,:,7].bool().numpy()
+        select=candidate.scheduler(np.random.default_rng(17),epsilon=1.)
+        self.assertEqual({select(obs[0].numpy(),mask) for _ in range(100)},{1,2})
 
     def test_cross_period_transition_retains_dispatch_version_and_bootstrap(self):
         env = make_world(20261114, 0)

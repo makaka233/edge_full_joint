@@ -100,8 +100,12 @@ def replay_statistics(state,s,env,pressure):
                 terminal=int(replay['terminated'].sum()))
 
 
+def supported_decision(r):
+    return len(r['legal']) in (2,3)
+
+
 def choose(events,start):
-    eligible=sorted((r for r in events.values() if start<=r['time']<start+12),
+    eligible=sorted((r for r in events.values() if start<=r['time']<start+12 and supported_decision(r)),
                     key=lambda r:(r['time'],tuple(r['key'])))
     def pressure(r):
         cap=np.asarray(r['cpu_cap'])
@@ -222,7 +226,8 @@ def report(plan):
     totals={}
     fig,axes=plt.subplots(1,3,figsize=(12,3.6),layout='constrained')
     for profile in ('natural','sustained070'):
-        samples=[r for c in data if c['case']['profile']==profile for r in c['labeled']]
+        samples=[r for c in data if c['case']['profile']==profile for r in c['labeled']
+                 if supported_decision(r['decision'])]
         totals[profile]={}
         for name in POLICIES:
             rows=[r['comparisons'][name] for r in samples]
@@ -238,7 +243,9 @@ def report(plan):
     axes[0].legend()
     fig.savefig(ROOT/'audit.ranking.png',dpi=160)
     plt.close(fig)
-    atomic(ROOT/'audit.summary.json',lambda f:f.write(line(dict(protocol=fingerprint(plan),ranking=totals,
+    excluded=[dict(case=c['case'],key=r['decision']['key'],legal=r['decision']['legal'])
+              for c in data for r in c['labeled'] if not supported_decision(r['decision'])]
+    atomic(ROOT/'audit.summary.json',lambda f:f.write(line(dict(protocol=fingerprint(plan),ranking=totals,excluded=excluded,
                 replays={str(c['case']['seed']):c['replay'] for c in data if c['replay'] is not None}))))
     print(json.dumps(totals),flush=True)
 

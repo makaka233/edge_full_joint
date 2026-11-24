@@ -18,12 +18,13 @@ from edge_joint.adaptive_runner import read_checkpoint, source, train
 from edge_joint.adaptive_storage import RunFiles, atomic, line, run_lock
 from edge_joint.adaptive_training import RolloutControl, components, episode, load_model
 from scripts.exp027_run import WorkLedger, fingerprint, verify_periods
+from scripts.exp027_cases import stage_work
 from scripts.exp029_report import summarize
 from scripts.exp029_run import digest
 from scripts.exp037_run import ResourceQConfig, cfg_for, paired, workload
 from scripts.exp038_run import outputs as original_files
 from scripts.exp039_run import Decisions, ProbeSimulator
-from scripts.exp040_audit import ROOT, SEEDS
+from scripts.exp040_audit import ROOT, SEEDS, supported_decision
 
 
 TARGET = 8
@@ -141,20 +142,22 @@ def holdout_path(seed,case):
 
 
 @torch.inference_mode()
-def evaluate_one(plan,seed,case):
+def evaluate_one(plan,seed,case,incident=False):
     torch.set_num_threads(1)
     paths={'original':original_files(seed)/'resume_latest.pt','laber':candidate_files(seed)/'last.pt'}
     hashes={k:digest(v) for k,v in paths.items()}
     if hashes['original']!=plan['baseline'][str(seed)]:
         raise ValueError('EXP040 archived original model changed')
     stamp=fingerprint(dict(protocol=fingerprint(plan),case=case,seed=seed,weights=hashes))
-    file=holdout_path(seed,case)
+    original_result=holdout_path(seed,case)
+    file=ROOT/f'incident.{original_result.name}' if incident else original_result
     if file.exists():
         if json.loads(file.read_bytes())['stamp']!=stamp:
             raise ValueError(f'Stale EXP040 independent result {file}')
         return f'{file.name} reused'
     cells={}
-    for arm in ARMS:
+    archived=json.loads(original_result.read_bytes()) if incident else None
+    for arm in (ARMS[1:] if incident else ARMS):
         learned='original' if arm=='original' else 'laber'
         cfg=settings(plan,seed,arm)
         state=read_checkpoint(paths[learned])
@@ -164,22 +167,30 @@ def evaluate_one(plan,seed,case):
         load_model(state,d,s,gate)
         env=world(case['environment'],case['scene'],'holdout',profile=workload(plan['parent']))
         ledger=WorkLedger()
-        inspection=Decisions(s,None,'prior' if arm=='prior_only' else 'full',collect=False)
+        inspection=Decisions(s,None,'prior' if arm=='prior_only' else 'full',collect=incident)
         def simulator(*args,**kwargs):
             sim=ProbeSimulator(*args,**kwargs)
             sim.audit=inspection
             return sim
-        control=RolloutControl(environment_seed=case['environment'],loads=tuple(case['loads']),epsilon=0.,sample_d=False)
+        control=RolloutControl(environment_seed=case['environment'],loads=tuple(case['loads']),epsilon=0.,
+                               sample_d=False,trace_requests=incident)
         rows=episode(replace(cfg,periods=EVAL_PERIODS,freeze_ds=True),env,d,s,gate,case['scene'],'holdout',
                      TARGET,control=control,simulator_factory=simulator,boundary=ledger)[0]
         verify_periods(env,rows)
         if cells:
-            paired(cells['original']['rows'],rows)
+            paired(next(iter(cells.values()))['rows'],rows)
         if arm=='prior_only' and any(x['active_matrix']!=y['active_matrix']
                                      for x,y in zip(cells['laber']['rows'],rows,strict=True)):
             raise AssertionError('Prior-only should share the trained candidate D matrices')
         cells[arm]=dict(rows=rows,work=ledger.work,metric=summarize(rows),flips=inspection.disagreement_count,
                         decisions=inspection.count)
+        if incident:
+            fields=('reward_raw','cpu','wired','censored','active_matrix','trace_sha256')
+            if any(x[k]!=y[k] for x,y in zip(rows,archived['cells'][arm]['rows'],strict=True) for k in fields):
+                raise AssertionError('EXP040 traced incident did not reproduce the archived physical result')
+            cells[arm].update(stage_work=[stage_work(ledger.sim,env,p,cfg.period_seconds)
+                                          for p in range(1,EVAL_PERIODS+1)],
+                              node9_flips=[r for r in inspection.flips if 9 in (r['full_node'],r['prior_node'])])
     atomic(file,lambda f:f.write(line(dict(stamp=stamp,case=case,seed=seed,cells=cells,source=source()))))
     return f'{file.name} evaluated'
 
@@ -192,6 +203,8 @@ def rank_candidates(plan):
         _,s,_,_,_,_=components(settings(plan,seed,'laber'))
         s.online.load_state_dict(read_checkpoint(candidate_files(seed)/'last.pt')['s_online'])
         for r in data['labeled']:
+            if not supported_decision(r['decision']):
+                continue
             x=torch.tensor(r['decision']['obs'],dtype=torch.float32).unsqueeze(0)
             scores=s.team_q(x)[0,r['decision']['legal']].tolist()
             rewards=[a['reward'] for a in r['actions']]
@@ -251,7 +264,7 @@ def report(plan):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--workers',type=int,default=3)
-    parser.add_argument('--stage',choices=('register','train','evaluate','report','all'),default='all')
+    parser.add_argument('--stage',choices=('register','train','evaluate','report','incident','all'),default='all')
     args=parser.parse_args()
     if args.workers<1:
         parser.error('--workers must be positive')
@@ -267,6 +280,9 @@ def main():
             jobs(evaluate_one,list(product((plan,),SEEDS,plan['cases'])),args.workers)
         if args.stage in ('all','report'):
             report(plan)
+        if args.stage=='incident':
+            case=next(c for c in plan['cases'] if c['profile']=='sustained070')
+            print(evaluate_one(plan,20261115,case,incident=True),flush=True)
 
 
 if __name__=='__main__':

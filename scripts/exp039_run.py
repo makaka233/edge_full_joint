@@ -9,6 +9,8 @@ from itertools import islice
 import json
 from pathlib import Path
 from shutil import copyfileobj
+from statistics import mean, median
+from time import perf_counter
 
 import numpy as np
 import torch
@@ -146,6 +148,8 @@ class Decisions:
         self.events,self.flips={},[]
         self.count=0
         self.old_flips=0
+        self.exploration=None
+        self.random_actions=0
 
     @torch.no_grad()
     def action(self,sim,r,obs,mask):
@@ -158,6 +162,11 @@ class Decisions:
         p=legal[int(np.argmax(prior[legal]))]
         q=legal[int(np.argmax(total[legal]))]
         chosen=q if self.policy=='full' else p
+        if self.exploration is not None:
+            rng,epsilon=self.exploration
+            if rng.random()<epsilon:
+                chosen=int(rng.choice(np.flatnonzero(mask)))
+                self.random_actions+=1
         self.count+=1
         forced=self.forced is not None and tuple(self.forced['key'])==key
         if forced:
@@ -269,7 +278,7 @@ def reconstruct(plan,spec,gs32):
     return captured
 
 
-def frozen(captured,p,count,policy,forced=None):
+def frozen(captured,p,count,policy,forced=None,archived_epsilon=False):
     env,sim=fork(*captured['state'])
     # A native training fork still carries the learner's dispatch tags. Frozen
     # events must not look up those tags after replay collection has been disabled.
@@ -279,12 +288,22 @@ def frozen(captured,p,count,policy,forced=None):
     if loads:
         loads[p-1]=None   # The saved boundary already incorporates this period's demand setting.
     ctl=RolloutControl(environment_seed=captured['env_seed'],epsilon=0.,trace_requests=True,loads=tuple(loads))
-    sim.audit=Decisions(captured['agent'],captured['s16'],policy,forced,collect=forced is None)
+    sim.audit=Decisions(captured['agent'],captured['s16'],policy,forced,collect=forced is None and not archived_epsilon)
     ledger=WorkLedger(p)
     expected=captured['reference']
     matrices=[None]*(p-1)+[unpack(env,r['active_matrix']) for r in expected[p-1:p+count-1]]
+
+    def boundary(env,sim,period,phase):
+        ledger(env,sim,period,phase)
+        if archived_epsilon and phase=='start':
+            key=stable_seed('EXP019',captured['env_seed'],captured['split'],captured['scene'],period-1,'schedule')
+            sim.audit.exploration=np.random.default_rng(key),expected[period-1]['epsilon']
+
     rows=episode(cfg,env,captured['d'],captured['agent'],captured['gate'],captured['scene'],captured['split'],
-                 captured['index'],control=ctl,continuation=(p-1,sim),recorded_matrices=matrices,boundary=ledger)[0]
+                 captured['index'],control=ctl,continuation=(p-1,sim),recorded_matrices=matrices,boundary=boundary)[0]
+    if archived_epsilon:
+        for row in rows:
+            row['epsilon']=expected[row['period']-1]['epsilon']
     verify_periods(env,rows)
     if ledger.boundary_hash!=fingerprint(captured['snapshot']['physical']) or flow(rows)!=flow(expected[p-1:p+count-1]):
         raise AssertionError('Counterfactual did not use the common state and exact exogenous arrivals')
@@ -360,6 +379,7 @@ def replay_audit(captured):
 
 
 def run_one(plan,spec):
+    started=perf_counter()
     torch.set_num_threads(1)
     path=ROOT/f'{spec["name"]}.json'
     if path.exists():
@@ -388,13 +408,83 @@ def run_one(plan,spec):
     probes=[probe(captured,p,plan,branches['full'],row) for row in selected]
     atomic(path,lambda f:f.write(line(dict(protocol=fingerprint(plan),spec=spec,source=source(),
                 proof=captured['snapshot'],verified_native_rows=len(captured['replayed']),
-                agent_updates=captured['agent'].updates,cells=results,probes=probes,replay=replay_audit(captured)))))
+                agent_updates=captured['agent'].updates,cells=results,probes=probes,replay=replay_audit(captured),
+                wall_seconds=perf_counter()-started))))
     return f'EXP039 {path.name} exact prefix and {len(probes)} one-action probes'
+
+
+def historical_exploration(plan):
+    """Supplementary attribution of the gap between native and greedy GS38."""
+    torch.set_num_threads(1)
+    output=ROOT/'gs38.exploration.json'
+    if output.exists():
+        if json.loads(output.read_bytes())['protocol']!=fingerprint(plan):
+            raise ValueError('Stale EXP039 exploration evidence')
+        return
+    spec=next(case for case in plan['cases'] if case['name']=='gs38')
+    captured=reconstruct(plan,spec,replay_to_gs32(plan))
+    cells={}
+    fields=('active_matrix','trace_sha256','cpu','wired','wireless','events','s_decisions','backlog_in','backlog_out')
+    for arm in ('full','prior'):
+        sim,rows,work=frozen(captured,spec['period'],plan['main_periods'],arm,archived_epsilon=True)
+        if arm=='full' and any(rows[0][key]!=captured['reference'][spec['period']-1][key] for key in fields):
+            raise AssertionError('The frozen full policy did not reproduce GS38 before the next S update')
+        cells[arm]=dict(rows=rows,work=work,requests=request_rows(sim),random_actions=sim.audit.random_actions,
+                        stage_work=stage_work(sim,sim.env,spec['period'],captured['cfg'].period_seconds))
+    atomic(output,lambda f:f.write(line(dict(protocol=fingerprint(plan),source=source(),cells=cells))))
+
+
+def report(plan):
+    import matplotlib
+    matplotlib.use('Agg')
+    from matplotlib import pyplot as plt
+    plt.rcParams.update({'font.sans-serif':['Microsoft YaHei','SimHei','DejaVu Sans'],
+                         'axes.unicode_minus':False})
+    aggregates={}
+    archive_hash=fingerprint(plan)
+    for spec in plan['cases']:
+        path=ROOT/f'{spec["name"]}.json'
+        data=json.loads(path.read_bytes())
+        if data['protocol']!=archive_hash:
+            raise ValueError(f'Wrong EXP039 evidence: {path}')
+        arms={}
+        for arm,cell in data['cells'].items():
+            flips=cell['flips']
+            arms[arm]=dict(metric=cell['metric'], decisions=cell['decisions'], flips=len(flips),
+                           gs16_flips=cell['gs16_flip_count'],
+                           leading_q_gap_median=median(x['top_gap'] for x in flips),
+                           prior_gap_mean=mean(x['prior_gap'] for x in flips),
+                           residual_gain_mean=mean(x['residual_gain'] for x in flips))
+        probes=data['probes']
+        targets=[(p['focal_q_credit']['target']-p['alternate_q_credit']['target'],p['cohort_reward_delta'])
+                 for p in probes if p['focal_q_credit'] is not None and p['alternate_q_credit'] is not None]
+        eps=1e-8
+        aggregates[spec['name']]=dict(spec=spec,source=data['source'],
+               comparable_prefix=data['verified_native_rows'],opening_sha256=fingerprint(data['proof']),
+               updates=data['agent_updates'],inflight=len(data['proof']['physical']['active']),arms=arms,
+               probed=len(probes),probed_harm=sum(p['cohort_reward_delta']< -eps for p in probes),
+               probed_benefit=sum(p['cohort_reward_delta']>eps for p in probes),
+               probed_other_delay_harm=sum(p['other_delay_sum_delta']>eps for p in probes),
+               probed_own_better_and_other_worse=sum(p['own_delay_delta']< -eps and p['other_delay_sum_delta']>eps for p in probes),
+               target_pairs=len(targets),probed_target_prefers_harm=sum(td>eps and r< -eps for td,r in targets),
+               replay=data['replay']['size'],wall_seconds=data.get('wall_seconds'))
+        fig,axes=plt.subplots(1,3,figsize=(10.5,3.2),layout='constrained')
+        for ax,(key,title) in zip(axes,(('reward_raw','原始 Reward'),
+                                      ('e2e_completed','完成 E2E（秒）'),('p99','惩罚后 P99（秒）')),strict=True):
+            for arm,label,color in (('full','完整 Q','#b2182b'),('prior','仅先验','#2166ac')):
+                rows=data['cells'][arm]['rows']
+                ax.plot([r['period'] for r in rows],[r[key] for r in rows],marker='o',label=label,color=color)
+            ax.set(xticks=[r['period'] for r in rows],xlabel='原业务期',title=title)
+            ax.grid(alpha=.25)
+        axes[0].legend()
+        fig.savefig(ROOT/f'{spec["name"]}.raw.png',dpi=150)
+        plt.close(fig)
+    atomic(ROOT/'summary.json',lambda f:f.write(line(dict(protocol=archive_hash,cases=aggregates))))
 
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--stage',choices=('register','audit'),default='audit')
+    parser.add_argument('--stage',choices=('register','audit','historical-exploration','report'),default='audit')
     parser.add_argument('--workers',type=int,default=3)
     args=parser.parse_args()
     if args.workers<1:
@@ -403,6 +493,10 @@ def main():
         plan=register()['plan']
         if args.stage=='audit':
             jobs(run_one,[(plan,spec) for spec in plan['cases']],min(args.workers,len(plan['cases'])))
+        if args.stage=='historical-exploration':
+            historical_exploration(plan)
+        if args.stage=='report':
+            report(plan)
 
 
 if __name__=='__main__':

@@ -72,3 +72,13 @@ $env:OPENBLAS_NUM_THREADS='1'; $env:OMP_NUM_THREADS='1'; $env:MKL_NUM_THREADS='1
 种子目录包含 `manifest.json`、`train.jsonl`、`fixed.jsonl`、`updates.jsonl`、架构专属的 `holdout.*.json`、`train.raw.png`，以及 `best.pt`、`last.pt`、`resume_latest.pt`。新环境检查点绑定实验协议，旧环境权重不能直接用于续训或评价。根目录的 Git 忽略规则保留本地运行结果，备份源码和说明。
 
 正式运行完成后，`python -m comparison.plot_means` 从已有逐 GS 训练记录和独立评估汇总生成 `comparison/runs/comprised_exp1.training.mean5.png` 和 `comparison/runs/comprised_exp1.holdout.mean5.png`。训练图同时保留完整原始五种子均值和 128 GS 滚动趋势；四场景图比较两种架构各自的 best。
+
+### 四张单因素平均任务时延图
+
+原 `comprised_exp1` 只评估算量与载荷四格。下面的命令沿用这十个 best，补做上面 A–D 四个物理轴的同流冻结评估，自动输出四张独立图。每张图只显示该变量与平均完成任务时延。自然点用测得的平均提供负载表示；阶段间数据倍率以 v2 消息目录为 1×。CPU、带宽、阶段间载荷轴沿用自然请求流，负载轴按目标情景同步调整两个架构的外生请求。同一命令可以继续未完成评估。
+
+```powershell
+$env:OPENBLAS_NUM_THREADS='1'; $env:OMP_NUM_THREADS='1'; $env:MKL_NUM_THREADS='1'; python -m comparison.latency_sweep --workers 3
+```
+
+图输出为 `comparison/runs/comprised_exp1.latency.{load,cpu,wired,intermediate}.png`；独立结果保存在原架构/种子目录下的 `latency.*.json`。评估全部完成后，仅重新绘图使用 `python -m comparison.latency_sweep --report-only`。

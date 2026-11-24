@@ -217,12 +217,18 @@ def load_projection(plan,arm,seed,label):
 
 @torch.inference_mode()
 def rollout(cfg,d,s,gate,arm,case,future,index,*,profile=None):
+    load_profile=()
+    if profile is not None and case[0]=='load' and case[1] is not None:
+        # Only the explicit load sweep overrides the matched reference arrival intensity.
+        load_profile=(case[1],)*cfg.periods
+        case=('load',None)
     env=world(future['environment'],future['scene'],'holdout',mono=arm==mono.ARCHITECTURE,
               scenario=case,profile=profile)
     factory=MeasuredMonolithicSimulator if arm==mono.ARCHITECTURE else MeasuredMultistageSimulator
     ledger=WorkLedger()
     rows,_,_=episode(cfg,env,d,s,gate,future['scene'],'holdout',index,
-                     control=RolloutControl(environment_seed=future['environment'],epsilon=0.,sample_d=False),
+                     control=RolloutControl(environment_seed=future['environment'],epsilon=0.,sample_d=False,
+                                            loads=load_profile),
                      simulator_factory=factory,boundary=ledger)
     verify_periods(env,rows)
     sim=ledger.sim

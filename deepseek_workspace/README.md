@@ -38,3 +38,6 @@
 
 DeepSeek 对 EXP039 的完整接手、证据汇总和研究判断见
 [`DEEPSEEK_HANDOVER.md`](DEEPSEEK_HANDOVER.md)。
+
+系统级时延信用 DDQN 原型位于
+[`system_credit_ddqn/`](system_credit_ddqn/)，包括独立代码、测试、结果和交接。

@@ -1,0 +1,37 @@
+{
+  "experiment": "DEEPSEEK_SYSTEM_CREDIT_DDQN",
+  "owner": "DeepSeek",
+  "branch": "deepseek-workspace",
+  "source_basis": {
+    "exp038_commit": "c765d26f7facf407503ca1bc1fccee589640687f",
+    "exp039_commit": "6953236577fc1e8cca6be6ec2870ff164b7d75c9",
+    "handoff_commit": "92c289a"
+  },
+  "physics": {
+    "cpu_allocator": "finish_pf",
+    "wired": "sqrt KKT",
+    "wireless": "equal share",
+    "reward_unchanged": true,
+    "deployment_model": "instantaneous REDEPLOY"
+  },
+  "credit": {
+    "definition": "penalized cohort residence time",
+    "delay_weight": 10.0,
+    "deadline_penalty_seconds": 10.0,
+    "normalization": "per-cohort arrival denominator",
+    "transition_order": "global Agent-S decision order",
+    "discount": "gamma_S ** elapsed_seconds",
+    "gamma_S_per_second": 0.99
+  },
+  "training": {
+    "seeds": [20261113, 20261115, 20261117],
+    "screening_gs": 16,
+    "maximum_gs": 64,
+    "auto_advance_to_512": false
+  },
+  "evaluation": {
+    "profiles": ["natural", "burst", "sustained055", "sustained070"],
+    "trajectories_per_profile": 2,
+    "periods": 24
+  }
+}

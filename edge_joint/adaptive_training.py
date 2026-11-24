@@ -181,11 +181,13 @@ def request_metrics(requests, deadline, penalty):
 def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_matrices=None,
             control=RolloutControl(), period_updates=None, d_audit=None,
             simulator_factory=PeriodSimulator, boundary=None, profile=False,
-            initial_deployment=None, continuation=None):
+            initial_deployment=None, continuation=None, timing_policy=None):
     """Run all business periods on one event queue."""
     started = time.perf_counter()
     online = split == 'train'
     collect = online and not cfg.freeze_ds and recorded_matrices is None
+    if timing_policy is not None and (not cfg.freeze_ds or recorded_matrices is not None):
+        raise ValueError('External timing decisions require frozen D/S and no recorded matrices')
     if period_updates is not None and not collect:
         raise ValueError('Incremental DDQN needs a collecting online episode')
     mode = cfg.macro_mode if mode is None else mode
@@ -255,6 +257,8 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
             action = 'BOOTSTRAP'
         elif recorded_matrices is not None:
             action = 'KEEP' if target is None else 'REDEPLOY'
+        elif timing_policy is not None:
+            action = 'REDEPLOY' if timing_policy(env, sim, demand, previous, period, x) else 'KEEP'
         else:
             choose = rng.random() < p if online else p >= .5
             action = 'REDEPLOY' if choose else 'KEEP'
@@ -362,7 +366,7 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
                 offset += 1
         rows.append(dict(seed=cfg.seed, episode=index, period=period, gs=gs, scene=scene, split=split, mode=mode,
                          start=start, end=end, epsilon=epsilon, s_policy_version=s.version,
-                         action=action, redeploy_probability=p if recorded_matrices is None and action != 'BOOTSTRAP'
+                         action=action, redeploy_probability=p if recorded_matrices is None and timing_policy is None and action != 'BOOTSTRAP'
                          else None,
                          macro_state=x.tolist(), gate_logp=float(gate_logp.detach()) if gate_logp is not None else None,
                          d_logp=float(d_logp.detach()) if d_logp is not None else None,

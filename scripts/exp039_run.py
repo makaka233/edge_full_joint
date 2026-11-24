@@ -271,6 +271,9 @@ def reconstruct(plan,spec,gs32):
 
 def frozen(captured,p,count,policy,forced=None):
     env,sim=fork(*captured['state'])
+    # A native training fork still carries the learner's dispatch tags. Frozen
+    # events must not look up those tags after replay collection has been disabled.
+    sim.dispatch_tags=None
     cfg=replace(captured['cfg'],periods=p+count-1,freeze_ds=True)
     loads=list(captured['loads'][:cfg.periods])
     if loads:

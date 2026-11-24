@@ -139,7 +139,8 @@ def same_data(plan,settings,evidence):
                 out[arm]=dict(diagnostics=numeric(body,body_target,result_samples),initial_q=initial,
                               probes_q=probes_q,gradient=stats([m['gradient'] for m in metrics]),
                               clipped=sum(m['gradient']>5 for m in metrics),
-                              td_update=stats([m['td_mae'] for m in metrics]),
+                              td_update=stats([m['td_mae'] for m in metrics]),updates=metrics,
+                              validation_q=evaluate_states(net,[r['timing'] for r in data['validation'][-1][1:]]),
                               state_response_span=float(np.ptp([q[1]-q[0] for q in probes_q])) if probes_q else None)
         outcomes[str(seed)]=dict(arms=out,probes=points)
     return outcomes

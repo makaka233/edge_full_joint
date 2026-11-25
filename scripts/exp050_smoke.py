@@ -75,11 +75,13 @@ def ledger_smoke(gamma):
                 arm.online.load_state_dict(ckpt['online'])
                 arm.target.load_state_dict(ckpt['target'])
                 arm.collect([dict(row,owner=arm.identity) for row in replay])
-            control.improve()
+            baseline = control.improve()
             updates = candidate.improve()
             trained_horizons = [sum(r['target_horizons'][i] for r in updates) for i in range(3)]
             assert trained_horizons[2] > 0
-            assert not equivalent(control.online.state_dict(),candidate.online.state_dict())
+            assert not equivalent(ckpt['online'],candidate.online.state_dict())
+            # Targets can differ while saturated Huber gradients have equal sign.
+            assert any(a['loss'] != b['loss'] for a,b in zip(baseline,updates,strict=True))
     return trained_horizons
 
 

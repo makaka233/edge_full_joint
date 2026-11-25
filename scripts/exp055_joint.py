@@ -82,16 +82,21 @@ def projection_matches(a,b):
 
 
 @torch.inference_mode()
-def evaluate_one(base,plan,seed,variant,profile,smoke=False):
+def evaluate_seed(base,plan,seed,cases,smoke=False):
     torch.set_num_threads(1)
     out = output(seed,smoke)
-    with run_lock(out):
-        models = {k:read_checkpoint(out/f'{k}.pt') for k in ('last','best')}
-        cfg = config(base,seed)
-        for m in models.values():
-            if m['origin']!={'kind':'random'} or m['environment_id']!=fingerprint(plan) or m['config']!=asdict(cfg):
-                raise ValueError('Unexpected D/S evaluation checkpoint')
-        stamps = {k:digest(out/f'{k}.pt') for k in models}
+    cfg = config(base,seed)
+    with run_lock(RunFiles(out/'evaluation')):
+        with run_lock(out):
+            models = {k:read_checkpoint(out/f'{k}.pt') for k in ('last','best')}
+            for m in models.values():
+                if m['origin']!={'kind':'random'} or m['environment_id']!=fingerprint(plan) or m['config']!=asdict(cfg):
+                    raise ValueError('Unexpected D/S evaluation checkpoint')
+            stamps = {k:digest(out/f'{k}.pt') for k in models}
+        return '\n'.join(evaluate_case(base,plan,seed,v,p,out,cfg,models,stamps) for v,p in cases)
+
+
+def evaluate_case(base,plan,seed,variant,profile,out,cfg,models,stamps):
     p = models['last']['episode']
     path = out/f'eval.{variant}.{profile}.episode{p}.json'
     key = stable_seed(KEY,seed,profile,'scene')
@@ -159,8 +164,7 @@ def smoke(base,plan):
     for i in range(0,len(rows),periods):
         env = world(seed,rows[i]['scene'],'train',profile=workload(base['workload']))
         errors.append(audit_rows(env,rows[i:i+periods]))
-    for v in VARIANTS:
-        print(evaluate_one(base,plan,seed,v,'natural',True),flush=True)
+    print(evaluate_seed(base,plan,seed,product(VARIANTS,('natural',)),True),flush=True)
     weight_files = sorted(p.name for p in ROOT.glob(f'{out.prefix.name}.*.pt'))
     if len(weight_files)!=3:
         raise ValueError('Only best, last and resume_latest weights are allowed')
@@ -188,8 +192,9 @@ def main():
     if args.stage=='train':
         jobs(train_one,[(base,plan,s,args.episodes) for s in seeds],min(args.workers,len(seeds)))
     else:
-        tasks = [(base,plan,s,v,p) for s,v,p in product(seeds,VARIANTS,SCENES)]
-        jobs(evaluate_one,tasks,min(args.workers,len(tasks)))
+        cases = tuple(product(VARIANTS,SCENES))
+        tasks = [(base,plan,s,cases) for s in seeds]
+        jobs(evaluate_seed,tasks,min(args.workers,len(tasks)))
 
 
 if __name__=='__main__':

@@ -6,12 +6,18 @@ from time import perf_counter
 import numpy as np
 
 from comparison.report import records
+from comparison.run import world
+from edge_d.physical import hasharr
+from edge_d.world import stable_seed
 from edge_joint.adaptive_runner import source
+from edge_joint.inventory_joint import load_scale
 from scripts.exp027_run import fingerprint
 from scripts.exp029_report import summarize
+from scripts.exp037_run import workload
 from scripts.exp044_run import write
 from scripts.exp047_report import plt, save
 from scripts.exp047_run import read
+from scripts.exp055_joint import inputs
 from scripts.exp056_report import deltas, summarize as summarize_arms
 from scripts.exp057_run import CASES, CONTROLS, FOCUS, ROOT, SEEDS
 
@@ -20,7 +26,34 @@ ARMS = 'ABCD'
 EFFECTS = ('B-A','C-A','D-C','D-B','interaction')
 
 
+def service_means(base,plan,record):
+    """Recover service marks for the exact historical requests, with no new physical rollout."""
+    meta = record['meta']
+    env = world(meta['population'],meta['scene'],'holdout',profile=workload(base['workload']),
+                demand_overrides=plan['persistence'] if record['variant']=='persistent' else None)
+    totals = np.zeros((4,len(env.c.services)))
+    counts = np.zeros(len(env.c.services),dtype=int)
+    streams = [record['arms'][a]['rows'] for a in ARMS]
+    for i,rows in enumerate(zip(*streams,strict=True)):
+        r = rows[0]
+        if i==3 and record['profile']=='pulse':
+            env.w.scale *= .65/load_scale(env)
+        key = stable_seed('EXP019',meta['population'],'holdout',meta['scene'],i,'traffic')
+        arrivals = env.w.arrivals(r['start'],r['end'],np.random.default_rng(key))
+        if hasharr(arrivals)!=r['trace_sha256']:
+            raise ValueError('Service-mark reconstruction differs from recorded requests')
+        labels = [a.service for a in arrivals]
+        counts += np.bincount(labels,minlength=len(counts))
+        for j,d in enumerate(rows):
+            totals[j] += np.bincount(labels,weights=d['penalized_delays'],minlength=len(counts))
+        env.w.advance()
+        env.w.t = r['end']
+    return {str(s):dict(n=int(n),**{a:float(totals[i,s]/n) for i,a in enumerate(ARMS)})
+            for s,n in enumerate(counts) if n}
+
+
 def historical_rows(protocol):
+    base,plan = inputs()
     result = []
     for s in SEEDS:
         for v,c in CASES:
@@ -38,6 +71,7 @@ def historical_rows(protocol):
                                    events=sum(x['events'] for x in d['rows']))
             result.append(dict(seed=s,variant=v,profile=c,arms=arms,delta=r['effects'],
                                layout_match=r['layout_match'],resource=resource,
+                               service_penalized_e2e=service_means(base,plan,r),
                                wall_seconds=r['wall_seconds'],source=r['source']))
     return result
 
@@ -82,7 +116,7 @@ def historic_plots(rows):
 def resource_plot(rank):
     if not rank:
         return
-    fig,axes = plt.subplots(len(rank),3,figsize=(13,3*len(rank)),layout='constrained',squeeze=False)
+    fig,axes = plt.subplots(len(rank),5,figsize=(19,3*len(rank)),layout='constrained',squeeze=False)
     for row,case in zip(axes,rank,strict=True):
         events = case['events']
         x = np.arange(len(events))
@@ -92,12 +126,20 @@ def resource_plot(rank):
         row[0].set(ylabel='Legal top-two gap',title=f"Seed {case['seed']%100} · {case['variant']} {case['profile']}")
         old_rank = [r['ranks'][1].index(r['top'][2])+1 for r in events]
         row[1].scatter(x,old_rank,s=5,label='S1008 choice in S504 rank')
-        row[1].scatter(x,[r['late_prior_loss'] for r in events],s=5,label='Prior score sacrificed')
         row[1].legend(fontsize=7)
         row[2].plot(x,[r['late_vs_early_queue'] for r in events],lw=.65,label='CPU queue')
         row[2].plot(x,[r['late_vs_early_route'] for r in events],lw=.65,label='Wired backlog proxy')
         row[2].legend(fontsize=7)
         row[2].set_ylabel('S1008 minus S504 (s)')
+        indices = [(r['legal'].index(r['top'][1]),r['legal'].index(r['top'][2])) for r in events]
+        for k,label in (('prior','Prior'),('residual1008','S1008 residual')):
+            row[3].plot(x,[r[k][n]-r[k][o] for r,(o,n) in zip(events,indices,strict=True)],lw=.65,label=label)
+        row[3].set_ylabel('S1008 choice minus S504 choice')
+        row[3].legend(fontsize=7)
+        for j,label in ((1,'S504 node'),(2,'S1008 node')):
+            row[4].scatter(x,[r['top'][j] for r in events],s=6,label=label)
+        row[4].legend(fontsize=7)
+        row[4].set_ylabel('Selected node')
         for ax in row:
             ax.set_xlabel('Registered common-state sample')
     save(ROOT,fig,4,'common-state-ranking')

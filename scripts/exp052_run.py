@@ -32,6 +32,7 @@ GAMMA = .99
 PRIMARY = .03
 SENSITIVITY = (.01,.03,.05,.10)
 SAMPLE_KEY = 'EXP052-registered-sample-v1'
+REGISTERED_RUN_CODE = '8b397560bc7f042beac99644ed519cc60cf780f2a8448e59612f588fbc42e102'
 
 
 def directory(number):
@@ -151,14 +152,14 @@ def branch_ledger(base, scene, ds, opening, factual, action):
     for h in HORIZONS:
         part = rows[:h]
         value = sum(GAMMA**i*r['reward_raw'] for i,r in enumerate(part))
-        raw[h] = value
-        aligned[h] = value-past/GAMMA
+        raw[str(h)] = value
+        aligned[str(h)] = value-past/GAMMA
         previous = past
         delayed = 0.
         for i,r in enumerate(part):
             delayed -= GAMMA**i*(r['holding_cost']+r['switch_cost']+previous/GAMMA)
             previous = weight*(r['e2e_penalized'] or 0.)
-        if abs(delayed-aligned[h]-GAMMA**(h-1)*previous)>1e-9:
+        if abs(delayed-aligned[str(h)]-GAMMA**(h-1)*previous)>1e-9:
             raise ValueError('Delayed credit and original raw episode Reward do not reconcile')
     metrics = physical_metrics(rows[:6])
     metrics.pop('terminal')  # six-slot prefix has a live successor
@@ -228,7 +229,7 @@ def run_point(pick,registered,design,base):
     if factual['action']=='REDEPLOY' and factual['active_matrix']!=b[0]['active_matrix']:
         raise ValueError('Frozen decoder does not match the original deployed proposal')
     net = score_state(registered,seed,factual['timing']['state'])
-    delta = {k:{h:branches['redeploy'][k][h]-branches['keep'][k][h] for h in HORIZONS}
+    delta = {k:{h:branches['redeploy'][k][str(h)]-branches['keep'][k][str(h)] for h in HORIZONS}
              for k in ('raw','aligned')}
     write(out,dict(stamp=stamp,pick=pick,opening_sha256=initial,demand_rng_sha256=exogenous,snapshot=snapshot,
                    state=factual['timing']['state'],frozen_q=net,branches=branches,delta=delta,
@@ -261,16 +262,20 @@ def main():
         if path.exists():
             saved = read(path)
             if saved['plan']!=proposed:
-                prior = dict(proposed,samples=proposed['samples'][:-1],code=saved['plan']['code'])
-                if saved['plan']!=prior or any(ROOT.glob('fork.*.json')):
-                    raise ValueError('EXP052 protocol or source ledgers changed since registration')
-                # The preregistration addendum retains all original draws. It can
-                # only be adopted before any branch outcome has been generated.
-                archive = ROOT/'protocol.initial.json'
-                if archive.exists() and read(archive)!=saved:
-                    raise ValueError('Original registration provenance differs')
-                write(archive,saved)
-                write(path,dict(plan=proposed,source=source()))
+                previous_code = dict(proposed['code'],**{'scripts/exp052_run.py':REGISTERED_RUN_CODE})
+                if saved['plan']==dict(proposed,code=previous_code):
+                    # Preserve registered stamps for the JSON key decoding fix.
+                    proposed = saved['plan']
+                else:
+                    prior = dict(proposed,samples=proposed['samples'][:-1],code=saved['plan']['code'])
+                    if saved['plan']!=prior or any(ROOT.glob('fork.*.json')):
+                        raise ValueError('EXP052 protocol or source ledgers changed since registration')
+                    # The preregistration addendum retains every original draw.
+                    archive = ROOT/'protocol.initial.json'
+                    if archive.exists() and read(archive)!=saved:
+                        raise ValueError('Original registration provenance differs')
+                    write(archive,saved)
+                    write(path,dict(plan=proposed,source=source()))
         else:
             write(path,dict(plan=proposed,source=source()))
         if args.stage=='register':

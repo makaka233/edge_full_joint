@@ -272,3 +272,5 @@ def report():
         rows=rows,independent=independent,events=sum(r['events'] for r in rows),
         worker_seconds=sum(r['wall_seconds'] for r in rows),report_seconds=perf_counter()-start,source=source()))
     print(ROOT/'summary.json')
+    from scripts.exp056_long_review import write_long_review
+    write_long_review()

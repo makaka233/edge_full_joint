@@ -17,7 +17,7 @@ from scripts.exp047_run import ARMS, PERIODS, UPDATES, VALIDATE, read, read_mode
 from scripts.exp049_run import HELD_STARTS, METHODS, PROBE_MARGIN, SEEDS
 
 
-def coverage(train, replay, replay_rng, seed, periods=PERIODS):
+def coverage(train, replay, replay_rng, seed, periods=PERIODS, *, by_source=False):
     by_gs = {r['gs']: r for r in train}
     rng = np.random.default_rng(stable_seed('EXP047', 'A', seed, 'replay'))
     draws = Counter()
@@ -30,20 +30,25 @@ def coverage(train, replay, replay_rng, seed, periods=PERIODS):
     for i, item in enumerate(replay):
         row = by_gs[item['gs']]
         action = 'REDEPLOY' if item['action'] else 'KEEP'
-        if item['action'] != row['timing']['action'] or item['x'] != row['timing']['state']:
+        auxiliary = 'branch' in item
+        action_matches = item['action'] == row['timing']['action']
+        if auxiliary == action_matches or item['x'] != row['timing']['state']:
             raise ValueError('Replay item differs from the actual decision ledger')
         load = 'high' if row['offered_cpu_load'] >= .65 else 'mid' if row['offered_cpu_load'] >= .45 else 'low'
         age = row['timing']['age_hours']
         age_band = 'old' if age >= 12 else 'middle' if age >= 6 else 'young'
         cpu = max(r['work_at_start'] for r in row['cpu'])
         queue = 'high' if cpu >= 25. else 'mid' if cpu >= 5. else 'low'
-        cells[load, age_band, queue, (row['period']-1) % 12+1, action, 'transitions'] += 1
-        cells[load, age_band, queue, (row['period']-1) % 12+1, action, 'draws'] += draws[i]
-    return [dict(zip(('load', 'age', 'cpu', 'phase', 'action', 'kind', 'n'), (*key, count), strict=True))
+        prefix = ('auxiliary' if auxiliary else 'main',) if by_source else ()
+        key = (*prefix, load, age_band, queue, (row['period']-1) % 12+1, action)
+        cells[(*key, 'transitions')] += 1
+        cells[(*key, 'draws')] += draws[i]
+    columns = ('source',) if by_source else ()
+    return [dict(zip((*columns, 'load', 'age', 'cpu', 'phase', 'action', 'kind', 'n'), (*key, count), strict=True))
             for key, count in sorted(cells.items())]
 
 
-def collect(root, plan):
+def collect(root, plan, *, by_source=False):
     runs = {}
     cases = {}
     for seed in SEEDS:
@@ -66,7 +71,7 @@ def collect(root, plan):
                 for row, target in zip(data['train'][(block['block']-1)*PERIODS:block['gs']], scene['loads'], strict=True):
                     if target is not None and abs(row['offered_cpu_load']-target) > 1e-9:
                         raise ValueError('Realized controlled load does not match the phase schedule')
-            data['coverage'] = coverage(data['train'], state['replay'], state['replay_rng'], seed)
+            data['coverage'] = coverage(data['train'], state['replay'], state['replay_rng'], seed, by_source=by_source)
             expected_probes = [p['id'] for p in plan['historical_probes'][number]]
             if any([p['id'] for p in data['fixed'][gs][0]['historical_q']] != expected_probes for gs in VALIDATE):
                 raise ValueError('Missing matched historical-state Q diagnostics')

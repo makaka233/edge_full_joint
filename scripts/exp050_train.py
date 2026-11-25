@@ -20,17 +20,25 @@ from scripts.exp049_run import ROOT as EXP049, SEEDS, evaluate
 from scripts.exp050_audit import ROOT
 
 
+def replay_key(row):
+    return (row['branch'], row['gs']) if 'branch' in row else row['gs']
+
+
 def replay_links(replay):
-    by_gs = {r['gs']: r for r in replay}
-    if len(by_gs) != len(replay):
+    # Auxiliary continuation nodes only supply returns. The focal transition is
+    # the only member of its branch added to the uniform-sampling population.
+    records = [node for row in replay for node in (row, *row.get('continuation', ()))]
+    by_key = {replay_key(r): r for r in records}
+    if len(by_key) != len(records):
         raise ValueError('Duplicate physical GS in Gate replay')
     links = {}
-    for gs, r in by_gs.items():
-        after = by_gs.get(gs+1)
+    for key, r in by_key.items():
+        next_key = (r['branch'], r['gs']+1) if 'branch' in r else r['gs']+1
+        after = by_key.get(next_key)
         if after is not None:
             if r['next'] != after['x'] or r['owner'] != after['owner']:
                 raise ValueError('Gate return would cross a discontinuous replay state')
-            links[gs] = after
+            links[key] = after
     return links
 
 
@@ -45,7 +53,7 @@ def three_step_targets(online, target, batch, links, gamma):
         greedy = online(next_states).argmax(1).tolist()
         increments = []
         for i, (r, action) in enumerate(zip(tips, greedy, strict=True)):
-            after = links.get(r['gs']) if lengths[i] == step else None
+            after = links.get(replay_key(r)) if lengths[i] == step else None
             if after is not None and after['action'] == action:
                 tips[i] = after
                 lengths[i] += 1

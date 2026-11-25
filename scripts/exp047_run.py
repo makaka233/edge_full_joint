@@ -172,10 +172,12 @@ class GateRun:
         restore_random(state['global_rng'])
 
 
-def physical(base, scene, model, arm, policy):
+def physical(base, scene, model, arm, policy, *, capture=(), captured=None, event_counts=None):
     proposal = arm == 'B'
-    rows, _, _, weight = rollout(base, scene, model, policy, with_proposal=proposal,
-                                  use_proposal_input=proposal, audit_policy=True)
+    rows, points, _, weight = rollout(base, scene, model, policy, capture=capture, with_proposal=proposal,
+                                  use_proposal_input=proposal, audit_policy=True, event_counts=event_counts)
+    if captured is not None:
+        captured.update(points)
     if rows[0]['action'] != 'BOOTSTRAP' or rows[0]['timing'] is not None:
         raise AssertionError('Expected a common nonlearning bootstrap deployment')
     if weight != 10. or actual_credit(rows, SETTINGS['gamma'], weight)[1] > 1e-9:
@@ -231,7 +233,8 @@ def publish_models(paths, state):
         publish(path, expected)
 
 
-def training(root, plan, base, arm, seed, target_gs, *, feature_arm=None, rng_arm=None, gate_type=GateRun):
+def training(root, plan, base, arm, seed, target_gs, *, feature_arm=None, rng_arm=None, gate_type=GateRun,
+             collect_block=None):
     torch.set_num_threads(1)
     stamp = fingerprint(plan)
     paths = run_files(root, arm, seed)
@@ -253,14 +256,15 @@ def training(root, plan, base, arm, seed, target_gs, *, feature_arm=None, rng_ar
                 return f'{paths.prefix.name} already committed GS{state["blocks"] * periods}'
             state['resumes'] += 1
         else:
+            logs = LOGS + (('aux',) if collect_block else ())
             if any((paths / suffix).exists() for suffix in
-                   ('best.pt', 'last.pt', *(name + '.jsonl' for name in LOGS))):
+                   ('best.pt', 'last.pt', *(name + '.jsonl' for name in logs))):
                 raise ValueError(f'Unowned training artifacts without recovery checkpoint: {paths.prefix}')
             torch.manual_seed(stable_seed('EXP047', rng_arm, seed, 'torch'))
             np.random.seed(stable_seed('EXP047', rng_arm, seed, 'numpy'))
             random.seed(stable_seed('EXP047', rng_arm, seed, 'python'))
             state = dict(blocks=0, best=None, last=None, gate=run.snapshot(), fixed_flow=None,
-                         offsets=dict.fromkeys(LOGS, 0), wall_seconds=0., resumes=0, source=source())
+                         offsets=dict.fromkeys(logs, 0), wall_seconds=0., resumes=0, source=source())
             publish(resume, state)
         started = perf_counter()
         with torch.random.fork_rng(devices=[]):
@@ -298,17 +302,23 @@ def training(root, plan, base, arm, seed, target_gs, *, feature_arm=None, rng_ar
         for block in range(first_block, target_gs // periods):
             epsilon = plan['epsilon'][block]
             scene = cases[str(seed)][block]
-            rows, weight = physical(base, scene, model, run.feature_arm, learned(run.online, run.policy_rng, epsilon))
+            if collect_block is None:
+                rows, weight = physical(base, scene, model, run.feature_arm, learned(run.online, run.policy_rng, epsilon))
+                aux, pairs, accounting = [], [], {}
+            else:
+                rows, weight, aux, pairs, accounting = collect_block(base, scene, model, run, block+1, epsilon)
             for row in rows:
                 row.update(gs=block*periods+row['period'], block=block+1, arm=arm, seed=seed,
                            gate_epsilon=epsilon, gate_updates_at_decision=run.updates)
             if block == 0:
                 run.fit_scaler(rows)
             new = experiences(rows, weight, run.identity)
-            run.collect(new)
+            run.collect(new+aux)
             start_update = run.updates
             updates = run.improve()
             log('train', rows)
+            if collect_block is not None:
+                log('aux', pairs)
             log('updates', (dict(item, gs=(block+1)*periods, update=start_update+i,
                                  block=block+1, arm=arm, seed=seed) for i, item in enumerate(updates, 1)))
             state['blocks'] = block+1
@@ -322,6 +332,7 @@ def training(root, plan, base, arm, seed, target_gs, *, feature_arm=None, rng_ar
                                 gate_updates=run.updates, epsilon=epsilon, resumes=state['resumes'],
                                 resumed_from_gs=first_block*periods if block == first_block and state['resumes'] else None,
                                 wall_seconds=prior_wall+perf_counter()-started, metrics=metrics,
+                                **accounting,
                                 **({'scene': scene} if 'training_by_arm' in plan else {}))])
             commit(gs)
             print(f'{plan.get("experiment", "EXP047")} {arm} seed {seed} GS{gs} updates {run.updates}', flush=True)

@@ -45,7 +45,7 @@ def training_records(root, plan, arm, seed):
     if any(r['arm'] != arm or r['seed'] != seed for records in ledgers.values() for r in records):
         raise ValueError(f'Foreign ledger row: {paths.prefix}')
     replay = resume['gate']['replay']
-    if ([r['gs'] for r in replay] != [r['gs'] for r in train if 1 < r['period'] < PERIODS] or
+    if ([r['gs'] for r in replay if 'branch' not in r] != [r['gs'] for r in train if 1 < r['period'] < PERIODS] or
             any(r['owner'] != identity for r in replay) or
             sum(r['bootstrap'] for r in blocks) != BLOCKS or
             sum(r['decisions'] for r in blocks) != BLOCKS*(PERIODS-1)):

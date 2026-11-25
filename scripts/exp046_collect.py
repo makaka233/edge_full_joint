@@ -83,7 +83,7 @@ def proposal_features(env,old,new,demand):
 
 @torch.inference_mode()
 def rollout(base,case,model,choose,*,capture=(),opening=None,innovation=None,
-            with_proposal=True,use_proposal_input=False,audit_policy=False):
+            with_proposal=True,use_proposal_input=False,audit_policy=False,event_counts=None):
     if use_proposal_input and not with_proposal:
         raise ValueError('Proposal features require a decoded proposal')
     cfg,d,s,gate=model
@@ -100,10 +100,18 @@ def rollout(base,case,model,choose,*,capture=(),opening=None,innovation=None,
     ctl=RolloutControl(environment_seed=case['environment'],epsilon=0.,sample_d=False,loads=tuple(loads),
                        arrival_innovation=innovation)
     records={}; captures={}
+    initial_events = continuation[1].events if continuation else 0
+    capture_seconds = 0.
+    final_sim = None
     def boundary(e,sim,p,phase):
-        if phase=='start' and p in capture:
+        nonlocal final_sim, capture_seconds
+        if phase=='start' and (capture(e,sim,p,ctx) if callable(capture) else p in capture):
+            tick = perf_counter()
             captures[p]=(p,fork(e,sim),deepcopy(ctx))
-        if phase=='end':ctx.close(e,sim,p)
+            capture_seconds += perf_counter()-tick
+        if phase=='end':
+            ctx.close(e,sim,p)
+            final_sim = sim
     def timing(e,sim,demand,_,p,x,target=None):
         state=ctx.observe(e,sim,demand,p,x)
         features=proposal_features(e,sim.deployment,target,demand) if target is not None else {}
@@ -120,6 +128,9 @@ def rollout(base,case,model,choose,*,capture=(),opening=None,innovation=None,
                  boundary=boundary,timing_policy=timing,continuation=continuation,observe_proposal=with_proposal,
                  profile=True)[0]
     verify_periods(env,rows); verify_work(rows)
+    if event_counts is not None:
+        event_counts['events'] = final_sim.events-initial_events
+        event_counts['capture_seconds'] = capture_seconds
     for r in rows:
         a=records.get(r['period']); r['timing']=a
         if a is None: continue

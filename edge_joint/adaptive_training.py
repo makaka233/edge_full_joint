@@ -7,7 +7,7 @@ import torch
 from torch import nn
 
 from edge_d.physical import hasharr
-from edge_d.placement import ResourceGaussianPolicy, decode
+from edge_d.placement import ResourceGaussianPolicy, StructuredPlacementPolicy, decode
 from edge_d.world import stable_seed
 from edge_joint.inventory_joint import Config as BaseConfig, initialize, load_scale, parameters
 
@@ -108,6 +108,14 @@ class Gate(nn.Module):
 
 def components(cfg):
     d, s, opt, replay = initialize(cfg)
+    if getattr(cfg,'d_actor','global')=='structured':
+        if cfg.d_observation!='original':
+            raise ValueError('Structured placement requires the original pair features')
+        with torch.random.fork_rng(devices=[]):
+            torch.manual_seed(stable_seed('EXP060',cfg.seed,'stage-initial'))
+            structured = StructuredPlacementPolicy()
+        structured.net.load_state_dict(d.net.state_dict())
+        d,opt = structured,torch.optim.Adam(structured.parameters(),lr=cfg.d_lr)
     if cfg.d_observation in ('blind', 'resource'):
         size = feature_count(s.config.n, s.config.k, 2*len(s.config.links))
         # Preserve the original random draws of the shared Actor and DDQN weights.
@@ -158,6 +166,9 @@ def matrix_hex(matrix):
 
 
 def decode_placement(cfg, env, latent, key, **kwargs):
+    if getattr(cfg,'d_actor','global')=='structured':
+        return decode(env,latent[:8],key,True,stage_controls=latent[8:].reshape(env.K,3),
+                      link_priced=cfg.d_decoder=='link-priced',**kwargs)
     return decode(env, latent, key, True, link_priced=cfg.d_decoder=='link-priced', **kwargs)
 
 
@@ -318,6 +329,7 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
         if profile:
             decode_tick = time.perf_counter()
             proposal_decode_seconds = 0.
+            physical_decoder_seconds = 0.
         if recorded_matrices is None and action in ('BOOTSTRAP', 'REDEPLOY'):
             mean = d(env) if base is None else d.mean_from_features(base, extra_signal)
             draw = mean.detach()
@@ -331,7 +343,11 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
             latent, latent_mean = draw.tolist(), mean.detach().tolist()
             if profile and observe_proposal and sim is not None:
                 proposal_tick = time.perf_counter()
+            if profile:
+                decoder_tick = time.perf_counter()
             proposal = decode_placement(cfg, env, draw.numpy(), decode_key)
+            if profile:
+                physical_decoder_seconds = time.perf_counter()-decoder_tick
             if profile and observe_proposal and sim is not None:
                 proposal_decode_seconds = time.perf_counter() - proposal_tick
             target, fallback = proposal.matrix, proposal.coverage_fallback
@@ -419,7 +435,8 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
         if observation is not None:
             rows[-1]['placement_observation'] = observation
         if d_audit is not None:
-            rows[-1]['d_observation'] = dict(base=base.tolist(), available_live=signal.tolist(),
+            logged_base = d.aggregate(base) if isinstance(d,StructuredPlacementPolicy) else base
+            rows[-1]['d_observation'] = dict(base=logged_base.tolist(), available_live=signal.tolist(),
                                             cpu_work=live.cpu_work.sum(0).tolist(), cpu_jobs=live.cpu_jobs.sum(0).tolist(),
                                             inflight_work=live.inflight_work.sum(0).tolist(), wired_work=live.wired_work.tolist())
             d_audit.setdefault('states', []).append((base, extra_signal))
@@ -427,6 +444,7 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
             rows[-1]['profile'] = dict(
                 **{name: value - physical_before[name] for name, value in sim.profile.items()},
                 placement_features_seconds=resource_seconds, placement_policy_decode_seconds=decode_seconds,
+                physical_decoder_seconds=physical_decoder_seconds,
                 stale_events=sim.stale_events - stale_before)
             if observe_proposal:
                 rows[-1]['profile']['proposal_decode_seconds'] = proposal_decode_seconds
@@ -513,6 +531,7 @@ def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, 
            d_settled_offset=None):
     learned = cfg.macro_mode == 'learned'
     d_start = parameters(d)
+    stage_start = parameters(d.stage) if isinstance(d,StructuredPlacementPolicy) else None
     gate_start = macro_parameters(gate, learned)
     value_start = parameters(gate.value)
     if period_updates is None:
@@ -552,11 +571,16 @@ def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, 
     if d_terms:
         opt.zero_grad(set_to_none=True)
         (torch.stack(d_terms).sum() / len(ledger)).backward()
+        if stage_start is not None:
+            stage_grad = torch.cat([p.grad.flatten() for p in d.stage.parameters()])
+            d_extra['d_stage_gradient'] = float(torch.linalg.vector_norm(stage_grad))
         d_grad = float(torch.nn.utils.clip_grad_norm_(d.parameters(), 5., error_if_nonfinite=True))
         if d_audit is not None:
             observed = torch.cat([p.grad.flatten() for p in d.parameters() if p.grad is not None])
             d_extra['d_gradient_after_clip'] = float(torch.linalg.vector_norm(observed))
         opt.step()
+        if stage_start is not None:
+            d_extra['d_stage_change'] = float(torch.linalg.vector_norm(parameters(d.stage)-stage_start))
         d_updates += 1
         if d_audit is not None:
             d_extra.update(audit_d_update(cfg, d, ledger, d_audit, returns, values, advantages, discounts))

@@ -19,7 +19,11 @@ class PlacementPolicy(nn.Module):
 
     @staticmethod
     def features(env):
-        pairs = pair_features(env).flatten(0, 1)
+        return PlacementPolicy.aggregate(pair_features(env))
+
+    @staticmethod
+    def aggregate(pairs):
+        pairs = pairs.flatten(0, 1)
         return torch.cat((pairs.mean(0), pairs.std(0, unbiased=False), pairs.amax(0)))
 
     def forward(self, env):
@@ -39,6 +43,25 @@ class ResourceGaussianPolicy(PlacementPolicy):
             raise ValueError('Resource Gaussian placement needs an explicit observation')
         encoded = self.net[0](base) + nn.functional.linear(live, self.resource_weight)
         return self.net[2](self.net[1](encoded))
+
+
+class StructuredPlacementPolicy(PlacementPolicy):
+    """A global Gaussian and a shared three-value head for each stage."""
+
+    def __init__(self):
+        super().__init__()
+        self.stage = nn.ModuleDict(dict(encode=nn.Linear(19,16),head=nn.Linear(32,3)))
+        nn.init.xavier_uniform_(self.stage['head'].weight,gain=.1)
+        nn.init.zeros_(self.stage['head'].bias)
+
+    features = staticmethod(pair_features)
+
+    def stage_mean(self, pairs):
+        encoded = torch.tanh(self.stage['encode'](pairs))
+        return self.stage['head'](torch.cat((encoded.mean(1),encoded.amax(1)),dim=1))
+
+    def mean_from_features(self, base, live=None):
+        return torch.cat((self.net(self.aggregate(base)),self.stage_mean(base).flatten()))
 
 
 class PeriodicPlacementPolicy(PlacementPolicy):
@@ -99,7 +122,7 @@ class Placement:
 
 
 def decode(env, latent, seed, inventory_routing=False, *, include_optional=True, ranking_bias=None, node_demand=None,
-           link_priced=False):
+           link_priced=False, stage_controls=None):
     """Map one latent sample to one matrix, without traffic simulation or retries."""
     rng = np.random.default_rng(seed)
     stages, nodes = env.K, env.N
@@ -120,6 +143,11 @@ def decode(env, latent, seed, inventory_routing=False, *, include_optional=True,
     priority = ((1. + latent[0]) * locality + (.5 + latent[1]) * speed
                 + latent[2] * node_load - (.25 + latent[3]) * footprint
                 + rng.standard_normal((stages, nodes)))
+    if stage_controls is not None:
+        if stage_controls.shape!=(stages,3) or not np.isfinite(stage_controls).all():
+            raise ValueError('Expected three finite deployment controls per stage')
+        local,cpu_preference,redundancy = np.tanh(stage_controls).T[:,:,None]
+        priority += local*locality+cpu_preference*speed
     def transport(priority, allowed):
         fit = linprog(-priority.ravel(), A_eq=stage_map, b_eq=work, A_ub=node_map,
                       b_ub=cpu*ceiling, bounds=np.column_stack((np.zeros(stages*nodes),
@@ -180,6 +208,8 @@ def decode(env, latent, seed, inventory_routing=False, *, include_optional=True,
         return Placement(matrix, fallback, global_lb, float(ceiling), reroutes)
     optional = (-3.5 + latent[4] + (.35 + latent[5]) * locality
                 + latent[6] * _standardize(work)[:, None] + rng.logistic(size=matrix.shape))
+    if stage_controls is not None:
+        optional += local*locality+redundancy
     free = env.capacity - matrix.T @ env.spec
     choices = np.flatnonzero(((optional > 0.) & eligible & ~matrix).ravel())
     priority = optional if ranking_bias is None else optional + ranking_bias(env, matrix)

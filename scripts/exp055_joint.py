@@ -81,6 +81,14 @@ def projection_matches(a,b):
     return all(torch.equal(v,b[k][n]) for k in ('d','s_online') for n,v in a[k].items())
 
 
+def evaluation_identity(plan,seed,variant,profile,stamps):
+    key = stable_seed(KEY,seed,profile,'scene')
+    pop = stable_seed(KEY,seed,profile,'population')
+    stamp = fingerprint(dict(stamps=stamps,plan=fingerprint(plan),pop=pop,scene=key,
+                             variant=variant,profile=profile))
+    return key,pop,stamp
+
+
 @torch.inference_mode()
 def evaluate_seed(base,plan,seed,cases,smoke=False):
     torch.set_num_threads(1)
@@ -99,12 +107,10 @@ def evaluate_seed(base,plan,seed,cases,smoke=False):
 def evaluate_case(base,plan,seed,variant,profile,out,cfg,models,stamps):
     p = models['last']['episode']
     path = out/f'eval.{variant}.{profile}.episode{p}.json'
-    key = stable_seed(KEY,seed,profile,'scene')
-    pop = stable_seed(KEY,seed,profile,'population')
+    key,pop,stamp = evaluation_identity(plan,seed,variant,profile,stamps)
     optimization = {stable_seed('EXP019',seed,'train-scene',i) for i in range(1,p+1)}
     if key in optimization or key in FIXED or pop==seed:
         raise ValueError('Independent evaluation stream overlaps training or fixed validation')
-    stamp = fingerprint(dict(stamps=stamps,plan=fingerprint(plan),pop=pop,scene=key,variant=variant,profile=profile))
     if path.is_file():
         if read(path)['stamp']!=stamp:
             raise ValueError(f'Independent evidence differs: {path}')
@@ -177,7 +183,7 @@ def smoke(base,plan):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('stage',choices=('train','evaluate','smoke'))
+    parser.add_argument('stage',choices=('train','evaluate','smoke','report'))
     parser.add_argument('--episodes',type=int)
     parser.add_argument('--seed',type=int,choices=SEEDS,action='append')
     parser.add_argument('--workers',type=int,default=3)
@@ -188,13 +194,20 @@ def main():
     if args.stage=='smoke':
         smoke(base,plan)
         return
+    cases = tuple(product(VARIANTS,SCENES))
+    if args.stage=='report':
+        from scripts.exp055_joint_report import write_review
+        if not write_review(plan,SEEDS,cases,output,evaluation_identity):
+            parser.exit(1)
+        return
     seeds = list(dict.fromkeys(args.seed or SEEDS))
     if args.stage=='train':
         jobs(train_one,[(base,plan,s,args.episodes) for s in seeds],min(args.workers,len(seeds)))
     else:
-        cases = tuple(product(VARIANTS,SCENES))
         tasks = [(base,plan,s,cases) for s in seeds]
         jobs(evaluate_seed,tasks,min(args.workers,len(tasks)))
+        from scripts.exp055_joint_report import write_review
+        write_review(plan,SEEDS,cases,output,evaluation_identity)
 
 
 if __name__=='__main__':

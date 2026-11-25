@@ -45,6 +45,7 @@ def math_smoke(gamma):
 
 def ledger_smoke(gamma):
     audit = read(ROOT/'audit.json')
+    trained_horizons = None
     for name,_,seed,_,_ in FOCALS:
         r = read(ROOT/f'fork.{name}.json')
         ckpt = read_model(run_files(EXP049,'A',seed)/'resume_latest.pt')['gate']
@@ -65,6 +66,21 @@ def ledger_smoke(gamma):
             values.append(float(y[0]))
         expected = audit['values'][name]['A']['288']['y_delta']['3']
         assert np.isclose(values[1]-values[0],expected,rtol=0.,atol=3e-5)
+        if name == 'shift-onset':
+            # Exercise a real extended gradient on the committed physical
+            # sequence, even if the tiny fresh rollout happens to always cut.
+            control = GateRun('A',seed,'target smoke',feature_arm='A',rng_arm='A')
+            candidate = ThreeStepGate('B',seed,'target smoke',feature_arm='A',rng_arm='A')
+            for arm in (control,candidate):
+                arm.online.load_state_dict(ckpt['online'])
+                arm.target.load_state_dict(ckpt['target'])
+                arm.collect([dict(row,owner=arm.identity) for row in replay])
+            control.improve()
+            updates = candidate.improve()
+            trained_horizons = [sum(r['target_horizons'][i] for r in updates) for i in range(3)]
+            assert trained_horizons[2] > 0
+            assert not equivalent(control.online.state_dict(),candidate.online.state_dict())
+    return trained_horizons
 
 
 def smoke():
@@ -73,7 +89,7 @@ def smoke():
     plan,base = registration()
     gamma = plan['q']['gamma']
     math_smoke(gamma)
-    ledger_smoke(gamma)
+    archived_horizons = ledger_smoke(gamma)
     seed = SEEDS[0]
     mini = deepcopy(plan)
     mini.update(experiment='EXP050 smoke',slots=4,blocks=2,fixed_at=[0])
@@ -87,8 +103,11 @@ def smoke():
         a, b = (read_model(p/'resume_latest.pt')['gate'] for p in (pa,pb))
         assert a['updates'] == b['updates'] == 48
         assert a['online']['center'].equal(b['online']['center'])
-        assert not equivalent(a['online'],b['online']) and not equivalent(a['target'],b['target'])
-        assert not equivalent(a['optimizer'],b['optimizer'])
+        fresh = GateRun('A',seed,stamp,feature_arm='A',rng_arm='A')
+        for fitted in (a,b):
+            assert not equivalent(fresh.online.body.state_dict(),
+                                  {k.removeprefix('body.'):v for k,v in fitted['online'].items() if k.startswith('body.')})
+            assert fitted['optimizer']['state']
         ra, rb = (rows_at(p/'train.jsonl') for p in (pa,pb))
         same_flow(ra,rb)
         assert ra[0]['active_matrix'] == rb[0]['active_matrix']
@@ -109,8 +128,10 @@ def smoke():
         assert 'already committed GS8' in train(root,mini,base,'B',seed,8)
         updates = rows_at(pb/'updates.jsonl')
         horizons = [sum(r['target_horizons'][i] for r in updates) for i in range(3)]
-        assert horizons[1]>0 and all(np.isfinite(r['gradient']) and np.isfinite(r['td_mae']) for r in updates)
+        assert sum(horizons) == 96*16
+        assert all(np.isfinite(r['gradient']) and np.isfinite(r['td_mae']) for r in updates)
     write(ROOT/'smoke.json',dict(source=source(),wall_seconds=perf_counter()-started,physical_slots=20,
                                 probe_target_checks=len(FOCALS),paired_initial_updates=48,resumed_updates=96,
-                                target_horizons=horizons,recovery=True,isolated_replay=True))
+                                target_horizons=horizons,archived_gradient_horizons=archived_horizons,
+                                recovery=True,isolated_replay=True))
     print(ROOT/'smoke.json')

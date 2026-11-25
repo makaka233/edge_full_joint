@@ -111,10 +111,12 @@ def run_files(root, arm, seed):
 
 
 class GateRun:
-    def __init__(self, arm, seed, stamp):
+    def __init__(self, arm, seed, stamp, *, feature_arm=None, rng_arm=None):
         self.identity = dict(arm=arm, seed=seed, stamp=stamp)
         self.arm, self.seed = arm, seed
-        n = 17 if arm == 'A' else 20
+        self.feature_arm = feature_arm or arm
+        rng_arm = rng_arm or arm
+        n = 17 if self.feature_arm == 'A' else 20
         # Couple only corresponding initial weights. The private training generators
         # and actual replay histories remain independent.
         with torch.random.fork_rng(devices=[]):
@@ -122,8 +124,8 @@ class GateRun:
             self.online = Value([0.] * n, [1.] * n)
         self.target = deepcopy(self.online).requires_grad_(False)
         self.optimizer = torch.optim.Adam(self.online.parameters(), lr=SETTINGS['lr'])
-        self.policy_rng = np.random.default_rng(stable_seed('EXP047', arm, seed, 'exploration'))
-        self.replay_rng = np.random.default_rng(stable_seed('EXP047', arm, seed, 'replay'))
+        self.policy_rng = np.random.default_rng(stable_seed('EXP047', rng_arm, seed, 'exploration'))
+        self.replay_rng = np.random.default_rng(stable_seed('EXP047', rng_arm, seed, 'replay'))
         self.replay = []
         self.scaler_fitted = False
         self.updates = 0
@@ -137,7 +139,7 @@ class GateRun:
         if self.scaler_fitted or self.updates:
             raise ValueError('The training-only scaler is already frozen')
         data = np.asarray([r['timing']['state'] for r in rows if r['timing'] is not None])
-        floor = [.05] * 17 + ([.0001] * 3 if self.arm == 'B' else [])
+        floor = [.05] * 17 + ([.0001] * 3 if self.feature_arm == 'B' else [])
         center, scale = data.mean(0), np.maximum(data.std(0), floor)
         if not np.isfinite(center).all() or not np.isfinite(scale).all():
             raise ValueError('Nonfinite training scaler')
@@ -229,47 +231,57 @@ def publish_models(paths, state):
         publish(path, expected)
 
 
-def training(root, plan, base, arm, seed, target_gs):
+def training(root, plan, base, arm, seed, target_gs, *, feature_arm=None, rng_arm=None):
     torch.set_num_threads(1)
     stamp = fingerprint(plan)
     paths = run_files(root, arm, seed)
     resume = paths / 'resume_latest.pt'
+    rng_arm = rng_arm or arm
+    periods = plan['slots']
+    if target_gs % periods or not 0 < target_gs <= periods*plan['blocks']:
+        raise ValueError('Training target must end at a registered trajectory boundary')
+    cases = plan['training_by_arm'][arm] if 'training_by_arm' in plan else plan['training']
     with run_lock(paths):
-        run = GateRun(arm, seed, stamp)
+        run = GateRun(arm, seed, stamp, feature_arm=feature_arm, rng_arm=rng_arm)
         if resume.exists():
             state = read_model(resume)
             run.restore(state['gate'])
             recover_logs(paths, state['offsets'])
             if state['last'] is not None:
                 publish_models(paths, state)
-            if state['blocks'] * PERIODS >= target_gs:
-                return f'{paths.prefix.name} already committed GS{state["blocks"] * PERIODS}'
+            if state['blocks'] * periods >= target_gs:
+                return f'{paths.prefix.name} already committed GS{state["blocks"] * periods}'
             state['resumes'] += 1
         else:
             if any((paths / suffix).exists() for suffix in
                    ('best.pt', 'last.pt', *(name + '.jsonl' for name in LOGS))):
                 raise ValueError(f'Unowned training artifacts without recovery checkpoint: {paths.prefix}')
-            torch.manual_seed(stable_seed('EXP047', arm, seed, 'torch'))
-            np.random.seed(stable_seed('EXP047', arm, seed, 'numpy'))
-            random.seed(stable_seed('EXP047', arm, seed, 'python'))
+            torch.manual_seed(stable_seed('EXP047', rng_arm, seed, 'torch'))
+            np.random.seed(stable_seed('EXP047', rng_arm, seed, 'numpy'))
+            random.seed(stable_seed('EXP047', rng_arm, seed, 'python'))
             state = dict(blocks=0, best=None, last=None, gate=run.snapshot(), fixed_flow=None,
                          offsets=dict.fromkeys(LOGS, 0), wall_seconds=0., resumes=0, source=source())
             publish(resume, state)
         started = perf_counter()
         with torch.random.fork_rng(devices=[]):
-            model = frozen(base, plan, seed, PERIODS)
+            model = frozen(base, plan, seed, periods)
         prior_wall = state['wall_seconds']
         first_block = state['blocks']
 
         def log(name, rows):
             state['offsets'][name] = append(paths / (name + '.jsonl'), rows)
 
+        @torch.inference_mode()
         def validate(gs):
-            records, _ = physical(base, plan['validation'][str(seed)], model, arm, learned(run.online))
+            records, _ = physical(base, plan['validation'][str(seed)], model, run.feature_arm, learned(run.online))
             flow = [r['trace_sha256'] for r in records]
             if state['fixed_flow'] is not None and flow != state['fixed_flow']:
                 raise AssertionError('A fixed validation trajectory changed across checkpoints')
             state['fixed_flow'] = flow
+            if 'historical_probes' in plan:
+                records[0]['historical_q'] = [
+                    dict(id=p['id'], q=run.online(torch.tensor(p['state'], dtype=torch.float32)).tolist())
+                    for p in plan['historical_probes'][str(seed)]]
             log('fixed', (dict(row, gs=gs, arm=arm, seed=seed) for row in records))
             score = physical_metrics(records)['reward']
             if state['best'] is None or score > state['best']['reward']:
@@ -283,12 +295,12 @@ def training(root, plan, base, arm, seed, target_gs):
         if state['last'] is None:
             validate(0)
             commit(0)
-        for block in range(first_block, target_gs // PERIODS):
+        for block in range(first_block, target_gs // periods):
             epsilon = plan['epsilon'][block]
-            rows, weight = physical(base, plan['training'][str(seed)][block], model, arm,
-                                    learned(run.online, run.policy_rng, epsilon))
+            scene = cases[str(seed)][block]
+            rows, weight = physical(base, scene, model, run.feature_arm, learned(run.online, run.policy_rng, epsilon))
             for row in rows:
-                row.update(gs=block*PERIODS+row['period'], block=block+1, arm=arm, seed=seed,
+                row.update(gs=block*periods+row['period'], block=block+1, arm=arm, seed=seed,
                            gate_epsilon=epsilon, gate_updates_at_decision=run.updates)
             if block == 0:
                 run.fit_scaler(rows)
@@ -297,21 +309,22 @@ def training(root, plan, base, arm, seed, target_gs):
             start_update = run.updates
             updates = run.improve()
             log('train', rows)
-            log('updates', (dict(item, gs=(block+1)*PERIODS, update=start_update+i,
+            log('updates', (dict(item, gs=(block+1)*periods, update=start_update+i,
                                  block=block+1, arm=arm, seed=seed) for i, item in enumerate(updates, 1)))
             state['blocks'] = block+1
-            gs = state['blocks']*PERIODS
-            if gs in VALIDATE:
+            gs = state['blocks']*periods
+            if gs in plan['fixed_at']:
                 validate(gs)
             metrics = physical_metrics(rows)
             log('blocks', [dict(gs=gs, block=block+1, arm=arm, seed=seed, bootstrap=1,
                                 decisions=metrics['keep']+metrics['redeploy'], replay_added=len(new),
                                 replay_size=len(run.replay), replay_actions=dict(Counter(r['action'] for r in run.replay)),
                                 gate_updates=run.updates, epsilon=epsilon, resumes=state['resumes'],
-                                resumed_from_gs=first_block*PERIODS if block == first_block and state['resumes'] else None,
-                                wall_seconds=prior_wall+perf_counter()-started, metrics=metrics)])
+                                resumed_from_gs=first_block*periods if block == first_block and state['resumes'] else None,
+                                wall_seconds=prior_wall+perf_counter()-started, metrics=metrics,
+                                **({'scene': scene} if 'training_by_arm' in plan else {}))])
             commit(gs)
-            print(f'EXP047 {arm} seed {seed} GS{gs} updates {run.updates}', flush=True)
+            print(f'{plan.get("experiment", "EXP047")} {arm} seed {seed} GS{gs} updates {run.updates}', flush=True)
     return f'{paths.prefix.name} committed GS{target_gs}'
 
 

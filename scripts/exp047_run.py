@@ -231,7 +231,7 @@ def publish_models(paths, state):
         publish(path, expected)
 
 
-def training(root, plan, base, arm, seed, target_gs, *, feature_arm=None, rng_arm=None):
+def training(root, plan, base, arm, seed, target_gs, *, feature_arm=None, rng_arm=None, gate_type=GateRun):
     torch.set_num_threads(1)
     stamp = fingerprint(plan)
     paths = run_files(root, arm, seed)
@@ -242,7 +242,7 @@ def training(root, plan, base, arm, seed, target_gs, *, feature_arm=None, rng_ar
         raise ValueError('Training target must end at a registered trajectory boundary')
     cases = plan['training_by_arm'][arm] if 'training_by_arm' in plan else plan['training']
     with run_lock(paths):
-        run = GateRun(arm, seed, stamp, feature_arm=feature_arm, rng_arm=rng_arm)
+        run = gate_type(arm, seed, stamp, feature_arm=feature_arm, rng_arm=rng_arm)
         if resume.exists():
             state = read_model(resume)
             run.restore(state['gate'])

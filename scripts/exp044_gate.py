@@ -151,15 +151,20 @@ def transition(row,next_row,previous_e2e,weight,gamma):
                 next=next_row['timing']['state'])
 
 
-def fit(net,target,opt,samples,rng,settings):
+def fit(net,target,opt,samples,rng,settings,*,target_builder=None):
     metrics=[]
     for _ in range(UPDATES):
         batch=[samples[i] for i in rng.integers(len(samples),size=BATCH)]
-        x=torch.tensor([s['x'] for s in batch]); nxt=torch.tensor([s['next'] for s in batch])
-        actions=torch.tensor([s['action'] for s in batch]); rewards=torch.tensor([s['reward'] for s in batch])
+        x=torch.tensor([s['x'] for s in batch])
+        actions=torch.tensor([s['action'] for s in batch])
+        details={}
         with torch.no_grad():
-            greedy=net(nxt).argmax(1,keepdim=True)
-            y=rewards+settings['gamma']*target(nxt).gather(1,greedy).squeeze(1)
+            if target_builder is None:
+                nxt=torch.tensor([s['next'] for s in batch]); rewards=torch.tensor([s['reward'] for s in batch])
+                greedy=net(nxt).argmax(1,keepdim=True)
+                y=rewards+settings['gamma']*target(nxt).gather(1,greedy).squeeze(1)
+            else:
+                y,details=target_builder(net,target,batch)
         q=net(x).gather(1,actions[:,None]).squeeze(1)
         loss=nn.functional.smooth_l1_loss(q,y)
         opt.zero_grad(); loss.backward()
@@ -168,7 +173,7 @@ def fit(net,target,opt,samples,rng,settings):
         with torch.no_grad():
             for left,right in zip(target.parameters(),net.parameters(),strict=True):
                 left.lerp_(right,settings['tau'])
-        metrics.append(dict(loss=float(loss.detach()),gradient=grad,td_mae=float((y-q).detach().abs().mean())))
+        metrics.append(dict(loss=float(loss.detach()),gradient=grad,td_mae=float((y-q).detach().abs().mean()),**details))
     return metrics
 
 

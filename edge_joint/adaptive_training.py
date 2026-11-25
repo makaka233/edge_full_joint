@@ -168,7 +168,8 @@ def matrix_hex(matrix):
 def decode_placement(cfg, env, latent, key, **kwargs):
     if getattr(cfg,'d_actor','global')=='structured':
         return decode(env,latent[:8],key,True,stage_controls=latent[8:].reshape(env.K,3),
-                      link_priced=cfg.d_decoder=='link-priced',**kwargs)
+                      link_priced=cfg.d_decoder=='link-priced',
+                      cpu_optional_bias=getattr(cfg,'d_cpu_optional_bias',False),**kwargs)
     return decode(env, latent, key, True, link_priced=cfg.d_decoder=='link-priced', **kwargs)
 
 

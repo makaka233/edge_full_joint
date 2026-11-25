@@ -199,10 +199,11 @@ def plot_evaluation(tag,cases,*,root=ROOT):
         fig,axs = plt.subplots(len(ks)//3,3,figsize=(15,3.6*len(ks)//3),layout='constrained',squeeze=False)
         x = np.arange(len(records))
         names = [f"{r['case']['seed']%100}\n{r['case']['profile'][-3:] if num==7 else r['case']['variant'][0]+'-'+r['case']['profile'][0]}" for r in records]
+        colors = [(a,color) for a,color in COLORS.items() if a in records[0]['arms']]
         for ax,k,title in zip(axs.flat,ks,labels,strict=True):
-            for i,(a,color) in enumerate(COLORS.items()):
+            for i,(a,color) in enumerate(colors):
                 y = np.asarray([r['arms'][a][k] for r in records],dtype=float)
-                ax.bar(x+.2*(i-1.5),y,.2,label=a,color=color)
+                ax.bar(x+.2*(i-(len(colors)-1)/2),y,.2,label=a,color=color)
             ax.set(title=title,xticks=x,xticklabels=names)
         axs[0,0].legend(ncols=2)
         save(root,fig,num,f'{tag}-{file}')

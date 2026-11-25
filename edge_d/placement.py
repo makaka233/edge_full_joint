@@ -122,7 +122,7 @@ class Placement:
 
 
 def decode(env, latent, seed, inventory_routing=False, *, include_optional=True, ranking_bias=None, node_demand=None,
-           link_priced=False, stage_controls=None):
+           link_priced=False, stage_controls=None, cpu_optional_bias=False):
     """Map one latent sample to one matrix, without traffic simulation or retries."""
     rng = np.random.default_rng(seed)
     stages, nodes = env.K, env.N
@@ -209,7 +209,10 @@ def decode(env, latent, seed, inventory_routing=False, *, include_optional=True,
     optional = (-3.5 + latent[4] + (.35 + latent[5]) * locality
                 + latent[6] * _standardize(work)[:, None] + rng.logistic(size=matrix.shape))
     if stage_controls is not None:
-        optional += local*locality+redundancy
+        stage_bias = local*locality+redundancy
+        if cpu_optional_bias:
+            stage_bias += cpu_preference*speed
+        optional += stage_bias
     free = env.capacity - matrix.T @ env.spec
     choices = np.flatnonzero(((optional > 0.) & eligible & ~matrix).ravel())
     priority = optional if ranking_bias is None else optional + ranking_bias(env, matrix)

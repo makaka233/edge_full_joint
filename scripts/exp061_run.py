@@ -96,10 +96,10 @@ def register(root,base,env,old,smoke):
     return plan
 
 
-def train_arm(root,base,plan,arm,episodes):
+def train_arm(root,base,plan,arm,episodes,*,seed=NEW,cfg=None):
     torch.set_num_threads(1)
-    out = arm_path(root,NEW,arm)
-    cfg = replace(settings(base,NEW,arm),periods=plan['periods'])
+    out = arm_path(root,seed,arm)
+    cfg = replace(settings(base,seed,arm) if cfg is None else cfg,periods=plan['periods'])
     checkpoint = out/'resume_latest.pt'
     proof_path = out/'proof.json'
     expected_gs = cfg.periods*episodes
@@ -111,7 +111,8 @@ def train_arm(root,base,plan,arm,episodes):
                         digest(out/f'{k}.pt')!=h for k,h in old['model_sha'].items())):
                     raise ValueError(f'Completed training checkpoint changed: {out.prefix}')
                 return f'{arm} GS{expected_gs} reused'
-        init = initial_proof(base,NEW,arm)
+        shape_arm = 'B' if getattr(cfg,'d_actor','global')=='structured' else 'A'
+        init = dict(initial_proof(base,seed,shape_arm),arm=arm)
 
         def check_initial(state):
             if (weights_digest(state['d'])!=init['actor'] or weights_digest(state['s_online'])!=init['s_online']
@@ -132,13 +133,13 @@ def train_arm(root,base,plan,arm,episodes):
         if (len(rows)!=expected_gs or len(u)!=episodes or any(min(r['d_change'],r['s_change'],r['s_target_change'])<=0
                 or (arm=='B' and r['d_stage_change']<=0) for r in u)):
             raise ValueError(f'Missing physical slots or effective updates for {arm}')
-        error = max(audit_rows(world(NEW,rows[i]['scene'],'train',profile=workload(base['workload'])),
+        error = max(audit_rows(world(seed,rows[i]['scene'],'train',profile=workload(base['workload'])),
                                rows[i:i+cfg.periods]) for i in range(0,len(rows),cfg.periods))
         write(proof_path,dict(gs=expected_gs,d=state['d_updates'],s=state['s']['updates'],initial=init,
                     elapsed=state['wall_seconds'],best_gs=best['episode']*cfg.periods,stamp=fingerprint(plan),
                     max_resource_error=error,source_history=state['source_history'],
                     model_sha={k:digest(out/f'{k}.pt') for k in ('best','last','resume_latest')}))
-    return f'{arm} GS{expected_gs} complete'
+    return f'{seed} {arm} GS{expected_gs} complete'
 
 
 def gather_training(root,base,old,plan):
@@ -182,8 +183,18 @@ def evidence_stamp(plan,c,proof):
 
 @torch.inference_mode()
 def evaluate_seed(root,base,env,plan,seed,proof):
-    torch.set_num_threads(1)
     storage = EXP060 if seed in REUSED else root
+    weights = {a:arm_path(storage,seed,a)/'last.pt' for a in ARMS}
+    configs = {a:settings(base,seed,a) for a in ARMS}
+    return evaluate_pair(root,base,env,plan,seed,proof,weights,configs,include_initial=True)
+
+
+@torch.inference_mode()
+def evaluate_pair(root,base,env,plan,seed,proof,weights,configs,*,include_initial):
+    torch.set_num_threads(1)
+    if any(digest(weights[a])!=proof[a]['model_sha']['last'] for a in ARMS):
+        raise ValueError(f'Frozen evaluation checkpoint changed for seed {seed}')
+    models = {a:read_checkpoint(weights[a]) for a in ARMS}
     for c in (r for r in plan['cases'] if r['seed']==seed):
         path = evidence_path(root,c)
         stamp = evidence_stamp(plan,c,proof)
@@ -197,9 +208,8 @@ def evaluate_seed(root,base,env,plan,seed,proof):
         pressure = {'sustained055':.55,'sustained070':.70}.get(c['profile'])
         loads = ((pressure,)*horizon if pressure is not None else tuple(
                  .65 if i==3 and c['profile']=='pulse' else None for i in range(horizon)))
-        models = {a:read_checkpoint(arm_path(storage,seed,a)/'last.pt') for a in ARMS}
-        for a,zero in product(ARMS,(True,False)):
-            cfg = replace(settings(base,seed,a),periods=horizon,freeze_ds=True)
+        for a,zero in product(ARMS,(True,False) if include_initial else (False,)):
+            cfg = replace(configs[a],periods=horizon,freeze_ds=True)
             d,s,_,_,gate,_ = components(cfg)
             if zero:
                 init = proof[a]['initial']

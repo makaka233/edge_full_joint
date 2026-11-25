@@ -29,6 +29,7 @@ SEEDS = (20261113,20261115,20261114)
 TARGET = 95
 RATES = {'A':.003,'B':.0015}
 REGISTERED_RUNNER = '0dbe984e3b6186a3dbb3018d62838eb4541bffa7a06b5cc724ea777c5fe123c8'
+SCHEDULING_RUNNER = '7d15c89b9a599ceb30a850013e46629084ec6a25719e9070aee32444615fa88f'
 FIELDS = ('trace_sha256','old_matrix','active_matrix','active_replicas','s_dispatch_counts','cpu','wired','wireless',
           'reward_raw','e2e_completed','e2e_penalized','p95','p99','censored','residual_requests','d_latent')
 UPDATE_FIELDS = ('d_updates','s_updates','s_updates_this_episode','d_samples','d_gradient','d_gradient_after_clip',
@@ -99,13 +100,17 @@ def register(base,plan,history):
             spec['code'][runner] = REGISTERED_RUNNER
             if saved!=spec:
                 raise ValueError('Registered EXP058 execution inputs changed')
-            repair = ROOT/'scheduling-repair.json'
-            changes = dict(registered=REGISTERED_RUNNER,effective=current,plan_sha=fingerprint(saved),
-                           reason='Prevent simultaneous A/B checkpoint imports for one seed')
-            if repair.is_file() and read(repair)['repair']!=changes:
-                raise ValueError('Unregistered runtime change after the scheduling repair')
-            if not repair.is_file():
-                write(repair,dict(repair=changes,source=source()))
+            for name,prior,effective,reason in (
+                    ('scheduling-repair',REGISTERED_RUNNER,SCHEDULING_RUNNER,
+                     'Prevent simultaneous A/B checkpoint imports for one seed'),
+                    ('holdout-loader-repair',SCHEDULING_RUNNER,current,
+                     'Read the registered GS504 checksum under its original filename key, last.pt')):
+                repair = ROOT/f'{name}.json'
+                changes = dict(registered=prior,effective=effective,plan_sha=fingerprint(saved),reason=reason)
+                if repair.is_file() and read(repair)['repair']!=changes:
+                    raise ValueError(f'Unregistered runtime change after {name}')
+                if not repair.is_file():
+                    write(repair,dict(repair=changes,source=source()))
     else:
         write(path,dict(plan=spec,source=source()))
     return spec
@@ -205,7 +210,7 @@ def holdout_seed(base,plan,spec,seed):
     torch.set_num_threads(1)
     proof = training_pair(spec,seed)
     checkpoint = output(seed,False)/'last.pt'
-    if digest(checkpoint)!=spec['owners'][str(seed)]['model_sha']['last']:
+    if digest(checkpoint)!=spec['owners'][str(seed)]['model_sha']['last.pt']:
         raise ValueError('GS504 model changed before holdout')
     models = {'GS504':read_checkpoint(checkpoint)}
     for a in RATES:

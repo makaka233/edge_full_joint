@@ -179,10 +179,18 @@ def request_metrics(requests, deadline, penalty):
                 completed_delays=completed, penalized_delays=penalized, censored_requests=censored)
 
 
+def known_cohort_reward(requests, boundary, delay_weight, holding, switching):
+    # The unfinished part remains in the true Actor return, including censoring.
+    elapsed = [min(boundary,r.finish if r.finish is not None else boundary)-r.arrival.time
+               for r in requests]
+    return -(delay_weight*(float(np.mean(elapsed)) if elapsed else 0.)+holding+switching)
+
+
 def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_matrices=None,
             control=RolloutControl(), period_updates=None, d_audit=None,
             simulator_factory=PeriodSimulator, boundary=None, profile=False,
-            initial_deployment=None, continuation=None, timing_policy=None, observe_proposal=False):
+            initial_deployment=None, continuation=None, timing_policy=None, observe_proposal=False,
+            d_settled_credit=False):
     """Run all business periods on one event queue."""
     started = time.perf_counter()
     online = split == 'train'
@@ -193,6 +201,8 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
         raise ValueError('Proposal-aware timing requires one frozen mean proposal per decision')
     if period_updates is not None and not collect:
         raise ValueError('Incremental DDQN needs a collecting online episode')
+    if d_settled_credit and (not collect or not 0.<env.tail<cfg.period_seconds):
+        raise ValueError('Settled credit requires online training and at most one open old cohort')
     mode = cfg.macro_mode if mode is None else mode
     # Natively evolving regimes retain the original parameters. Simulated periods are compact.
     if env.w.amplitude != 0. or env.cost['latency_objective'] != 'period_mean':
@@ -224,6 +234,9 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
     for i in range(first_period, cfg.periods):
         period_tick = time.perf_counter()
         start, end = i * cfg.period_seconds, (i + 1) * cfg.period_seconds
+        if d_settled_credit:
+            settled = 0. if not cohort else known_cohort_reward(
+                cohort[-1], start, env.cost['delay_weight'], rows[-1]['holding_cost'], rows[-1]['switch_cost'])/cfg.gamma
         period = i + 1
         gs = (index - 1) * cfg.periods + period if online else None
         if control.loads and control.loads[i] is not None:
@@ -399,6 +412,8 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
                          wireless=resources[-len(sim.wireless):], conservation_error=error,
                          capacity_error=cap_error, events=sim.events-events, s_decisions=sim.decisions-decisions,
                          wall_seconds=time.perf_counter()-period_tick, **switch))
+        if d_settled_credit:
+            rows[-1]['d_known_cohort_credit'] = settled
         if log_dispatch:
             rows[-1].update(s_updates_at_decision=s.updates, s_dispatch_counts=dispatch_counts.copy())
         if observation is not None:
@@ -494,7 +509,8 @@ def load_conditioned_bias(offset, first, square, cross, loads):
 
 
 def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, index, d_updates,
-           *, period_updates=None, d_audit=None, d_credit_offset=None, d_load_moments=None):
+           *, period_updates=None, d_audit=None, d_credit_offset=None, d_load_moments=None,
+           d_settled_offset=None):
     learned = cfg.macro_mode == 'learned'
     d_start = parameters(d)
     gate_start = macro_parameters(gate, learned)
@@ -516,6 +532,10 @@ def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, 
         loads = returns.new_tensor([r['offered_cpu_load']-.20 for r in ledger])
         load_bias = load_conditioned_bias(d_credit_offset, *d_load_moments, loads)
         actor_advantages = actor_advantages - load_bias
+    if d_settled_offset is not None:
+        known = returns.new_tensor([r['d_known_cohort_credit'] for r in ledger])
+        settled_bias = known-d_settled_offset
+        actor_advantages = actor_advantages-settled_bias
     discounts = cfg.gamma ** torch.arange(len(ledger))
     gate_terms = [-logp * adv * weight for (logp, _, _), adv, weight in zip(credit, advantages, discounts)
                   if logp is not None]
@@ -551,6 +571,10 @@ def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, 
             d_extra['d_credit_load_bias'] = load_bias.tolist()
             d_load_moments.lerp_(torch.stack((loads,loads.square(),loads*advantages)),
                                  D_CREDIT_CALIBRATION_RATE)
+        if d_settled_offset is not None:
+            d_extra['d_settled_offset_before'] = d_settled_offset.tolist()
+            d_extra['d_settled_bias'] = settled_bias.tolist()
+            d_settled_offset.lerp_(known,D_CREDIT_CALIBRATION_RATE)
     metrics = []
     admitted = len(transitions)
     extra = {}

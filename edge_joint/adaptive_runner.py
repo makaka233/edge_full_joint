@@ -83,10 +83,14 @@ def restore_actor_optimizer(opt, saved, configured_lr, override, saved_override)
 
 def train(cfg, out, target, *, resume=False, init=None, world_factory=make_world,
           simulator_factory=PeriodSimulator, environment_id=None, initial_snapshot=None,
-          resume_d_actor_lr=None):
+          resume_d_actor_lr=None, resume_d_settled_offset=None):
     if resume_d_actor_lr is not None and (not resume or cfg.freeze_ds or
                                          not isfinite(resume_d_actor_lr) or resume_d_actor_lr<=0.):
         raise ValueError('Actor learning-rate override requires positive joint resume training')
+    if resume_d_settled_offset is not None and (not resume or cfg.freeze_ds or cfg.macro_mode!='redeploy' or
+                                                not cfg.d_advantage_calibration or cfg.d_load_conditioned_credit or
+                                                resume_d_actor_lr is not None):
+        raise ValueError('Settled Actor credit requires original calibrated joint resume training')
     pool_factor=getattr(cfg,'s_laber_pool_factor',1)
     if pool_factor!=1 and (pool_factor<2 or cfg.s_update_timing!='period' or not getattr(cfg,'s_resource_q_prior',False)):
         raise ValueError('Large-batch replay requires the resource-prior DDQN with period updates')
@@ -106,6 +110,7 @@ def train(cfg, out, target, *, resume=False, init=None, world_factory=make_world
     d, s, opt, replay, gate, gate_opt = components(cfg)
     d_credit_offset = torch.zeros(cfg.periods) if cfg.d_advantage_calibration else None
     d_load_moments = torch.zeros((3,cfg.periods)) if cfg.d_load_conditioned_credit else None
+    d_settled_offset = None
     resume_path = out / 'resume_latest.pt'
     if resume:
         state = read_checkpoint(resume_path)
@@ -114,10 +119,19 @@ def train(cfg, out, target, *, resume=False, init=None, world_factory=make_world
         saved_override = state.get('d_actor_lr_override')
         if saved_override is not None and saved_override!=resume_d_actor_lr:
             raise ValueError('Resume requires the same Actor learning-rate override')
+        if 'd_settled_offset' in state and resume_d_settled_offset is None:
+            raise ValueError('Resume requires the settled Actor credit option')
+        if resume_d_settled_offset is not None:
+            d_settled_offset = torch.as_tensor(state.get('d_settled_offset',resume_d_settled_offset),
+                                               dtype=torch.float32).clone()
+            if d_settled_offset.shape!=(cfg.periods,) or not torch.isfinite(d_settled_offset).all():
+                raise ValueError('Invalid settled Actor credit offset')
         if target < state['episode']:
             raise ValueError('--episodes is an absolute target and precedes the current checkpoint')
         recover_ledgers(out, dict(offsets=state['offsets'], gs=state['episode']*cfg.periods))
         if target == state['episode']:
+            if d_settled_offset is not None and 'd_settled_offset' not in state:
+                raise ValueError('No further episode to apply the settled Actor credit option')
             if saved_override!=resume_d_actor_lr:
                 raise ValueError('No further episode to apply the Actor learning-rate override')
             repair_projections(out, state)
@@ -175,6 +189,8 @@ def train(cfg, out, target, *, resume=False, init=None, world_factory=make_world
             full['d_credit_offset'] = d_credit_offset.tolist()
         if d_load_moments is not None:
             full['d_load_credit_moments'] = d_load_moments.tolist()
+        if d_settled_offset is not None:
+            full['d_settled_offset'] = d_settled_offset.tolist()
         if index == 0 and not evaluate and initial_snapshot is not None:
             initial_snapshot(full)
         publish(resume_path, full)
@@ -203,12 +219,13 @@ def train(cfg, out, target, *, resume=False, init=None, world_factory=make_world
         ledger, credit, transitions = episode(cfg, world_factory(cfg.seed, scene, 'train'), d, s, gate,
                                               scene, 'train', index, simulator_factory=simulator_factory,
                                               period_updates=period_updates, d_audit=d_audit,
+                                              d_settled_credit=d_settled_offset is not None,
                                               profile=cfg.profile_periods)
         if cfg.profile_periods:
             update_tick = time.perf_counter()
         change = update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, index, d_updates,
                         period_updates=period_updates, d_audit=d_audit, d_credit_offset=d_credit_offset,
-                        d_load_moments=d_load_moments)
+                        d_load_moments=d_load_moments, d_settled_offset=d_settled_offset)
         if cfg.profile_periods:
             change['episode_update_seconds'] = time.perf_counter()-update_tick
         d_updates = change['d_updates']

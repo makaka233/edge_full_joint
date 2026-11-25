@@ -134,7 +134,7 @@ def decision(train,records):
                 seeds=results,time_ratio=ratio_time,decode_ratio=ratio_decode)
 
 
-def plot_rows(tag,raw):
+def plot_rows(tag,raw,*,root=ROOT):
     for number,key,ylabel in ((1,'reward_raw','Raw reward'),(2,'e2e_completed','Completed E2E (s)')):
         fig,axs = plt.subplots(len(raw),1,figsize=(12,3*len(raw)),layout='constrained',squeeze=False)
         for ax,(s,arms) in zip(axs.flat,raw.items(),strict=True):
@@ -142,7 +142,7 @@ def plot_rows(tag,raw):
                 ax.plot([r['gs'] for r in data['rows']],[r[key] for r in data['rows']],label=a,color=COLORS[a],lw=.72)
             ax.set(title=f'Seed {s}',xlabel='GS',ylabel=ylabel)
             ax.legend()
-        save(ROOT,fig,number,f'{tag}-'+('reward' if number==1 else 'e2e'))
+        save(root,fig,number,f'{tag}-'+('reward' if number==1 else 'e2e'))
     fig,axs = plt.subplots(len(raw),3,figsize=(14,2.9*len(raw)),layout='constrained',squeeze=False)
     for axes,(s,arms) in zip(axs,raw.items(),strict=True):
         for a,data in arms.items():
@@ -153,7 +153,7 @@ def plot_rows(tag,raw):
                 ax.plot(x,y,label=a,color=COLORS[a],lw=.72)
                 ax.set(title=f'Seed {s[-2:]} / {title}',xlabel='GS')
         axes[0].legend()
-    save(ROOT,fig,3,f'{tag}-tail-and-failures')
+    save(root,fig,3,f'{tag}-tail-and-failures')
 
 
 def plot_layout(tag,raw):
@@ -176,7 +176,7 @@ def plot_layout(tag,raw):
     save(ROOT,fig,4,f'{tag}-deployments')
 
 
-def plot_fixed(tag,raw):
+def plot_fixed(tag,raw,*,root=ROOT):
     fig,axs = plt.subplots(len(raw),3,figsize=(13,3*len(raw)),layout='constrained',squeeze=False)
     for axes,(s,arms) in zip(axs,raw.items(),strict=True):
         for a,data in arms.items():
@@ -185,10 +185,10 @@ def plot_fixed(tag,raw):
                 ax.plot([x[0] for x in fixed],[x[1][k] for x in fixed],label=a,color=COLORS[a],marker='o',ms=3)
                 ax.set(title=f'{s[-2:]} / {title}',xlabel='Fixed validation GS')
         axes[0].legend()
-    save(ROOT,fig,5,f'{tag}-fixed-validation')
+    save(root,fig,5,f'{tag}-fixed-validation')
 
 
-def plot_evaluation(tag,cases):
+def plot_evaluation(tag,cases,*,root=ROOT):
     for num,records,ks,labels,file in (
             (6,[r for r in cases if not r['case']['profile'].startswith('sustained')],PERFORMANCE,
              ('Reward','Completed E2E (s)','P99 (s)'),'independent'),
@@ -205,7 +205,7 @@ def plot_evaluation(tag,cases):
                 ax.bar(x+.2*(i-1.5),y,.2,label=a,color=color)
             ax.set(title=title,xticks=x,xticklabels=names)
         axs[0,0].legend(ncols=2)
-        save(ROOT,fig,num,f'{tag}-{file}')
+        save(root,fig,num,f'{tag}-{file}')
 
 
 def plot_cost(tag,train,raw):

@@ -78,11 +78,12 @@ def advance_at_matched_rate(world):
     match_period_rate(world)
 
 
-def world(seed, scene, split='train', *, mono=False, scenario=None, profile=None):
+def world(seed, scene, split='train', *, mono=False, scenario=None, profile=None, demand_overrides=None):
     if profile is None:
-        env = make_world(seed,scene,split)
+        env = make_world(seed,scene,split,demand_overrides=demand_overrides)
     else:
-        env = make_world(seed,scene,split,configure=lambda c: configure_workload(c,profile))
+        env = make_world(seed,scene,split,configure=lambda c: configure_workload(c,profile),
+                         demand_overrides=demand_overrides)
         env.w.comparison_rate_reference = make_world(seed,scene,split).w
         match_period_rate(env.w)
         env.w.advance = MethodType(advance_at_matched_rate,env.w)

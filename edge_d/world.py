@@ -4,7 +4,7 @@ IMPORTANT: The checked-in configuration reflects the audited legacy benchmark,
 not the original 7200-CU/s / 300-Mbps research wish list.
 """
 from __future__ import annotations
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 import json, hashlib
 from pathlib import Path
 import numpy as np
@@ -19,7 +19,8 @@ SPLITS=("train","fixed","holdout")
 def stable_seed(*tokens):
     return int.from_bytes(hashlib.sha256("\0".join(map(str,tokens)).encode()).digest()[:4],"big")
 
-def make_world(seed:int, scene:int, split:str="train", *, configure:Callable[[Config], None]|None=None):
+def make_world(seed:int, scene:int, split:str="train", *, configure:Callable[[Config], None]|None=None,
+               demand_overrides:Mapping|None=None):
     """Independent population/demand by seed and split; deterministic per identity."""
     if split not in SPLITS: raise ValueError(f"unknown split: {split}")
     if scene<0: raise ValueError("scene must be nonnegative")
@@ -40,9 +41,14 @@ def make_world(seed:int, scene:int, split:str="train", *, configure:Callable[[Co
     c.torch_threads=1
     pop_split="holdout_population" if split=="holdout" else "training_population"
     pop_seed=stable_seed("edge-v2",seed,pop_split)
+    demand=cfg.get("demand_model")
+    if demand_overrides:
+        if not demand or set(demand_overrides)-set(demand):
+            raise ValueError("Unknown demand-model override")
+        demand={**demand,**demand_overrides}
     e=Env(c,pop_seed,cfg["episode_steps"],cfg["windows"],cfg["window_seconds"],
           cfg["warm_seconds"],cfg["tail_seconds"],cfg["failure_penalty_seconds"],
-          cfg.get("demand_model"),cfg.get("cost_model"),cfg.get("continuing",False))
+          demand,cfg.get("cost_model"),cfg.get("continuing",False))
     e.risk_threshold=cfg.get("d_risk_threshold",1.)
     e.reset(stable_seed("edge-v2",seed,split,"demand",scene),0)
     for _ in range(scene%12): e.w.advance(); e.period+=1

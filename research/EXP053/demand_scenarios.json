@@ -1,0 +1,13 @@
+{
+  "observed_slots": 120,
+  "overrides": {
+    "persistent": {
+      "region_switch": 0.06,
+      "service_switch": 0.08
+    }
+  },
+  "cases": [
+    {"name": "natural", "seed": 20261113, "pulse": null},
+    {"name": "pulse", "seed": 20261117, "pulse": {"period": 3, "load": 0.65}}
+  ]
+}

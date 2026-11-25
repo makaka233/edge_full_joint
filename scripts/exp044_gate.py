@@ -89,7 +89,8 @@ def network():
 
 
 def case_env(base,case):
-    return world(case['environment'],case['scene'],'holdout',profile=workload(base['workload']))
+    return world(case['environment'],case['scene'],'holdout',profile=workload(base['workload']),
+                 demand_overrides=case.get('demand_overrides'))
 
 
 @torch.inference_mode()

@@ -28,6 +28,7 @@ PARENT = 'f0531f9ada9b24542c5e7bc03f534237d3fb72c4'
 SEEDS = (20261113,20261115,20261114)
 TARGET = 95
 RATES = {'A':.003,'B':.0015}
+REGISTERED_RUNNER = '0dbe984e3b6186a3dbb3018d62838eb4541bffa7a06b5cc724ea777c5fe123c8'
 FIELDS = ('trace_sha256','old_matrix','active_matrix','active_replicas','s_dispatch_counts','cpu','wired','wireless',
           'reward_raw','e2e_completed','e2e_penalized','p95','p99','censored','residual_requests','d_latent')
 UPDATE_FIELDS = ('d_updates','s_updates','s_updates_this_episode','d_samples','d_gradient','d_gradient_after_clip',
@@ -91,8 +92,20 @@ def register(base,plan,history):
                 physics={n:digest(CONFIG_DIR/n) for n in ('experiment.json','world.json')})
     path = ROOT/'protocol.json'
     if path.is_file():
-        if read(path)['plan']!=spec:
-            raise ValueError('Registered EXP058 execution inputs changed')
+        saved = read(path)['plan']
+        if saved!=spec:
+            runner = 'scripts/exp058_run.py'
+            current = spec['code'][runner]
+            spec['code'][runner] = REGISTERED_RUNNER
+            if saved!=spec:
+                raise ValueError('Registered EXP058 execution inputs changed')
+            repair = ROOT/'scheduling-repair.json'
+            changes = dict(registered=REGISTERED_RUNNER,effective=current,plan_sha=fingerprint(saved),
+                           reason='Prevent simultaneous A/B checkpoint imports for one seed')
+            if repair.is_file() and read(repair)['repair']!=changes:
+                raise ValueError('Unregistered runtime change after the scheduling repair')
+            if not repair.is_file():
+                write(repair,dict(repair=changes,source=source()))
     else:
         write(path,dict(plan=spec,source=source()))
     return spec
@@ -183,6 +196,10 @@ def training_pair(spec,seed):
     return proof
 
 
+def run_seed(base,plan,history,spec,seed,arms):
+    return '\n'.join(run_branch(base,plan,history,spec,seed,a) for a in arms)
+
+
 @torch.inference_mode()
 def holdout_seed(base,plan,spec,seed):
     torch.set_num_threads(1)
@@ -219,21 +236,24 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('stage',choices=('register','smoke','train','holdout','report'))
     parser.add_argument('--workers',type=int,default=3)
+    parser.add_argument('--arm',choices=tuple(RATES))
     args = parser.parse_args()
-    if args.workers<1:
-        parser.error('Positive worker count required')
+    if args.workers<1 or (args.arm and args.stage!='train'):
+        parser.error('Positive workers required; --arm is only for training recovery')
     base,plan = inputs()
     history = read(HISTORY/'protocol.json')['plan']
-    with run_lock(RunFiles(ROOT/'experiment')):
+    lock = 'experiment' if args.arm is None else f'experiment-{args.arm}'
+    with run_lock(RunFiles(ROOT/lock)):
         if args.stage!='register' and not (ROOT/'protocol.json').is_file():
             parser.error('Register the experiment first')
         spec = register(base,plan,history)
         if args.stage=='register':
             print(ROOT/'protocol.json')
-        elif args.stage in ('smoke','train'):
-            smoke = args.stage=='smoke'
-            tasks = [(base,plan,history,spec,s,a,smoke) for s in SEEDS for a in (('A',) if smoke else RATES)]
-            jobs(run_branch,tasks,min(len(tasks),args.workers))
+        elif args.stage=='smoke':
+            jobs(run_branch,[(base,plan,history,spec,s,'A',True) for s in SEEDS],min(3,args.workers))
+        elif args.stage=='train':
+            arms = (args.arm,) if args.arm else tuple(RATES)
+            jobs(run_seed,[(base,plan,history,spec,s,arms) for s in SEEDS],min(3,args.workers))
         elif args.stage=='holdout':
             for seed in SEEDS:
                 training_pair(spec,seed)

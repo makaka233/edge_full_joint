@@ -155,6 +155,13 @@ def gate_scores(registered,seed,state):
     return scores
 
 
+def compare_costs(arms,horizons):
+    baseline = arms['keep']['cost']
+    return {k:{str(h):{term:a['cost'][h][term]-baseline[h][term]
+                       for term in ('reward','raw','latency','holding','switch')}
+                for h in horizons} for k,a in arms.items() if k!='keep'}
+
+
 @torch.inference_mode()
 def fork_point(pick,registered,base,archive,demand):
     torch.set_num_threads(1)
@@ -205,9 +212,7 @@ def fork_point(pick,registered,base,archive,demand):
     if prefix[-1]['action'] == 'REDEPLOY' and prefix[-1]['active_matrix'] != matrices['current'][1]['matrix']:
         raise ValueError('Original decoder key produced a different matrix from the factual prefix')
     decoded = {k:int(np.count_nonzero(matrices['current'][0]!=matrix)) for k,(matrix,_) in matrices.items()}
-    delta = {k:{str(h):{term:a['cost'][str(h)][term]-arms['keep']['cost'][str(h)][term]
-                       for term in ('reward','raw','latency','holding','switch')}
-                for h in registered['horizons']} for k,a in arms.items() if k!='keep'}
+    delta = compare_costs(arms,registered['horizons'])
     write(path,dict(stamp=stamp,pick=pick,opening_sha256=opening_sha,demand_rng_sha256=rng,snapshot=snapshot,
                     state=state,structure=controls,gate=gate_scores(registered,seed,state),demand=demand,
                     opening=dict(age=prefix[-1]['timing']['age_hours'],drift=prefix[-1]['timing']['drift'],

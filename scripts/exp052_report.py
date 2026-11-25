@@ -138,7 +138,7 @@ def independent(plan):
     return runs
 
 
-def plots(root,rows,metrics,independent_runs):
+def plots(root,rows,metrics,independent_runs,supplements):
     deltas = {h:[r['delta']['aligned'][str(h)] for r in rows] for h in HORIZONS}
     fig,axes = plt.subplots(1,2,figsize=(12,4),layout='constrained')
     for ax,h in zip(axes,(3,6),strict=True):
@@ -156,6 +156,9 @@ def plots(root,rows,metrics,independent_runs):
             idx = [j for j,r in enumerate(rows) if band(r['pick']['opening']['load'],.45,.65)==name]
             ax.scatter([rows[j]['pick']['opening'][field] for j in idx],[deltas[6][j] for j in idx],
                        label=f'{name} offered load',marker=marker)
+        for supplemental in supplements:
+            ax.scatter(supplemental['pick']['opening'][field],supplemental['delta']['aligned']['6'],
+                       marker='*',s=100,color='black',label='High-pressure supplement')
         ax.axhspan(-6*PRIMARY,6*PRIMARY,color=COLORS['tie'],alpha=.18)
         ax.set(xlabel=axis,ylabel='Six-slot net reward difference')
         ax.legend()
@@ -167,6 +170,9 @@ def plots(root,rows,metrics,independent_runs):
             idx = [i for i,r in enumerate(rows) if r['pick']['source']==kind]
             ax.scatter([rows[i]['frozen_q'][gate]['gap'] for i in idx],[deltas[6][i] for i in idx],
                        color=color,label=kind,s=25)
+        for supplemental in supplements:
+            ax.scatter(supplemental['frozen_q'][gate]['gap'],supplemental['delta']['aligned']['6'],
+                       marker='*',s=100,color='black',label='High-pressure supplement')
         ax.axhspan(-6*PRIMARY,6*PRIMARY,color=COLORS['tie'],alpha=.15)
         ax.axvline(0,color='black',lw=.7)
         ax.set(title=gate,xlabel='Q(REDEPLOY) − Q(KEEP)',ylabel='Six-slot physical reward difference')
@@ -204,6 +210,9 @@ def plots(root,rows,metrics,independent_runs):
     for i,r in enumerate(rows):
         ax.plot(HORIZONS,[deltas[h][i] for h in HORIZONS],'.-',lw=1,color=SOURCE_COLORS[r['pick']['source']],
                 label=r['pick']['source'] if all(z['pick']['source']!=r['pick']['source'] for z in rows[:i]) else None)
+    for supplemental in supplements:
+        ax.plot(HORIZONS,[supplemental['delta']['aligned'][str(h)] for h in HORIZONS],'*--',
+                color='black',label='High-pressure supplement')
     ax.axhline(0,color='black',lw=.7)
     ax.set(xticks=HORIZONS,xlabel='Scored slots',ylabel='REDEPLOY − KEEP discounted reward')
     ax.legend(fontsize=7)
@@ -223,20 +232,27 @@ def report(root):
             rows.append(r)
     if not rows:
         raise ValueError('No registered physical branch pair has completed')
-    whole = len(rows)==len(plan['samples'])
+    all_rows = rows
+    supplements = [r for r in all_rows if r['pick'].get('supplement')]
+    rows = [r for r in all_rows if not r['pick'].get('supplement')]
+    if not rows:
+        raise ValueError('At least one primary visit must be completed')
+    primary_n = sum(not p.get('supplement',False) for p in plan['samples'])
+    whole = len(rows)==primary_n
     metrics = {h:diagnostics(rows,h) for h in HORIZONS}
     external = independent(plan)
-    plots(root,rows,metrics,external)
-    paid = [r for r in rows if r['reused_from'] is None]
+    plots(root,rows,metrics,external,supplements)
+    paid = [r for r in all_rows if r['reused_from'] is None]
     stability = [(r['pick']['id'],[sign(r['delta']['aligned'][str(h)],h*PRIMARY) for h in HORIZONS]) for r in rows]
     mid = {str(h):{str(eps):distribution(rows,h,eps) for eps in SENSITIVITY} for h in HORIZONS}
-    write(root/'summary.json',dict(complete=whole,observed=len(rows),planned=len(plan['samples']),
+    write(root/'summary.json',dict(complete=whole,observed=len(rows),planned=primary_n,
           distributions=mid,strata=breakdown(rows),ranking=metrics,stability=stability,
+          supplement=[{k:r[k] for k in ('pick','delta','frozen_q','opening_sha256')} for r in supplements],
           identifiability=observation_diagnostic(rows),archived_evaluation=external,historical=history(),
-          costs=dict(prefix_gs=sum(r['prefix_gs'] for r in rows),prefix_events=sum(r['prefix_events'] for r in rows),
+          costs=dict(prefix_gs=sum(r['prefix_gs'] for r in all_rows),prefix_events=sum(r['prefix_events'] for r in all_rows),
                      fork_gs=sum(c['physical_gs'] for r in paid for c in r['branches'].values()),
                      fork_events=sum(c['events'] for r in paid for c in r['branches'].values()),
-                     reused=[(r['pick']['id'],r['reused_from']) for r in rows if r['reused_from']],
-                     total_task_seconds=sum(r['scan_wall_seconds'] for r in rows)),
+                     reused=[(r['pick']['id'],r['reused_from']) for r in all_rows if r['reused_from']],
+                     total_task_seconds=sum(r['scan_wall_seconds'] for r in all_rows)),
           report_wall_seconds=perf_counter()-start,source=source()))
-    print(f'{root/"summary.json"} ({len(rows)}/{len(plan["samples"])} registered visits)')
+    print(f'{root/"summary.json"} ({len(rows)}/{primary_n} primary visits, {len(supplements)} supplemental)')

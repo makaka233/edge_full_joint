@@ -88,6 +88,24 @@ def registration(design):
                               eligible=len(candidates),probability=1/len(candidates),weight=1/15,
                               source_file=str(path),ledger_sha256=digest(path),
                               opening=meta(rows[p-1]),scene=data['identity']['case']))
+    stress = []
+    for name,(n,method) in SOURCES.items():
+        for seed in SEEDS:
+            for profile in FAMILIES['burst']:
+                path,data = fixture(n,seed,profile,design)
+                for p in range(2,19):
+                    if p==EXCLUDE[profile]:
+                        continue
+                    opening = meta(data['methods'][method]['rows'][p-1])
+                    if opening['load']>=.65 and opening['cpu']>=5.:
+                        stress.append(dict(id='stress.supplement',batch=3,source=name,experiment=n,method=method,
+                                           family='burst',seed=seed,profile=profile,period=p,source_file=str(path),
+                                           opening=opening,scene=data['identity']['case'],supplement=True))
+    stress_key = stable_seed(SAMPLE_KEY,'supplement','high-load-cpu')
+    entry = stress[int(np.random.default_rng(stress_key).integers(len(stress)))]
+    entry.update(random_key=stress_key,eligible=len(stress),probability=1/len(stress),weight=0.,
+                 ledger_sha256=digest(Path(entry['source_file'])))
+    picks.append(entry)
     return dict(sample_key=SAMPLE_KEY, samples=picks,horizons=list(HORIZONS),gamma=GAMMA,
                 margin=PRIMARY,sensitivity=list(SENSITIVITY),continuation='fixed2',models=files,
                 reports=reports,archives={n:fingerprint(p) for n,p in design.items()},
@@ -241,8 +259,18 @@ def main():
         proposed = registration(design)
         path = ROOT/'protocol.json'
         if path.exists():
-            if read(path)['plan']!=proposed:
-                raise ValueError('EXP052 protocol or source ledgers changed since registration')
+            saved = read(path)
+            if saved['plan']!=proposed:
+                prior = dict(proposed,samples=proposed['samples'][:-1],code=saved['plan']['code'])
+                if saved['plan']!=prior or any(ROOT.glob('fork.*.json')):
+                    raise ValueError('EXP052 protocol or source ledgers changed since registration')
+                # The preregistration addendum retains all original draws. It can
+                # only be adopted before any branch outcome has been generated.
+                archive = ROOT/'protocol.initial.json'
+                if archive.exists() and read(archive)!=saved:
+                    raise ValueError('Original registration provenance differs')
+                write(archive,saved)
+                write(path,dict(plan=proposed,source=source()))
         else:
             write(path,dict(plan=proposed,source=source()))
         if args.stage=='register':

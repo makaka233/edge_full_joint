@@ -3,6 +3,7 @@ from copy import deepcopy
 from dataclasses import asdict
 from itertools import islice
 import json
+from math import isfinite
 import platform
 import subprocess
 import time
@@ -69,8 +70,23 @@ def fixed(cfg, d, s, gate, index, *, world_factory=make_world, simulator_factory
     return result
 
 
+def restore_actor_optimizer(opt, saved, configured_lr, override, saved_override):
+    opt.load_state_dict(saved)
+    if override is None:
+        return
+    expected = configured_lr if saved_override is None else saved_override
+    if any(group['lr']!=expected for group in opt.param_groups):
+        raise ValueError('Saved Actor optimizer learning rate differs from its declared state')
+    for group in opt.param_groups:
+        group['lr'] = override
+
+
 def train(cfg, out, target, *, resume=False, init=None, world_factory=make_world,
-          simulator_factory=PeriodSimulator, environment_id=None, initial_snapshot=None):
+          simulator_factory=PeriodSimulator, environment_id=None, initial_snapshot=None,
+          resume_d_actor_lr=None):
+    if resume_d_actor_lr is not None and (not resume or cfg.freeze_ds or
+                                         not isfinite(resume_d_actor_lr) or resume_d_actor_lr<=0.):
+        raise ValueError('Actor learning-rate override requires positive joint resume training')
     pool_factor=getattr(cfg,'s_laber_pool_factor',1)
     if pool_factor!=1 and (pool_factor<2 or cfg.s_update_timing!='period' or not getattr(cfg,'s_resource_q_prior',False)):
         raise ValueError('Large-batch replay requires the resource-prior DDQN with period updates')
@@ -95,17 +111,22 @@ def train(cfg, out, target, *, resume=False, init=None, world_factory=make_world
         state = read_checkpoint(resume_path)
         if type(cfg)(**state['config']) != cfg or state.get('environment_id') != environment_id:
             raise ValueError('Resume requires the same seed, training configuration and environment')
+        saved_override = state.get('d_actor_lr_override')
+        if saved_override is not None and saved_override!=resume_d_actor_lr:
+            raise ValueError('Resume requires the same Actor learning-rate override')
         if target < state['episode']:
             raise ValueError('--episodes is an absolute target and precedes the current checkpoint')
         recover_ledgers(out, dict(offsets=state['offsets'], gs=state['episode']*cfg.periods))
         if target == state['episode']:
+            if saved_override!=resume_d_actor_lr:
+                raise ValueError('No further episode to apply the Actor learning-rate override')
             repair_projections(out, state)
             print(f'Seed {cfg.seed} already complete: episode={target}, gs={target*cfg.periods}', flush=True)
             return
         d.load_state_dict(state['d'])
         s.load_state_dict(state['s'])
         s.actions = state['s_actions']
-        opt.load_state_dict(state['d_optimizer'])
+        restore_actor_optimizer(opt,state['d_optimizer'],cfg.d_lr,resume_d_actor_lr,saved_override)
         gate.load_state_dict(state['gate'])
         gate_opt.load_state_dict(state['gate_optimizer'])
         restore_replay(replay, state['replay'])
@@ -148,6 +169,8 @@ def train(cfg, out, target, *, resume=False, init=None, world_factory=make_world
         full = dict(**current, s=s.state_dict(), s_actions=s.actions, d_optimizer=opt.state_dict(),
                     gate_optimizer=gate_opt.state_dict(), replay=replay_snapshot(replay), d_updates=d_updates,
                     rng=random_state(), best=best, offsets=offsets, wall_seconds=elapsed, source_history=history)
+        if resume_d_actor_lr is not None:
+            full['d_actor_lr_override'] = resume_d_actor_lr
         if d_credit_offset is not None:
             full['d_credit_offset'] = d_credit_offset.tolist()
         if d_load_moments is not None:

@@ -2,13 +2,15 @@
 
 from pathlib import Path
 from time import perf_counter
+from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
 
-from comparison.run import jobs, world
+from comparison.run import world
 from edge_d.physical import hasharr
 from edge_d.world import stable_seed
 from edge_joint.adaptive_runner import source
+from edge_joint.adaptive_storage import RunFiles, run_lock
 from edge_joint.adaptive_training import D_CREDIT_CALIBRATION_RATE
 from scripts.exp037_run import workload
 from scripts.exp044_run import write
@@ -104,10 +106,13 @@ def audit_seed(base,seed):
 def run():
     begin = perf_counter()
     base,_ = inputs()
-    rows = [audit_seed(base,seed) for seed in SEEDS]
-    ratio = [r['second_moment_ratio'] for r in rows]
-    passed = (all(r['settled_reward_median']>=.8 for r in rows) and sum(x<1. for x in ratio)>=2 and max(ratio)<=1.10)
-    write(ROOT/'audit.json',dict(rows=rows,qualified=passed,seconds=perf_counter()-begin,source=source()))
+    ROOT.mkdir(parents=True,exist_ok=True)
+    with run_lock(RunFiles(ROOT/'audit')):
+        with ProcessPoolExecutor(max_workers=len(SEEDS)) as pool:
+            rows = list(pool.map(audit_seed,[base]*len(SEEDS),SEEDS))
+        ratio = [r['second_moment_ratio'] for r in rows]
+        passed = (all(r['settled_reward_median']>=.8 for r in rows) and sum(x<1. for x in ratio)>=2 and max(ratio)<=1.10)
+        write(ROOT/'audit.json',dict(rows=rows,qualified=passed,seconds=perf_counter()-begin,source=source()))
     print([(r['seed'],r['settled_reward_median'],r['second_moment_ratio']) for r in rows],passed)
 
 

@@ -201,7 +201,8 @@ def endpoint_state(model,c,split,ctl,e,sim,period,previous,last_change):
 
 
 @torch.no_grad()
-def physical_pairs(model,c,split,ctl,opening,run,index,diagnostic=False,*,lengths=None):
+def physical_pairs(model,c,split,ctl,opening,run,index,diagnostic=False,*,lengths=None,
+                   follow_policy=None,extra_proposals=()):
     cfg,d,s,g = model
     p,(original,sim),candidate,previous,age,x,actor,signature,exogenous,copy_seconds = opening
     tick = perf_counter()
@@ -218,6 +219,7 @@ def physical_pairs(model,c,split,ctl,opening,run,index,diagnostic=False,*,length
     before = [r for r in sim.requests if start-seconds<=r.arrival.time<start]
     native_key = parent.stable_seed('EXP019',c['population'],split,c['scene'],p-1,'decode')
     proposals = [('keep',0,candidate),('native',1,candidate)]
+    proposals.extend((label,1,matrix) for label,matrix in extra_proposals)
     if diagnostic:
         latent = d(original).detach().numpy()
         if not np.array_equal(decode_placement(cfg,original,latent,native_key).matrix,candidate):
@@ -253,7 +255,12 @@ def physical_pairs(model,c,split,ctl,opening,run,index,diagnostic=False,*,length
             if slot==p and (not np.array_equal(proposal,matrix) or (label in ('keep','native') and state!=x)):
                 raise ValueError('Action pair does not use its registered initial state and proposal')
             states[slot] = state
-            action = forced if slot==p else run.act(state,False,actor)[0]
+            if slot==p:
+                action = forced
+            elif follow_policy is not None:
+                action = follow_policy(slot)
+            else:
+                action = run.act(state,False,actor)[0]
             expected[slot] = matrix_hex(proposal if action else system.deployment)
             if action and np.any(proposal!=system.deployment):
                 clock = slot

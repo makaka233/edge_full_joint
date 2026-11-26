@@ -202,7 +202,7 @@ def endpoint_state(model,c,split,ctl,e,sim,period,previous,last_change):
 
 @torch.no_grad()
 def physical_pairs(model,c,split,ctl,opening,run,index,diagnostic=False,*,lengths=None,
-                   follow_policy=None,extra_proposals=()):
+                   follow_policy=None,extra_proposals=(),sample_follow=None):
     cfg,d,s,g = model
     p,(original,sim),candidate,previous,age,x,actor,signature,exogenous,copy_seconds = opening
     tick = perf_counter()
@@ -246,7 +246,7 @@ def physical_pairs(model,c,split,ctl,opening,run,index,diagnostic=False,*,length
         if parent.demand_fingerprint(e.w)!=exogenous:
             raise ValueError('Paired stream changed at the opening')
         cohort = [r for r in branch.requests if start-seconds<=r.arrival.time<start]
-        states,expected = {},{}
+        states,expected,policy_tape = {},{},[]
         clock = age
         prior,next_x = None,None
         def choose(env,system,demand,_,slot,z,proposal):
@@ -257,6 +257,10 @@ def physical_pairs(model,c,split,ctl,opening,run,index,diagnostic=False,*,length
             states[slot] = state
             if slot==p:
                 action = forced
+            elif sample_follow is not None:
+                sampled = sample_follow(slot,state)
+                action = sampled['action']
+                policy_tape.append(dict(period=slot,state=state,**sampled))
             elif follow_policy is not None:
                 action = follow_policy(slot)
             else:
@@ -298,6 +302,8 @@ def physical_pairs(model,c,split,ctl,opening,run,index,diagnostic=False,*,length
                            prior_completed=prior['completed'],prior_censored=prior['censored'],ledger=ledger,
                            candidate=matrix_hex(matrix),replicas=matrix.sum(1).tolist(),proposal=marks,
                            next_state=next_x)
+        if sample_follow is not None:
+            arms[label]['policy_tape'] = policy_tape
     if parent.fingerprint(sim.snapshot())!=signature or parent.demand_fingerprint(original.w)!=exogenous:
         raise ValueError('Frozen branches changed the shared physical origin')
     duration = str(lookahead)
@@ -548,7 +554,8 @@ def replay_release_control(seed,run,points):
                 late_aux_uses=0,results=scores_for)
 
 
-def learn(root,base,plan,c,arm,*,learner=None,release_comparison=True):
+def learn(root,base,plan,c,arm,*,learner=None,release_comparison=True,rollout_factory=None,
+          branch_runner=physical_pairs):
     torch.set_num_threads(1)
     seed = c['seed']
     out = parent.run_files(root,seed,arm)
@@ -580,7 +587,7 @@ def learn(root,base,plan,c,arm,*,learner=None,release_comparison=True):
         start = deepcopy(run.actor.state_dict())
         first = dict(seed=seed,arm=arm,stamp=stamp,updates=run.updates,actor=start,q=deepcopy(run.q.state_dict()))
         rows,path,work = parent.physical_run(base,plan,c,arm,run,model,1,'train',
-                       rollout_factory=AuditedRollout if paired else parent.Rollout,branch_runner=physical_pairs)
+                       rollout_factory=rollout_factory or (AuditedRollout if paired else parent.Rollout),branch_runner=branch_runner)
         post,_,_ = parent.physical_run(base,plan,fixed,arm,run,fixed_model,1,'fixed')
         parent.same_flow(pre,post)
         if not any(not torch.equal(p,run.actor.state_dict()[k]) for k,p in start.items()):

@@ -131,6 +131,11 @@ class Rollout:
             for _ in range(d['updates_per_decision']):
                 self.updates.append(dict(period=p,**self.run.update()))
 
+    def pair_horizon(self,p,state):
+        if self.training and getattr(self.run,'paired_training',self.arm=='C') and (p-2)%PAIR_PERIOD==0:
+            return PAIR_FOLLOW+1
+        return None
+
     def choose(self,e,sim,demand,previous,p,x,candidate):
         state = observation(self.run,e,sim,demand,p,x,candidate,self.last_change)
         if self.training and p>2:
@@ -138,7 +143,8 @@ class Rollout:
         action,mu,prob,entropy,gap = self.run.act(state,self.training)
         cost = switch_cost(e,sim.deployment,candidate)
         age = 2*(p-self.last_change)
-        if self.training and getattr(self.run,'paired_training',self.arm=='C') and (p-2)%PAIR_PERIOD==0 and p+PAIR_FOLLOW<=self.slots:
+        horizon = self.pair_horizon(p,state)
+        if horizon is not None and p+horizon-1<=self.slots:
             tick = perf_counter()
             copied = fork(e,sim)
             actor = deepcopy(self.run.actor).eval()
@@ -261,9 +267,10 @@ def physical_run(base,plan,c,arm,run,model,index,split='holdout',*,rollout_facto
         path.finish_training(len(rows))
         if len(path.updates)!=SETTINGS['updates_per_decision']*(len(rows)-1):
             raise ValueError('Missing real online replay updates')
-        for pair in path.pairs:
-            factual = rows[pair['first']-1:pair['first']+PAIR_FOLLOW]
-            same_flow(factual,pair['arms'][0]['rows'])
+    for pair in path.pairs:
+        branch = pair['arms'][0]['rows']
+        start = pair['first']-1
+        same_flow(rows[start:start+len(branch)],branch)
     return rows,path,dict(seconds=perf_counter()-start,events=captured.events,
                          auxiliary_seconds=sum(p['seconds'] for p in path.pairs),
                          auxiliary_events=sum(a['events'] for p in path.pairs for a in p['arms']))

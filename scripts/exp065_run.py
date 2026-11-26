@@ -162,6 +162,10 @@ class Rollout:
             cost = sim.holding_cost()+row['action']*row['switch']
             self.rewards[p] = -cost-e.cost['delay_weight']*(lag['e2e_penalized'] or 0.)/SETTINGS['gamma']
 
+    def finish_training(self,slots):
+        self.admit(slots,[0.]*WIDTH,done=True)
+        self.run.pairs.extend({k:p[k] for k in ('state','gap')} for p in self.pairs)
+
 
 def paired_value(model,c,split,ctl,opening,run,episode_id):
     cfg,d,s,g = model
@@ -206,13 +210,13 @@ def paired_value(model,c,split,ctl,opening,run,episode_id):
 
 
 @torch.no_grad()
-def physical_run(base,plan,c,arm,run,model,index,split='holdout'):
+def physical_run(base,plan,c,arm,run,model,index,split='holdout',*,rollout_factory=Rollout,branch_runner=paired_value):
     start = perf_counter()
     cfg,d,s,g = model
     training = split=='train'
     e = environment(base,plan,c,split)
     ctl = RolloutControl(environment_seed=c['population'],epsilon=0.,sample_d=False,loads=(c['pressure'],)*cfg.periods)
-    path = Rollout(run,training,arm,cfg.periods)
+    path = rollout_factory(run,training,arm,cfg.periods)
     demand_rows = []
     captured = None
 
@@ -224,7 +228,7 @@ def physical_run(base,plan,c,arm,run,model,index,split='holdout'):
         captured = sim
         path.close(e,sim,p,cfg.period_seconds)
         if path.opening is not None:
-            pair = paired_value(model,c,split,ctl,path.opening,run,index)
+            pair = branch_runner(model,c,split,ctl,path.opening,run,index)
             pair['q_gap_at_capture'] = path.trace[p]['q_gap']
             path.pairs.append(pair)
             path.opening = None
@@ -251,14 +255,12 @@ def physical_run(base,plan,c,arm,run,model,index,split='holdout'):
                     gamma**(p-1)*r for p,r in path.rewards.items())
         if not np.isclose(original,aligned,rtol=0.,atol=1e-8):
             raise ValueError('Mature online Reward does not reconcile with original discounted return')
-        path.admit(len(rows),[0.]*WIDTH,done=True)
+        path.finish_training(len(rows))
         if len(path.updates)!=SETTINGS['updates_per_decision']*(len(rows)-1):
             raise ValueError('Missing real online replay updates')
         for pair in path.pairs:
             factual = rows[pair['first']-1:pair['first']+PAIR_FOLLOW]
             same_flow(factual,pair['arms'][0]['rows'])
-        # Hold counterfactual results until the live trajectory is completed, avoiding future flow leakage.
-        run.pairs.extend({k:p[k] for k in ('state','gap')} for p in path.pairs)
     return rows,path,dict(seconds=perf_counter()-start,events=captured.events,
                          auxiliary_seconds=sum(p['seconds'] for p in path.pairs),
                          auxiliary_events=sum(a['events'] for p in path.pairs for a in p['arms']))

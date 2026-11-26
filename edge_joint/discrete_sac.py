@@ -57,6 +57,9 @@ class DiscreteSAC:
         if len(self.replay)>SETTINGS['replay_capacity']:
             del self.replay[0]
 
+    def sample_pairs(self,size):
+        return [self.pairs[int(i)] for i in self.sample_rng.integers(len(self.pairs),size=size)]
+
     @torch.no_grad()
     def targets(self,batch):
         d = SETTINGS
@@ -94,7 +97,7 @@ class DiscreteSAC:
         critic = sum(nn.functional.smooth_l1_loss(q,goal) for q in predicted)
         auxiliary = critic.new_zeros(())
         if self.pairs:
-            pair = [self.pairs[int(i)] for i in self.sample_rng.integers(len(self.pairs),size=min(8,d['batch']))]
+            pair = self.sample_pairs(min(8,d['batch']))
             states = torch.tensor([t['state'] for t in pair],dtype=torch.float32)
             gap = torch.tensor([t['gap'] for t in pair],dtype=torch.float32)
             for net in self.q:

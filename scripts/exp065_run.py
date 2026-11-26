@@ -106,6 +106,9 @@ def demand_fingerprint(w):
                             demand=w.node_demand().tolist(),target=w.target_center.tolist(),ar=w.noise.tolist(),
                             rng=[g.bit_generator.state for g in (w.state_rng,w.ar_rng,w.pulse_rng)]))
 
+def observation(run,*args):
+    return getattr(run,'observe',gate_state)(*args)
+
 
 class Rollout:
     """Observers on the native continuous simulator; no auxiliary events enter the live queue."""
@@ -129,13 +132,13 @@ class Rollout:
                 self.updates.append(dict(period=p,**self.run.update()))
 
     def choose(self,e,sim,demand,previous,p,x,candidate):
-        state = gate_state(e,sim,demand,p,x,candidate,self.last_change)
+        state = observation(self.run,e,sim,demand,p,x,candidate,self.last_change)
         if self.training and p>2:
             self.admit(p-1,state)
         action,mu,prob,entropy,gap = self.run.act(state,self.training)
         cost = switch_cost(e,sim.deployment,candidate)
         age = 2*(p-self.last_change)
-        if self.training and self.arm=='C' and (p-2)%PAIR_PERIOD==0 and p+PAIR_FOLLOW<=self.slots:
+        if self.training and getattr(self.run,'paired_training',self.arm=='C') and (p-2)%PAIR_PERIOD==0 and p+PAIR_FOLLOW<=self.slots:
             tick = perf_counter()
             copied = fork(e,sim)
             actor = deepcopy(self.run.actor).eval()

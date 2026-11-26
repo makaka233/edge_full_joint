@@ -23,7 +23,7 @@ class DiscreteSAC:
         with torch.random.fork_rng(devices=[]):
             torch.manual_seed(stable_seed('EXP065',seed,'gate-init'))
             self.actor = network(features)
-            self.q = nn.ModuleList([network(features),network(features)])
+            self.q = nn.ModuleList([self.critic(features),self.critic(features)])
         self.target = deepcopy(self.q).requires_grad_(False)
         lr = SETTINGS['learning_rate']
         self.actor_opt = torch.optim.Adam(self.actor.parameters(),lr=lr)
@@ -31,6 +31,13 @@ class DiscreteSAC:
         self.rng,self.sample_rng = (np.random.default_rng(stable_seed('EXP065',seed,k)) for k in ('action','replay'))
         self.replay,self.pairs = [],[]
         self.updates = 0
+
+    def critic(self,features):
+        return network(features)
+
+    def pair_gap(self,net,states):
+        q = net(states)
+        return q[:,1]-q[:,0]
 
     def snapshot(self):
         return dict(actor=self.actor.state_dict(),q=self.q.state_dict(),target=self.target.state_dict(),
@@ -101,8 +108,7 @@ class DiscreteSAC:
             states = torch.tensor([t['state'] for t in pair],dtype=torch.float32)
             gap = torch.tensor([t['gap'] for t in pair],dtype=torch.float32)
             for net in self.q:
-                q = net(states)
-                auxiliary += nn.functional.smooth_l1_loss(q[:,1]-q[:,0],gap)
+                auxiliary += nn.functional.smooth_l1_loss(self.pair_gap(net,states),gap)
         self.q_opt.zero_grad(set_to_none=True)
         (critic+d['auxiliary_weight']*auxiliary).backward()
         nn.utils.clip_grad_norm_(self.q.parameters(),10.,error_if_nonfinite=True)

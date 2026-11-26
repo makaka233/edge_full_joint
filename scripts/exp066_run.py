@@ -107,8 +107,8 @@ def soft_value(run, x):
 
 class AuditedSAC(DiscreteSAC):
     """Counters and an isolated auxiliary sampler keep Bellman RNG use comparable."""
-    def __init__(self,seed):
-        super().__init__(seed,WIDTH)
+    def __init__(self,seed,features=WIDTH):
+        super().__init__(seed,features)
         self.pair_rng = np.random.default_rng(parent.stable_seed('EXP066',seed,'auxiliary'))
 
     def snapshot(self):
@@ -142,9 +142,10 @@ class AuditedRollout(parent.Rollout):
     def __init__(self,run,training,arm,slots):
         super().__init__(run,training,arm,slots)
         self.released = 0
+        self.paired = getattr(run,'paired_training',arm=='C')
 
     def admit(self,p,nxt,done=False):
-        if self.arm!='C':
+        if not self.paired:
             return super().admit(p,nxt,done)
         row = self.trace[p]
         self.history.append(dict(state=row['state'],action=row['action'],behavior=row['behavior'],
@@ -173,13 +174,13 @@ class AuditedRollout(parent.Rollout):
 
     def close(self,e,sim,p,seconds):
         super().close(e,sim,p,seconds)
-        if self.training and self.arm=='C':
+        if self.training and self.paired:
             self.release(p)
 
     def finish_training(self,slots):
-        if self.arm=='C':
+        if self.paired:
             self.release(slots,terminal=True)
-            self.admit(slots,[0.]*WIDTH,done=True)
+            self.admit(slots,[0.]*self.run.features,done=True)
         else:
             super().finish_training(slots)
 
@@ -200,11 +201,12 @@ def endpoint_state(model,c,split,ctl,e,sim,period,previous,last_change):
 
 
 @torch.no_grad()
-def physical_pairs(model,c,split,ctl,opening,run,index,diagnostic=False):
+def physical_pairs(model,c,split,ctl,opening,run,index,diagnostic=False,*,lengths=None):
     cfg,d,s,g = model
     p,(original,sim),candidate,previous,age,x,actor,signature,exogenous,copy_seconds = opening
     tick = perf_counter()
-    horizon = p+parent.PAIR_FOLLOW
+    lookahead = max(lengths) if lengths else parent.PAIR_FOLLOW+1
+    horizon = p+lookahead-1
     seconds,weight = cfg.period_seconds,original.cost['delay_weight']
     if not 0.<original.tail<seconds:
         raise ValueError('Settled credit expects at most one earlier open cohort')
@@ -247,7 +249,7 @@ def physical_pairs(model,c,split,ctl,opening,run,index,diagnostic=False):
         prior,next_x = None,None
         def choose(env,system,demand,_,slot,z,proposal):
             nonlocal clock
-            state = parent.gate_state(env,system,demand,slot,z,proposal,clock)
+            state = parent.observation(run,env,system,demand,slot,z,proposal,clock)
             if slot==p and (not np.array_equal(proposal,matrix) or (label in ('keep','native') and state!=x)):
                 raise ValueError('Action pair does not use its registered initial state and proposal')
             states[slot] = state
@@ -278,7 +280,7 @@ def physical_pairs(model,c,split,ctl,opening,run,index,diagnostic=False):
         prior_cost = latency(prior,weight)
         ledger = {str(n):credit(rows[:n],prior_cost,weight,
                    soft_value(frozen, states[p+n] if n<len(rows) else next_x) if diagnostic else None)
-                   for n in ((1,3,len(rows)) if diagnostic else (len(rows),))}
+                   for n in (lengths or ((1,3,len(rows)) if diagnostic else (len(rows),)))}
         marks = proposal_features(e,sim.deployment,matrix,original.w.node_demand())
         if diagnostic:
             w = original.w
@@ -291,7 +293,7 @@ def physical_pairs(model,c,split,ctl,opening,run,index,diagnostic=False):
                            next_state=next_x)
     if parent.fingerprint(sim.snapshot())!=signature or parent.demand_fingerprint(original.w)!=exogenous:
         raise ValueError('Frozen branches changed the shared physical origin')
-    duration = str(parent.PAIR_FOLLOW+1)
+    duration = str(lookahead)
     gap = lambda k: arms['native']['ledger'][duration][k]-arms['keep']['ledger'][duration][k]
     arms_out = arms if diagnostic else list(arms.values())
     return dict(first=p,end_gs=horizon,state=x,gap=gap(PRIMARY),raw_gap=gap('raw'),arms=arms_out,
@@ -539,13 +541,14 @@ def replay_release_control(seed,run,points):
                 late_aux_uses=0,results=scores_for)
 
 
-def learn(root,base,plan,c,arm):
+def learn(root,base,plan,c,arm,*,learner=None,release_comparison=True):
     torch.set_num_threads(1)
     seed = c['seed']
     out = parent.run_files(root,seed,arm)
     stamp = parent.fingerprint(plan)
     file = out/'resume_latest.pt'
-    run = AuditedSAC(seed) if arm=='C' else DiscreteSAC(seed,WIDTH)
+    run = (AuditedSAC(seed) if arm=='C' else DiscreteSAC(seed,WIDTH)) if learner is None else learner
+    paired = getattr(run,'paired_training',arm=='C')
     with run_lock(out):
         initial = dict(seed=seed,arm=arm,stamp=stamp,index=0,learner=run.snapshot(),source=parent.source())
         if file.exists():
@@ -570,7 +573,7 @@ def learn(root,base,plan,c,arm):
         start = deepcopy(run.actor.state_dict())
         first = dict(seed=seed,arm=arm,stamp=stamp,updates=run.updates,actor=start,q=deepcopy(run.q.state_dict()))
         rows,path,work = parent.physical_run(base,plan,c,arm,run,model,1,'train',
-                       rollout_factory=AuditedRollout if arm=='C' else parent.Rollout,branch_runner=physical_pairs)
+                       rollout_factory=AuditedRollout if paired else parent.Rollout,branch_runner=physical_pairs)
         post,_,_ = parent.physical_run(base,plan,fixed,arm,run,fixed_model,1,'fixed')
         parent.same_flow(pre,post)
         if not any(not torch.equal(p,run.actor.state_dict()[k]) for k,p in start.items()):
@@ -579,13 +582,13 @@ def learn(root,base,plan,c,arm):
         best = max([(parent.summarize(r)['reward'],m) for r,m in ((pre,first),(post,last))],key=lambda item:item[0])[1]
         exposure = []
         audit_path = root/'audit.json'
-        if arm=='C':
+        if paired:
             for pair,info in zip(path.pairs,run.pairs,strict=True):
                 exposure.append(dict(info,raw_gap=pair['raw_gap'],initial_q_gap=pair['q_gap_at_capture']))
             if not any(x['samples'] for x in exposure):
                 raise ValueError('No corrected pair was sampled within the episode')
-        points = [p for p in parent.read(audit_path)['points'] if p['case']['seed']==seed] if audit_path.exists() else []
-        ablation = replay_release_control(seed,run,points) if arm=='C' else None
+        points = [p for p in parent.read(audit_path)['points'] if p['case']['seed']==seed] if release_comparison and audit_path.exists() else []
+        ablation = replay_release_control(seed,run,points) if paired and release_comparison else None
         parent.write(out/'training.json',dict(seed=seed,arm=arm,rows=rows,updates=path.updates,pairs=path.pairs,
                      exposure=exposure,release_control=ablation,fixed_before=pre,fixed_after=post,
                      work=work,seconds=perf_counter()-tick,source=parent.source(),stamp=stamp))

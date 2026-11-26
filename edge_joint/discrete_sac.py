@@ -18,6 +18,8 @@ def network(features):
 
 
 class DiscreteSAC:
+    value_scale = 1.
+
     def __init__(self,seed,features):
         self.features = features
         with torch.random.fork_rng(devices=[]):
@@ -57,7 +59,7 @@ class DiscreteSAC:
         p = (self.actor if actor is None else actor)(x).softmax(-1)
         a = int(self.rng.random()<float(p[1])) if training else int(p[1]>=p[0])
         q = torch.minimum(*(f(x) for f in self.q))
-        return a,float(p[a]),float(p[1]),float(-(p*p.clamp_min(1e-20).log()).sum()),float(q[1]-q[0])
+        return a,float(p[a]),float(p[1]),float(-(p*p.clamp_min(1e-20).log()).sum()),float(q[1]-q[0])/self.value_scale
 
     def add(self,sequence):
         self.replay.append(sequence)
@@ -70,7 +72,7 @@ class DiscreteSAC:
     @torch.no_grad()
     def targets(self,batch):
         d = SETTINGS
-        gamma,alpha = d['gamma'],d['alpha']
+        gamma,alpha = d['gamma'],d['alpha']*self.value_scale
         start = torch.tensor([s[0]['state'] for s in batch],dtype=torch.float32)
         actions = torch.tensor([s[0]['action'] for s in batch])
         qbar = torch.minimum(*(net(start) for net in self.target))
@@ -91,7 +93,7 @@ class DiscreteSAC:
             logp = self.actor(nxt).log_softmax(-1)
             v = (logp.exp()*(torch.minimum(*(net(nxt) for net in self.target))-alpha*logp)).sum(-1)
             q = torch.minimum(*(net(state) for net in self.target)).gather(1,a).squeeze(1)
-            residual = torch.tensor([t['reward'] for t in x])+gamma*torch.tensor([not t['done'] for t in x])*v-q
+            residual = self.value_scale*torch.tensor([t['reward'] for t in x])+gamma*torch.tensor([not t['done'] for t in x])*v-q
             output[ids] += gamma**j*weight[ids]*residual
         return start,actions,output
 
@@ -103,10 +105,10 @@ class DiscreteSAC:
         predicted = [net(x).gather(1,a[:,None]).squeeze(1) for net in self.q]
         critic = sum(nn.functional.smooth_l1_loss(q,goal) for q in predicted)
         auxiliary = critic.new_zeros(())
-        if self.pairs:
-            pair = self.sample_pairs(min(8,d['batch']))
+        pair = self.sample_pairs(min(8,d['batch'])) if self.pairs else []
+        if pair:
             states = torch.tensor([t['state'] for t in pair],dtype=torch.float32)
-            gap = torch.tensor([t['gap'] for t in pair],dtype=torch.float32)
+            gap = self.value_scale*torch.tensor([t['gap'] for t in pair],dtype=torch.float32)
             for net in self.q:
                 auxiliary += nn.functional.smooth_l1_loss(self.pair_gap(net,states),gap)
         self.q_opt.zero_grad(set_to_none=True)
@@ -115,7 +117,7 @@ class DiscreteSAC:
         self.q_opt.step()
         logp = self.actor(x).log_softmax(-1)
         q = torch.minimum(*(net(x).detach() for net in self.q))
-        actor = (logp.exp()*(d['alpha']*logp-q)).sum(-1).mean()
+        actor = (logp.exp()*(d['alpha']*self.value_scale*logp-q)).sum(-1).mean()
         self.actor_opt.zero_grad(set_to_none=True)
         actor.backward()
         nn.utils.clip_grad_norm_(self.actor.parameters(),10.,error_if_nonfinite=True)

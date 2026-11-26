@@ -201,7 +201,7 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
             control=RolloutControl(), period_updates=None, d_audit=None,
             simulator_factory=PeriodSimulator, boundary=None, profile=False,
             initial_deployment=None, continuation=None, timing_policy=None, observe_proposal=False,
-            d_settled_credit=False):
+            d_settled_credit=False, opening_proposal=None, opening_previous=None):
     """Run all business periods on one event queue."""
     started = time.perf_counter()
     online = split == 'train'
@@ -210,6 +210,8 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
         raise ValueError('External timing decisions require frozen D/S and no recorded matrices')
     if observe_proposal and (timing_policy is None or control.sample_d is not False or control.focal_latent is not None):
         raise ValueError('Proposal-aware timing requires one frozen mean proposal per decision')
+    if (opening_proposal is not None or opening_previous is not None) and (continuation is None or not observe_proposal):
+        raise ValueError('An opening proposal or demand history requires a proposal-aware frozen continuation')
     if period_updates is not None and not collect:
         raise ValueError('Incremental DDQN needs a collecting online episode')
     if d_settled_credit and (not collect or not 0.<env.tail<cfg.period_seconds):
@@ -222,6 +224,7 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
     first_period = 0
     if continuation is not None:
         first_period, sim = continuation
+        previous = opening_previous
         if (collect or initial_deployment is not None or sim.collect or sim.env is not env
                 or not 0 < first_period < cfg.periods or sim.now != first_period*cfg.period_seconds):
             raise ValueError('Invalid frozen rollout continuation')
@@ -345,12 +348,15 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
                 proposal_tick = time.perf_counter()
             if profile:
                 decoder_tick = time.perf_counter()
-            proposal = decode_placement(cfg, env, draw.numpy(), decode_key)
+            if opening_proposal is not None and i==first_period:
+                target, fallback = opening_proposal.copy(), None
+            else:
+                proposal = decode_placement(cfg, env, draw.numpy(), decode_key)
+                target, fallback = proposal.matrix, proposal.coverage_fallback
             if profile:
                 physical_decoder_seconds = time.perf_counter()-decoder_tick
             if profile and observe_proposal and sim is not None:
                 proposal_decode_seconds = time.perf_counter() - proposal_tick
-            target, fallback = proposal.matrix, proposal.coverage_fallback
             if observe_proposal and sim is not None:
                 target.setflags(write=False)
                 if not timing_policy(env, sim, demand, previous, period, x, target):

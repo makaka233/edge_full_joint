@@ -69,9 +69,11 @@ class DynamicWorld(World):
         else:self.amplitude=self.c.daily_amplitude;self.shift=0.
         hot=np.exp(np.clip(self.log_service,-p['service_clip'],p['service_clip']))
         if self.regime:hot[self.hot_service]*=p['hot_service_gain']
+        self.set_marks(hot)
+    def set_marks(self,hot):
         self.mark=(self.base_pref*hot);self.mark/=self.mark.sum(1,keepdims=True)
         # Actual mark probability conditioned on a particular user's group.
-        p=self.preference[self.regions][:,None,:]*self.group_affinity[None,:,:]*hot
+        p=self.preference[self.regions][:,None,:]*self.group_affinity[None,:,:]*(hot if hot.ndim==1 else hot[:,None,:])
         self.group_mark=p/p.sum(2,keepdims=True)
         # Current aggregate mark distribution matches user groups exactly.
         for n,ids in enumerate(self.users_by_access):

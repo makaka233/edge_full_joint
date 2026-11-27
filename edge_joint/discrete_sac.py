@@ -69,6 +69,14 @@ class DiscreteSAC:
     def sample_pairs(self,size):
         return [self.pairs[int(i)] for i in self.sample_rng.integers(len(self.pairs),size=size)]
 
+    def critic_pair_loss(self,pair):
+        states = torch.tensor([t['state'] for t in pair],dtype=torch.float32)
+        gap = self.value_scale*torch.tensor([t['gap'] for t in pair],dtype=torch.float32)
+        return sum(nn.functional.smooth_l1_loss(self.pair_gap(net,states),gap) for net in self.q)
+
+    def actor_pair_loss(self,pair):
+        return None
+
     @torch.no_grad()
     def targets(self,batch):
         d = SETTINGS
@@ -107,10 +115,7 @@ class DiscreteSAC:
         auxiliary = critic.new_zeros(())
         pair = self.sample_pairs(min(8,d['batch'])) if self.pairs else []
         if pair:
-            states = torch.tensor([t['state'] for t in pair],dtype=torch.float32)
-            gap = self.value_scale*torch.tensor([t['gap'] for t in pair],dtype=torch.float32)
-            for net in self.q:
-                auxiliary += nn.functional.smooth_l1_loss(self.pair_gap(net,states),gap)
+            auxiliary = self.critic_pair_loss(pair)
         self.q_opt.zero_grad(set_to_none=True)
         (critic+d['auxiliary_weight']*auxiliary).backward()
         nn.utils.clip_grad_norm_(self.q.parameters(),10.,error_if_nonfinite=True)
@@ -118,12 +123,16 @@ class DiscreteSAC:
         logp = self.actor(x).log_softmax(-1)
         q = torch.minimum(*(net(x).detach() for net in self.q))
         actor = (logp.exp()*(d['alpha']*self.value_scale*logp-q)).sum(-1).mean()
+        policy_auxiliary = self.actor_pair_loss(pair) if pair else None
         self.actor_opt.zero_grad(set_to_none=True)
-        actor.backward()
+        (actor if policy_auxiliary is None else actor+policy_auxiliary).backward()
         nn.utils.clip_grad_norm_(self.actor.parameters(),10.,error_if_nonfinite=True)
         self.actor_opt.step()
         with torch.no_grad():
             for target,online in zip(self.target.parameters(),self.q.parameters(),strict=True):
                 target.lerp_(online,d['tau'])
         self.updates += 1
-        return dict(actor=float(actor.detach()),critic=float(critic.detach()),auxiliary=float(auxiliary.detach()))
+        result = dict(actor=float(actor.detach()),critic=float(critic.detach()),auxiliary=float(auxiliary.detach()))
+        if policy_auxiliary is not None:
+            result['actor_auxiliary'] = float(policy_auxiliary.detach())
+        return result

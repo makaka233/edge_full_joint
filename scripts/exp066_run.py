@@ -217,7 +217,8 @@ def physical_pairs(model,c,split,ctl,opening,run,index,diagnostic=False,*,length
     start = (p-1)*seconds
     deadline = start+original.tail
     before = [r for r in sim.requests if start-seconds<=r.arrival.time<start]
-    native_key = parent.stable_seed('EXP019',c['population'],split,c['scene'],p-1,'decode')
+    decoder_seed = c['population'] if ctl.decoder_seed is None else ctl.decoder_seed
+    native_key = ctl.decode_key(decoder_seed,split,c['scene'],p-1)
     proposals = [('keep',0,candidate),('native',1,candidate)]
     proposals.extend((label,1,matrix) for label,matrix in extra_proposals)
     if diagnostic:

@@ -49,6 +49,12 @@ class RolloutControl:
     observe_period: int | None = None
     trace_requests: bool = False
     arrival_innovation: int | None = None
+    fixed_decode_key: int | None = None
+
+    def decode_key(self,decoder_seed,split,scene,slot):
+        if self.fixed_decode_key is not None:
+            return self.fixed_decode_key
+        return stable_seed('EXP019',decoder_seed,split,scene,slot,'decode')
 
 
 class PeriodUpdates:
@@ -328,7 +334,7 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
                 return action
 
             scheduler = counted
-        decode_key = stable_seed('EXP019', decoder_seed, split, scene, i, 'decode')
+        decode_key = control.decode_key(decoder_seed,split,scene,i)
         if profile:
             decode_tick = time.perf_counter()
             proposal_decode_seconds = 0.

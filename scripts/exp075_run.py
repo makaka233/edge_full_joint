@@ -37,15 +37,15 @@ def case_for(seed,split,tag,first,pressure=None,trial=0):
                 scene=phys.stable_seed(*key,'scene'),population=phys.stable_seed(*key,'population'))
 
 
-def native_transition(base,plan,seed,tag,pressure):
+def native_transition(base,plan,seed,tag,pressure,*,mode='regional',make_case=case_for):
     # Only demand labels and the registered transition length select the trajectory.
     for attempt in range(512):
-        case=case_for(seed,'audit',tag,'stable',pressure,attempt)
+        case=make_case(seed,'audit',tag,'stable',pressure,attempt)
         w=phys.environment(base,plan,case,'holdout').w
         start=w.segment_end
         for _ in range(start):
             w.advance()
-        if w.mode!='regional' or w.transition<2:
+        if w.mode!=mode or w.transition<2:
             continue
         transition=w.transition
         end=w.segment_end
@@ -526,7 +526,6 @@ def render():
     held=[phys.read(p) for p in sorted(ROOT.glob('held.*.json'))]
     smoke=ROOT/'smoke'/'checks.json'
     registered=ROOT/'protocol.json'
-    verified=len(points)==4 and data is not None
     lines=['# EXP075 部署保持与 Gate 学习','',
            f'源码基线 `{PARENT}`。EXP074 保留原晋级判定，正式三种子当时没有执行。'
            '本轮烟测只作为工程校准。预登记见 [PROTOCOL.md](PROTOCOL.md)。','',
@@ -550,21 +549,7 @@ def render():
                     f"三个当前需求候选相对 KEEP 的 ΔReward 为 {min(r):+.4f} 至 {max(r):+.4f}。"
                     '正式代表范围见预登记场景。','']
     lines+=physical_report(points,data)+['','## P1 环境设计判断','']
-    if verified:
-        scale_flips=[]
-        for d in (p for p in points if p['tag']=='stable'):
-            gaps=[difference(w)['reward'] for w in d['windows'].values()]
-            if min(gaps)<-.21 and max(gaps)>.21:
-                scale_flips.append(d['case']['tag'])
-        lines+=['结论 A。保留现有 24 秒物理推进进行同环境正式对照。已通过同流及成本复核。'
-                '这个判断适用于当前固定窗口实验。更长物理周期的收益与动作排序独立报告。'
-                '物理时钟与需求时钟分离见 `LongDemandWorld.advance()` 和 `adaptive_training.episode()`。'
-                '原 Reward、部署成本、D/S 和需求参数沿用登记。']
-        lines+=['',('观察到明确方向翻转的开口为 '+ '、'.join(scale_flips)+
-                    '。24 秒策略的收益结论限于该窗口。' if scale_flips else
-                    '两个开口均未出现相反的明确收益方向。样本只覆盖登记的窗口和开口。')]
-    else:
-        lines+=['正式任务先完成物理审计，再进入三种子在线对照。']
+    lines+=environment_evidence(points,data)
     lines+=['']+learning_report(train,held)+['',
             '本轮固定 D/S。恢复联合训练与延长至约 500 GS 须依据完整独立端点，程序不会自动加预算。','',
             '## 原始曲线与复现','']
@@ -574,6 +559,40 @@ def render():
     lines+=['','```powershell','python -m scripts.exp075_run smoke','python -m scripts.exp075_run all',
             'python -m scripts.exp075_run report','```','']
     atomic(REVIEW,lambda f:f.write('\n'.join(lines).encode('utf8')))
+
+
+def environment_evidence(points,timeline_data):
+    lines=[]
+    if points:
+        lines.append(f'成本账本与配对流核验覆盖已写入的 {len(points)} 个开口。'
+                     '该核验支持同环境对照的内部一致性。')
+        flips=0
+        scales=0
+        for d in points:
+            if len(d['windows'])==3:
+                gaps=[difference(w)['reward'] for w in d['windows'].values()]
+                flips+=int(min(gaps)<-.21 and max(gaps)>.21)
+                scales+=1
+        if scales:
+            lines.append(f'物理窗口敏感性覆盖 {scales} 个开口，其中 {flips} 个出现明确方向翻转。'
+                         '跨窗口普遍稳定性仍需更多代表性状态。')
+        compared=[d for d in points if d['decoder_bits'] and d['demand_bits']]
+        if compared:
+            count=sum(min(d['decoder_bits'])>max(d['demand_bits']) for d in compared)
+            lines.append(f'候选矩阵距离在 {count}/{len(compared)} 个开口由换键产生更大的变化。'
+                         '时机收益由随机搜索还是需求适配主导仍是开放问题。')
+        choices=[difference(d['windows']['24'],a) for d in points
+                 for a in ('current0','current1','current2') if a in d['windows']['24']['arms']]
+        wins=sum(x['delay']>0 and x['reward']<0 and x['delay']>x['holding'] for x in choices)
+        lines.append(f'有 {wins} 个候选的时延节省覆盖增量持有成本，计入切换后 KEEP 才更优。'
+                     '切换权重的普遍经济量级仍待独立检验。')
+    if timeline_data:
+        phases=timeline_data['arms']
+        a,b=(phases[k]['phases'] for k in ('keep','2h'))
+        lines.append(f'单条自然时间线中，KEEP 相对两小时策略的稳定/新稳定段 Reward 差为 '
+                     f'{a["stable"]["reward"]-b["stable"]["reward"]:+.4f}/'
+                     f'{a["new-stable"]["reward"]-b["new-stable"]["reward"]:+.4f}。')
+    return lines or ['物理与经济证据仍待生成。']
 
 
 def main():

@@ -219,12 +219,14 @@ def paired_value(model,c,split,ctl,opening,run,episode_id):
 
 
 @torch.no_grad()
-def physical_run(base,plan,c,arm,run,model,index,split='holdout',*,rollout_factory=Rollout,branch_runner=paired_value):
+def physical_run(base,plan,c,arm,run,model,index,split='holdout',*,rollout_factory=Rollout,branch_runner=paired_value,
+                 fixed_decode_key=None):
     start = perf_counter()
     cfg,d,s,g = model
     training = split=='train'
     e = environment(base,plan,c,split)
-    ctl = RolloutControl(environment_seed=c['population'],epsilon=0.,sample_d=False,loads=(c['pressure'],)*cfg.periods)
+    ctl = RolloutControl(environment_seed=c['population'],epsilon=0.,sample_d=False,loads=(c['pressure'],)*cfg.periods,
+                         fixed_decode_key=fixed_decode_key)
     path = rollout_factory(run,training,arm,cfg.periods)
     demand_rows = []
     captured = None

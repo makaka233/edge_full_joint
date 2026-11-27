@@ -223,6 +223,9 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
     if d_settled_credit and (not collect or not 0.<env.tail<cfg.period_seconds):
         raise ValueError('Settled credit requires online training and at most one open old cohort')
     mode = cfg.macro_mode if mode is None else mode
+    cadence = getattr(cfg,'redeploy_every',1)
+    if not isinstance(cadence,int) or cadence<1:
+        raise ValueError('Fixed redeployment cadence must be a positive number of periods')
     # Natively evolving regimes retain the original parameters. Simulated periods are compact.
     if env.w.amplitude != 0. or env.cost['latency_objective'] != 'period_mean':
         raise ValueError('EXP019 requires stationary within-period demand and original period_mean cost')
@@ -295,6 +298,8 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
             action = 'KEEP' if target is None else 'REDEPLOY'
         elif timing_policy is not None:
             action = 'REDEPLOY' if observe_proposal or timing_policy(env, sim, demand, previous, period, x) else 'KEEP'
+        elif mode == 'redeploy' and cadence>1:
+            action = 'REDEPLOY' if i%cadence==0 else 'KEEP'
         else:
             choose = rng.random() < p if online else p >= .5
             action = 'REDEPLOY' if choose else 'KEEP'
@@ -368,8 +373,10 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
                 if not timing_policy(env, sim, demand, previous, period, x, target):
                     action, target, fallback = 'KEEP', None, None
                     latent = latent_mean = None
-            if d_audit is not None and period == 2:
+            anchor = 2 if cadence==1 else 1+cadence
+            if d_audit is not None and period == anchor:
                 d_audit['anchor'] = (env, demand.copy(), decode_key, base, extra_signal, mean.detach())
+                d_audit['anchor_period'] = period
         elif intervene and control.focal_latent is not None:
             proposal = decode_placement(cfg, env, np.asarray(control.focal_latent, dtype=np.float32), decode_key)
             target, fallback = proposal.matrix, proposal.coverage_fallback
@@ -525,7 +532,8 @@ def audit_d_update(cfg, policy, ledger, audit, returns, values, advantages, disc
     a, b = (decode_placement(cfg, env, mean.numpy(), key, node_demand=demand).matrix for mean in (before, after))
     # Replicas are never changed by the audit. It compares two decodes of the same pre-action state.
     return dict(d_value_mae=float(advantages.abs().mean()), d_anchor_changed_bits=int((a ^ b).sum()),
-                d_anchor_gs=ledger[1]['gs'], d_anchor_before=matrix_hex(a), d_anchor_after=matrix_hex(b),
+                d_anchor_gs=ledger[audit.get('anchor_period',2)-1]['gs'],
+                d_anchor_before=matrix_hex(a), d_anchor_after=matrix_hex(b),
                 d_anchor_mean_before=before.tolist(), d_anchor_mean_after=after.tolist(),
                 d_anchor_live_mean_delta=sensitivity,
                 d_audit_decodes=2, d_audit_decode_seconds=time.perf_counter()-start)
@@ -582,7 +590,10 @@ def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, 
     d_extra = {}
     if d_terms:
         opt.zero_grad(set_to_none=True)
-        (torch.stack(d_terms).sum() / len(ledger)).backward()
+        actor_loss = torch.stack(d_terms).sum() / len(ledger)
+        actor_loss.backward()
+        if hasattr(cfg,'redeploy_every'):
+            d_extra['d_loss'] = float(actor_loss.detach())
         if stage_start is not None:
             stage_grad = torch.cat([p.grad.flatten() for p in d.stage.parameters()])
             d_extra['d_stage_gradient'] = float(torch.linalg.vector_norm(stage_grad))

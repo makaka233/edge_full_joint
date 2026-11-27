@@ -60,10 +60,11 @@ def seed_weights(path, cfg, d, s):
     return dict(kind='exp018_weights', file=str(path.resolve()), source_gs=int(data['gs']))
 
 
-def fixed(cfg, d, s, gate, index, *, world_factory=make_world, simulator_factory=PeriodSimulator):
+def fixed(cfg, d, s, gate, index, *, world_factory=make_world, simulator_factory=PeriodSimulator,
+          scenes=FIXED):
     action_count = s.actions
     with torch.no_grad():
-        result = [row for scene in FIXED
+        result = [row for scene in scenes
                   for row in episode(cfg, world_factory(cfg.seed, scene, 'fixed'), d, s, gate, scene, 'fixed', index,
                                      simulator_factory=simulator_factory)[0]]
     s.actions = action_count
@@ -83,7 +84,8 @@ def restore_actor_optimizer(opt, saved, configured_lr, override, saved_override)
 
 def train(cfg, out, target, *, resume=False, init=None, world_factory=make_world,
           simulator_factory=PeriodSimulator, environment_id=None, initial_snapshot=None,
-          resume_d_actor_lr=None, resume_d_settled_offset=None):
+          resume_d_actor_lr=None, resume_d_settled_offset=None, train_scenes=None,
+          fixed_scenes=FIXED, evaluation_episodes=None):
     if resume_d_actor_lr is not None and (not resume or cfg.freeze_ds or
                                          not isfinite(resume_d_actor_lr) or resume_d_actor_lr<=0.):
         raise ValueError('Actor learning-rate override requires positive joint resume training')
@@ -175,7 +177,8 @@ def train(cfg, out, target, *, resume=False, init=None, world_factory=make_world
         if environment_id is not None:
             current['environment_id'] = environment_id
         if evaluate:
-            rows = fixed(cfg, d, s, gate, index, world_factory=world_factory, simulator_factory=simulator_factory)
+            rows = fixed(cfg, d, s, gate, index, world_factory=world_factory,
+                         simulator_factory=simulator_factory,scenes=fixed_scenes)
             offsets['fixed.jsonl'] = append(out/'fixed.jsonl', rows)
             score = float(np.mean([r['reward_net'] for r in rows]))
             if best is None or score > best['fixed_reward_net']:
@@ -208,12 +211,13 @@ def train(cfg, out, target, *, resume=False, init=None, world_factory=make_world
         snapshot(True, 0.)
     metadata = dict(format=FORM, deployment_model=DEPLOYMENT_MODEL,
                     config=asdict(cfg), origin=origin, source_history=history,
-                    fixed_scenes=FIXED, holdout_scenes=HOLDOUT)
+                    fixed_scenes=fixed_scenes, holdout_scenes=HOLDOUT)
     if environment_id is not None:
         metadata['environment_id'] = environment_id
     atomic(out/'manifest.json', lambda file: file.write(line(metadata)))
     for index in range(index+1, target+1):
-        scene = stable_seed('EXP019', cfg.seed, 'train-scene', index)
+        scene = (stable_seed('EXP019', cfg.seed, 'train-scene', index) if train_scenes is None
+                 else train_scenes[index-1])
         period_updates = PeriodUpdates(cfg, s, replay, index) if cfg.s_update_timing == 'period' and not cfg.freeze_ds else None
         d_audit = {} if cfg.d_diagnostics else None
         ledger, credit, transitions = episode(cfg, world_factory(cfg.seed, scene, 'train'), d, s, gate,
@@ -231,7 +235,8 @@ def train(cfg, out, target, *, resume=False, init=None, world_factory=make_world
         d_updates = change['d_updates']
         offsets['train.jsonl'] = append(out/'train.jsonl', ledger)
         offsets['updates.jsonl'] = append(out/'updates.jsonl', [change])
-        snapshot(index % cfg.eval_every == 0 or index == target, wall+time.perf_counter()-start)
+        evaluate = index % cfg.eval_every == 0 if evaluation_episodes is None else index in evaluation_episodes
+        snapshot(evaluate or index == target, wall+time.perf_counter()-start)
         label = f'proposed seed={cfg.seed} ' if environment_id is not None else ''
         print(f'{label}episode={index}/{target} gs={change["gs"]} D_updates={d_updates} S_updates={s.updates} '
               f'net_reward={np.mean([r["reward_net"] for r in ledger]):.6f}', flush=True)

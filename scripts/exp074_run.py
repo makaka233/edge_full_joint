@@ -217,11 +217,18 @@ class EightHour(phys.Rollout):
         return clocks.use_clock(p,4)
 
 
-def evaluate(base,plan,case,slots,split,policy,run=None):
+class AlwaysKeep(phys.Rollout):
+    def choose(self,e,sim,demand,previous,p,x,candidate):
+        return False
+
+
+def evaluate(base,plan,case,slots,split,policy,run=None,*,fixed_decode_key=None):
     tick=perf_counter()
     model=phys.model_for(base,plan,case['seed'],slots)
-    opts=dict(rollout_factory=EightHour) if policy=='8h' else {}
-    rows,_,work=phys.physical_run(base,plan,case,'A' if policy=='2h' else 'gate',run,model,1,split,**opts)
+    factories={'8h':EightHour,'keep':AlwaysKeep}
+    opts=dict(rollout_factory=factories[policy]) if policy in factories else {}
+    rows,_,work=phys.physical_run(base,plan,case,'A' if policy=='2h' else 'gate',run,model,1,split,
+                                  fixed_decode_key=fixed_decode_key,**opts)
     return dict(rows=rows,work=work,summary=metrics(rows),seconds=perf_counter()-tick)
 
 
@@ -252,7 +259,7 @@ def validate_update_logs(plan,run,path,arm):
             raise AssertionError('Maturity or exposure limit exceeded')
 
 
-def train(root,base,plan,seed,arm,*,make_learner=learner,label='EXP074'):
+def train(root,base,plan,seed,arm,*,make_learner=learner,label='EXP074',decoder=None,factual_only=False):
     out=phys.run_files(root,seed,arm)
     file=out/'resume_latest.pt'
     stamp=phys.fingerprint(plan)
@@ -270,9 +277,12 @@ def train(root,base,plan,seed,arm,*,make_learner=learner,label='EXP074'):
         else:
             resume=dict(stamp=stamp,seed=seed,arm=arm,episodes=0,initial=initial,best=None)
         # Initial actor is identical for every arm. One evaluation per seed.
-        fixed0=root/f'fixed0.{seed}.json'
+        fixed_key=None if decoder is None else decoder(fixed,'fixed')
+        key_label='.field' if fixed_key is not None else ''
+        fixed0=root/f'fixed0.{seed}{key_label}.json'
         if not fixed0.exists():
-            reference=evaluate(base,plan,fixed,plan['fixed_slots'],'fixed','gate',learner(seed,'A'))
+            reference=evaluate(base,plan,fixed,plan['fixed_slots'],'fixed','gate',learner(seed,'A'),
+                               fixed_decode_key=fixed_key)
             phys.write(fixed0,dict(reference,initial=initial,source=phys.source()))
         if phys.read(fixed0)['initial']!=initial:
             raise ValueError('A/B/C Gate initialization differs')
@@ -280,21 +290,23 @@ def train(root,base,plan,seed,arm,*,make_learner=learner,label='EXP074'):
         for i,c in enumerate(cases[resume['episodes']:],resume['episodes']+1):
             tick=perf_counter()
             run.slot_offset=(i-1)*n
-            rows,path,work=phys.physical_run(base,plan,c,'baseline' if arm=='A' else arm,run,model,i,'train',
-                rollout_factory=partial(TimingTraining,anchors=plan['anchors']),
-                branch_runner=partial(follow.paired_policy,windows=(HORIZON,)))
+            key=None if decoder is None else decoder(c,'train')
+            opts={} if factual_only else dict(rollout_factory=partial(TimingTraining,anchors=plan['anchors']),
+                                               branch_runner=partial(follow.paired_policy,windows=(HORIZON,)))
+            rows,path,work=phys.physical_run(base,plan,c,'baseline' if factual_only or arm=='A' else arm,
+                                             run,model,i,'train',fixed_decode_key=key,**opts)
             elapsed=perf_counter()-tick
             total=2*i*(n-1)
             if run.updates!=total or len(run.replay)!=i*(n-1):
                 raise AssertionError('Factual Replay or gradient budget differs')
-            validate_update_logs(plan,run,path,arm)
+            validate_update_logs(plan,run,path,'A' if factual_only else arm)
             if c['pressure'] is not None and not all(np.isclose(r['offered_cpu_load'],c['pressure'],
                                                         atol=1e-8,rtol=0.) for r in rows):
                 raise AssertionError('Pressure trajectory differs from preregistration')
             end=state_digests(run)
             if any(end[k]==initial[k] for k in initial):
                 raise AssertionError('Actor or Critic never changed')
-            fixed_row=evaluate(base,plan,fixed,plan['fixed_slots'],'fixed','gate',run)
+            fixed_row=evaluate(base,plan,fixed,plan['fixed_slots'],'fixed','gate',run,fixed_decode_key=fixed_key)
             phys.same_flow(phys.read(fixed0)['rows'],fixed_row['rows'])
             summary=metrics(rows)
             score=fixed_row['summary']['reward']
@@ -304,7 +316,8 @@ def train(root,base,plan,seed,arm,*,make_learner=learner,label='EXP074'):
                 resume['best']=score
             exp=dict(gs=i*n,case=c,arm=arm,stamp=stamp,rows=rows,summary=summary,work=work,
                      pairs=path.pairs,credit=run.pairs,trace=path.updates,updates=total,
-                     fixed=fixed_row,hashes=end,initial=initial,seconds=elapsed,source=phys.source())
+                     fixed=fixed_row,decoder_key=key,fixed_decoder_key=fixed_key,
+                     hashes=end,initial=initial,seconds=elapsed,source=phys.source())
             phys.write(out/f'episode{i}.json',exp)
             resume.update(episodes=i,learner=run.snapshot())
             publish(file,resume)
@@ -426,10 +439,11 @@ def figures(root,train,held):
                 ax.set(ylabel=title,xlabel='GS')
         axes[0,0].legend()
         save(fig,f'train.{s}.png')
-        f0=phys.read(root/f'fixed0.{s}.json')['summary']
         fig,axes=plt.subplots(3,2,figsize=(10,8),sharex=True)
         for a in ARMS:
             cs=[d for d in docs if d['arm']==a]
+            key_label='.field' if cs and cs[0].get('fixed_decoder_key') is not None else ''
+            f0=phys.read(root/f'fixed0.{s}{key_label}.json')['summary']
             for ax,key in zip(axes.flat,('reward','e2e','p99','severe','censored','cpu'),strict=True):
                 ax.plot([0,*[d['gs'] for d in cs]],[f0[key],*[d['fixed']['summary'][key] for d in cs]],'.-',label=a)
                 ax.set(ylabel=key,xlabel='Training GS at frozen validation')

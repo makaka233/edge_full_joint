@@ -80,6 +80,10 @@ class DiscreteSAC:
     def auxiliary_diagnostics(self,stage,main,auxiliary):
         return {}
 
+    def critic_sample(self,batch):
+        """Return the factual critic batch and optional sampling counters."""
+        return batch,{}
+
     @torch.no_grad()
     def targets(self,batch):
         d = SETTINGS
@@ -112,7 +116,8 @@ class DiscreteSAC:
     def update(self):
         d = SETTINGS
         batch = [self.replay[int(i)] for i in self.sample_rng.integers(len(self.replay),size=d['batch'])]
-        x,a,goal = self.targets(batch)
+        critic_batch,sampling = self.critic_sample(batch)
+        x,a,goal = self.targets(critic_batch)
         predicted = [net(x).gather(1,a[:,None]).squeeze(1) for net in self.q]
         critic = sum(nn.functional.smooth_l1_loss(q,goal) for q in predicted)
         auxiliary = critic.new_zeros(())
@@ -125,6 +130,8 @@ class DiscreteSAC:
         (critic+d['auxiliary_weight']*auxiliary).backward()
         nn.utils.clip_grad_norm_(self.q.parameters(),10.,error_if_nonfinite=True)
         self.q_opt.step()
+        if critic_batch is not batch:
+            x = torch.tensor([s[0]['state'] for s in batch],dtype=torch.float32)
         logp = self.actor(x).log_softmax(-1)
         q = torch.minimum(*(net(x).detach() for net in self.q))
         actor = (logp.exp()*(d['alpha']*self.value_scale*logp-q)).sum(-1).mean()
@@ -140,7 +147,7 @@ class DiscreteSAC:
                 target.lerp_(online,d['tau'])
         self.updates += 1
         result = dict(actor=float(actor.detach()),critic=float(critic.detach()),auxiliary=float(auxiliary.detach()),
-                      **diagnostics)
+                      **diagnostics,**sampling)
         if policy_auxiliary is not None:
             result['actor_auxiliary'] = float(policy_auxiliary.detach())
         return result

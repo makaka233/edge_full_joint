@@ -1,0 +1,1 @@
+{"seed":20261114,"arm":"C","fields":["d","s","d_optimizer","gate_optimizer","replay","rng","offsets"],"episode":63,"d_updates":63,"s_updates":4032,"target_environment":"d538372613bda87fd70efa8a705ef96b1dd141a49cccaee2975ba9f04330f1be"}

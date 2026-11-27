@@ -10,6 +10,7 @@ from edge_d.physical import hasharr
 from edge_d.placement import ResourceGaussianPolicy, StructuredPlacementPolicy, decode
 from edge_d.world import stable_seed
 from edge_joint.inventory_joint import Config as BaseConfig, initialize, load_scale, parameters
+from edge_s.agent import resource_advantage
 
 from .adaptive_physics import PeriodSimulator, switch_cost
 from .placement_state import capture_resources, feature_count, resource_features
@@ -323,6 +324,23 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
             epsilon = control.epsilon
         schedule_rng = np.random.default_rng(stable_seed('EXP019', traffic_seed, split, scene, i, 'schedule'))
         scheduler = s.scheduler(schedule_rng, epsilon)
+        s_samples = []
+        if train_scheduler and getattr(cfg,'record_s_policy_sample',False):
+            @torch.no_grad()
+            def sampled(obs,mask,base=scheduler,samples=s_samples):
+                selected = base(obs,mask)
+                if s.actions%128 == 0:
+                    x = torch.as_tensor(obs[None])
+                    legal = np.flatnonzero(mask)
+                    dq = s.team_q(x)[0].numpy()
+                    raw = s.online(x)[0].numpy()
+                    prior = resource_advantage(x,s.config.latency_ref_seconds)[0].numpy()
+                    samples.append(dict(stage=float(obs[0,11]),selected=selected,legal=legal.tolist(),
+                                        prior_node=int(legal[prior[legal].argmax()]),prior=prior[legal].tolist(),
+                                        q=dq[legal].tolist(),raw_residual=raw[legal].tolist(),
+                                        cpu_wait=float(np.expm1(obs[selected,16]))))
+                return selected
+            scheduler = sampled
         if control.trace:
             def traced(obs, mask, base=scheduler, rng=schedule_rng, rate=epsilon, p=period):
                 shadow.bit_generator.state = rng.bit_generator.state
@@ -453,6 +471,8 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
             rows[-1]['d_known_cohort_credit'] = settled
         if log_dispatch:
             rows[-1].update(s_updates_at_decision=s.updates, s_dispatch_counts=dispatch_counts.copy())
+        if s_samples:
+            rows[-1]['s_policy_samples']=s_samples
         if observation is not None:
             rows[-1]['placement_observation'] = observation
         if d_audit is not None:
@@ -603,6 +623,9 @@ def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, 
         if d_audit is not None:
             observed = torch.cat([p.grad.flatten() for p in d.parameters() if p.grad is not None])
             d_extra['d_gradient_after_clip'] = float(torch.linalg.vector_norm(observed))
+            if getattr(cfg,'record_d_gradient_direction',False):
+                direction=observed / torch.linalg.vector_norm(observed).clamp_min(1e-12)
+                d_extra['d_gradient_unit']=direction.tolist()
         opt.step()
         if stage_start is not None:
             d_extra['d_stage_change'] = float(torch.linalg.vector_norm(parameters(d.stage)-stage_start))

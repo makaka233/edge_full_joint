@@ -85,7 +85,7 @@ def restore_actor_optimizer(opt, saved, configured_lr, override, saved_override)
 def train(cfg, out, target, *, resume=False, init=None, world_factory=make_world,
           simulator_factory=PeriodSimulator, environment_id=None, initial_snapshot=None,
           resume_d_actor_lr=None, resume_d_settled_offset=None, train_scenes=None,
-          fixed_scenes=FIXED, evaluation_episodes=None):
+          fixed_scenes=FIXED, evaluation_episodes=None, s_pair_credit=None):
     if resume_d_actor_lr is not None and (not resume or cfg.freeze_ds or
                                          not isfinite(resume_d_actor_lr) or resume_d_actor_lr<=0.):
         raise ValueError('Actor learning-rate override requires positive joint resume training')
@@ -110,6 +110,10 @@ def train(cfg, out, target, *, resume=False, init=None, world_factory=make_world
             cfg.macro_mode != 'redeploy' or cfg.freeze_ds or init is not None):
         raise ValueError('Placement observation trials require random joint fixed-REDEPLOY')
     d, s, opt, replay, gate, gate_opt = components(cfg)
+    if getattr(cfg,'s_pair_credit_digest',None)!=getattr(s_pair_credit,'digest',None):
+        raise ValueError('Training and checkpoint configuration require the same physical credit bank')
+    if s_pair_credit is not None:
+        s.pair_credit=s_pair_credit
     d_credit_offset = torch.zeros(cfg.periods) if cfg.d_advantage_calibration else None
     d_load_moments = torch.zeros((3,cfg.periods)) if cfg.d_load_conditioned_credit else None
     d_settled_offset = None

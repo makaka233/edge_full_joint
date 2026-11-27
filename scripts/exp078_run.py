@@ -3,7 +3,7 @@
 import argparse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, replace
-from itertools import product
+from itertools import islice, product
 from pathlib import Path
 from statistics import mean
 from time import time
@@ -136,7 +136,7 @@ def audit_rows(e,rows,cadence,*,reference=False):
     return error
 
 
-def train_one(root,base,plan,seed,arm,target=None,*,label=None,cfg_override=None):
+def train_one(root,base,plan,seed,arm,target=None,*,label=None,cfg_override=None,s_pair_credit=None):
     target=plan['episodes'] if target is None else target
     out=out_for(root,seed,label or arm)
     cfg=config(base,seed,arm) if cfg_override is None else cfg_override
@@ -158,7 +158,7 @@ def train_one(root,base,plan,seed,arm,target=None,*,label=None,cfg_override=None
               simulator_factory=MeasuredMultistageSimulator,initial_snapshot=start,
               train_scenes=[r['scene'] for r in plan['blocks'][str(seed)]],
               fixed_scenes=tuple(r['scene'] for r in plan['fixed'][str(seed)]),
-              evaluation_episodes=plan['fixed_milestones'])
+              evaluation_episodes=plan['fixed_milestones'],s_pair_credit=s_pair_credit)
     state=read_checkpoint(resume)
     if (state['episode'],state['d_updates'],state['s']['updates'])!=(
             target,target,0 if fixed_s else target*SLOTS*cfg.s_updates_per_gs):
@@ -169,29 +169,31 @@ def train_one(root,base,plan,seed,arm,target=None,*,label=None,cfg_override=None
     if (weights_digest(state['d'])==origin['actor'] or not state['d_optimizer']['state']
             or s_changed==fixed_s or bool(state['s']['optimizer']['state'])==fixed_s):
         raise ValueError('Actual D/S optimization is missing')
-    rows=list(records(out/'train.jsonl'))
-    ups=list(records(out/'updates.jsonl'))
-    fixed=list(records(out/'fixed.jsonl'))
-    if len(rows)!=target*SLOTS or len(ups)!=target or state['s_actions']!=sum(map(count_actions,rows)):
-        raise ValueError('Action or update count differs from physical ledger')
-    if any(u['d_samples']!=SLOTS//cadence or u['macro_policy_samples'] or u['d_change']<=0. or
-           any((u[k]!=0 if fixed_s else u[k]<=0)
-               for k in ('s_change','s_target_change','replay_size')) for u in ups):
-        raise ValueError('Invalid D/S gradients, Replay or cadence sample count')
-    if [r['gs'] for r in rows]!=list(range(1,target*SLOTS+1)):
-        raise ValueError('Missing or duplicate GS in training ledger')
+    rows=records(out/'train.jsonl')
+    d_actions=s_actions=0
     verify=0.
+    ups=records(out/'updates.jsonl')
     for i in range(target):
-        trial=rows[i*SLOTS:(i+1)*SLOTS]
+        trial=list(islice(rows,SLOTS))
+        u=next(ups,None)
+        if [r['gs'] for r in trial]!=list(range(i*SLOTS+1,(i+1)*SLOTS+1)):
+            raise ValueError('Missing or duplicate GS in training ledger')
+        if u is None or u['d_samples']!=SLOTS//cadence or u['macro_policy_samples'] or u['d_change']<=0. or any(
+                (u[k]!=0 if fixed_s else u[k]<=0) for k in ('s_change','s_target_change','replay_size')):
+            raise ValueError('Invalid D/S gradients, Replay or cadence sample count')
+        d_actions+=u['d_samples']
+        s_actions+=sum(map(count_actions,trial))
         env=factory(seed,trial[0]['scene'],'train')
         verify=max(verify,audit_rows(env,trial,cadence))
         for r in trial:
             if r['action']=='KEEP' and (r['d_logp'] is not None or r['d_latent'] is not None):
                 raise ValueError('KEEP generated a fictitious D credit')
+    if next(rows,None) is not None or next(ups,None) is not None or state['s_actions']!=s_actions:
+        raise ValueError('Action or update count differs from physical ledger')
     proof=dict(seed=seed,arm=arm,gs=target*SLOTS,origin=origin,d_updates=state['d_updates'],
-               s_updates=state['s']['updates'],d_actions=sum(u['d_samples'] for u in ups),
+               s_updates=state['s']['updates'],d_actions=d_actions,
                s_actions=state['s_actions'],max_work_error=verify,wall_seconds=state['wall_seconds'],
-               checkpoints=sorted(set(r['episode']*SLOTS for r in fixed)),resume=phys.digest(resume),
+               checkpoints=sorted({r['episode']*SLOTS for r in records(out/'fixed.jsonl')}),resume=phys.digest(resume),
                source=phys.source())
     phys.write(out/'proof.json',proof)
     return proof

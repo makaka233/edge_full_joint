@@ -153,6 +153,9 @@ class Decisions:
         self.random_actions=0
         self.legal_sizes=legal_sizes
 
+    def score(self,x,prior,residual):
+        return prior+residual
+
     @torch.no_grad()
     def action(self,sim,r,obs,mask):
         legal=np.flatnonzero(mask).tolist()
@@ -160,7 +163,7 @@ class Decisions:
         x=torch.as_tensor(obs[None])
         prior=resource_advantage(x,self.agent.config.latency_ref_seconds)[0].numpy()
         residual=self.agent.online(x)[0].numpy()
-        total=prior+residual
+        total=self.score(x,prior,residual)
         p=legal[int(np.argmax(prior[legal]))]
         q=legal[int(np.argmax(total[legal]))]
         chosen=q if self.policy=='full' else p
@@ -283,7 +286,7 @@ def reconstruct(plan,spec,gs32):
     return captured
 
 
-def frozen(captured,p,count,policy,forced=None,archived_epsilon=False,legal_sizes=()):
+def frozen(captured,p,count,policy,forced=None,archived_epsilon=False,legal_sizes=(),*,decision_factory=Decisions):
     env,sim=fork(*captured['state'])
     # A native training fork still carries the learner's dispatch tags. Frozen
     # events must not look up those tags after replay collection has been disabled.
@@ -293,7 +296,7 @@ def frozen(captured,p,count,policy,forced=None,archived_epsilon=False,legal_size
     if loads:
         loads[p-1]=None   # The saved boundary already incorporates this period's demand setting.
     ctl=RolloutControl(environment_seed=captured['env_seed'],epsilon=0.,trace_requests=True,loads=tuple(loads))
-    sim.audit=Decisions(captured['agent'],captured['s16'],policy,forced,
+    sim.audit=decision_factory(captured['agent'],captured['s16'],policy,forced,
                         collect=forced is None and not archived_epsilon,legal_sizes=legal_sizes)
     ledger=WorkLedger(p)
     expected=captured['reference']

@@ -247,11 +247,12 @@ def placement_notes(env,rows):
 
 
 @torch.inference_mode()
-def evaluation(root,base,plan,seed,arm,case,shared=None):
+def evaluation(root,base,plan,seed,arm,case,shared=None,*,checkpoint=None,config=None):
     out=joint.out_for(root,seed,arm)
-    state=read_checkpoint(out/'last.pt')
+    checkpoint=checkpoint or out/'last.pt'
+    state=read_checkpoint(checkpoint)
     file=root/f"held.{seed}.{arm}.{case['tag']}.json"
-    stamp=phys.fingerprint(dict(plan=phys.fingerprint(plan),case=case,checkpoint=phys.digest(out/'last.pt')))
+    stamp=phys.fingerprint(dict(plan=phys.fingerprint(plan),case=case,checkpoint=phys.digest(checkpoint)))
     if file.exists():
         data=phys.read(file)
         if data['stamp']!=stamp:
@@ -260,7 +261,7 @@ def evaluation(root,base,plan,seed,arm,case,shared=None):
     if (state['episode'],state['origin'],state['environment_id'])!=(
             plan['episodes'],{'kind':'random'},phys.fingerprint(plan)):
         raise ValueError('Evaluation is not using the registered random-origin endpoint')
-    cfg=replace(settings(base,seed,arm),periods=case['slots'],freeze_ds=True)
+    cfg=replace(config or settings(base,seed,arm),periods=case['slots'],freeze_ds=True)
     control=RolloutControl(environment_seed=case['population'],loads=(case['pressure'],)*case['slots'],
                            sample_d=False,epsilon=0.)
     rows_by={}
@@ -292,7 +293,7 @@ def evaluation(root,base,plan,seed,arm,case,shared=None):
             decision=dict(n=s.decisions,overrides=s.flips,sampled_q=s.samples)
         rows_by[name]=dict(rows=rows,summary=joint.summary(rows),placement=placement_notes(env,rows),
                            decision=decision,wall_seconds=time()-tick)
-        print(f"EXP079 holdout {seed}/{arm}/{case['tag']}/{name}: {time()-tick:.1f}s",flush=True)
+        print(f"{plan.get('experiment','EXP079')} holdout {seed}/{arm}/{case['tag']}/{name}: {time()-tick:.1f}s",flush=True)
     for x in rows_by.values():
         phys.same_flow(rows_by['joint']['rows'],x['rows'])
     for a,b in (('joint','learned_d_prior'),('initial_d_learned_s','initial_d_prior'),('initial_ds','initial_d_prior')):

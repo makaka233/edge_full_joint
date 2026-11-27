@@ -208,7 +208,12 @@ class SchedulingAgent:
                                  s_weight_mean=float(w.mean()))
             q=self.team_q(x[idx]).gather(1,action[idx,None]).squeeze(1)
             loss=(F.smooth_l1_loss(q,target[idx],reduction='none')*w).mean()
-        self.optimizer.zero_grad(); loss.backward(); grad_norm=nn.utils.clip_grad_norm_(self.online.parameters(),10,error_if_nonfinite=True)
+        objective=loss
+        pair_credit=getattr(self,'pair_credit',None)
+        if pair_credit is not None:
+            objective,credit_metrics=pair_credit(self,loss)
+            diagnostics.update(credit_metrics)
+        self.optimizer.zero_grad(); objective.backward(); grad_norm=nn.utils.clip_grad_norm_(self.online.parameters(),10,error_if_nonfinite=True)
         self.optimizer.step(); polyak(self.target,self.online,self.c.tau)
         self.updates+=1
         return dict(s_loss=float(loss.detach()),s_grad_norm=float(grad_norm),**diagnostics)

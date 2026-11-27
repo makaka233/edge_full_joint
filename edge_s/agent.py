@@ -57,7 +57,8 @@ class SchedulingAgent(OriginalSchedulingAgent):
 
     Only constructor and optional action accounting are adapted to clean CLI.
     """
-    def __init__(self,seed=0,features=None,hidden=64,lr=.0003,gamma=.99,tau=.01,*,resource_q_prior=False):
+    def __init__(self,seed=0,features=None,hidden=64,lr=.0003,gamma=.99,tau=.01,*,resource_q_prior=False,
+                 residual_scale=1.,fixed_resource_policy=False):
         self.config=original_s_config(seed,hidden,lr,gamma,tau)
         self.features=observation_dim(self.config)
         self.resource_q_prior=resource_q_prior
@@ -66,13 +67,25 @@ class SchedulingAgent(OriginalSchedulingAgent):
             raise ValueError('Resource Q requires the original 24-feature stage-delay DDQN')
         if features is not None and int(features)!=self.features:
             raise ValueError(f'S feature dimension mismatch: expected {self.features}, configured {features}')
+        self.residual_scale=residual_scale
+        self.fixed_resource_policy=fixed_resource_policy
+        if (fixed_resource_policy or residual_scale!=1.) and not resource_q_prior:
+            raise ValueError('The S controls require the resource prior')
+        if not 0.<residual_scale<=1.:
+            raise ValueError('The S advantage scale must be in (0, 1]')
         torch.manual_seed(int(seed)+941)
         super().__init__(self.config)
         self.actions=0
 
     def team_q(self,x,target=False):
+        if self.fixed_resource_policy:
+            return resource_advantage(x,self.config.latency_ref_seconds)
         value=super().team_q(x,target)
         if self.resource_q_prior:
+            if self.residual_scale!=1.:
+                legal=(x[...,7]>.5).to(value.dtype)
+                center=(value*legal).sum(-1,keepdim=True)/legal.sum(-1,keepdim=True).clamp_min(1.)
+                value=center+self.residual_scale*(value-center)
             value=value+resource_advantage(x,self.config.latency_ref_seconds)
         return value
 
@@ -80,7 +93,7 @@ class SchedulingAgent(OriginalSchedulingAgent):
         return self.scheduler(rng,epsilon)(obs,mask)
 
     def scheduler(self,rng,epsilon=0.):
-        impl=super().scheduler(rng,epsilon)
+        impl=super().scheduler(rng,0. if self.fixed_resource_policy else epsilon)
         def select(obs,mask):
             if np.asarray(obs).shape != (self.config.n,self.features):
                 raise ValueError(f'Original S observation mismatch: {np.asarray(obs).shape}')

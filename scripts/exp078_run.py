@@ -136,10 +136,12 @@ def audit_rows(e,rows,cadence,*,reference=False):
     return error
 
 
-def train_one(root,base,plan,seed,arm,target=None,*,label=None):
+def train_one(root,base,plan,seed,arm,target=None,*,label=None,cfg_override=None):
     target=plan['episodes'] if target is None else target
     out=out_for(root,seed,label or arm)
-    cfg=config(base,seed,arm)
+    cfg=config(base,seed,arm) if cfg_override is None else cfg_override
+    fixed_s=getattr(cfg,'s_fixed_resource_policy',False)
+    cadence=cfg.redeploy_every
     origin=initial_proof(base,seed,'B')
     factory=make_factory(base,plan,seed)
     stamp=phys.fingerprint(plan)
@@ -158,20 +160,23 @@ def train_one(root,base,plan,seed,arm,target=None,*,label=None):
               fixed_scenes=tuple(r['scene'] for r in plan['fixed'][str(seed)]),
               evaluation_episodes=plan['fixed_milestones'])
     state=read_checkpoint(resume)
-    if (state['episode'],state['d_updates'],state['s']['updates'])!=(target,target,target*SLOTS*cfg.s_updates_per_gs):
+    if (state['episode'],state['d_updates'],state['s']['updates'])!=(
+            target,target,0 if fixed_s else target*SLOTS*cfg.s_updates_per_gs):
         raise ValueError('Actual D/S optimizer budget differs from registration')
     if state['origin']!={'kind':'random'} or not projection_matches(read_checkpoint(out/'last.pt'),state):
         raise ValueError('Final parameters do not match the resumable random-origin run')
-    if (weights_digest(state['d'])==origin['actor'] or weights_digest(state['s_online'])==origin['s_online']
-            or not state['d_optimizer']['state'] or not state['s']['optimizer']['state']):
+    s_changed=weights_digest(state['s_online'])!=origin['s_online']
+    if (weights_digest(state['d'])==origin['actor'] or not state['d_optimizer']['state']
+            or s_changed==fixed_s or bool(state['s']['optimizer']['state'])==fixed_s):
         raise ValueError('Actual D/S optimization is missing')
     rows=list(records(out/'train.jsonl'))
     ups=list(records(out/'updates.jsonl'))
     fixed=list(records(out/'fixed.jsonl'))
     if len(rows)!=target*SLOTS or len(ups)!=target or state['s_actions']!=sum(map(count_actions,rows)):
         raise ValueError('Action or update count differs from physical ledger')
-    if any(u['d_samples']!=SLOTS//ARMS[arm] or u['macro_policy_samples'] or
-           min(u['d_change'],u['s_change'],u['s_target_change'],u['replay_size'])<=0 for u in ups):
+    if any(u['d_samples']!=SLOTS//cadence or u['macro_policy_samples'] or u['d_change']<=0. or
+           any((u[k]!=0 if fixed_s else u[k]<=0)
+               for k in ('s_change','s_target_change','replay_size')) for u in ups):
         raise ValueError('Invalid D/S gradients, Replay or cadence sample count')
     if [r['gs'] for r in rows]!=list(range(1,target*SLOTS+1)):
         raise ValueError('Missing or duplicate GS in training ledger')
@@ -179,7 +184,7 @@ def train_one(root,base,plan,seed,arm,target=None,*,label=None):
     for i in range(target):
         trial=rows[i*SLOTS:(i+1)*SLOTS]
         env=factory(seed,trial[0]['scene'],'train')
-        verify=max(verify,audit_rows(env,trial,ARMS[arm]))
+        verify=max(verify,audit_rows(env,trial,cadence))
         for r in trial:
             if r['action']=='KEEP' and (r['d_logp'] is not None or r['d_latent'] is not None):
                 raise ValueError('KEEP generated a fictitious D credit')
@@ -326,9 +331,10 @@ def metrics_str(x,keys,n=4):
     return '/'.join(fmt(x[k],n) for k in keys.split())
 
 
-def committed_training():
+def committed_training(root=None):
+    root=ROOT if root is None else root
     result={}
-    for file in sorted(ROOT.glob('*.seed*/proof.json')):
+    for file in sorted(root.glob('*.seed*/proof.json')):
         proof=phys.read(file)
         out=RunFiles(file.parent,nested=True)
         online=list(records(out/'train.jsonl'))

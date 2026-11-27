@@ -218,7 +218,8 @@ def train(cfg, out, target, *, resume=False, init=None, world_factory=make_world
     for index in range(index+1, target+1):
         scene = (stable_seed('EXP019', cfg.seed, 'train-scene', index) if train_scenes is None
                  else train_scenes[index-1])
-        period_updates = PeriodUpdates(cfg, s, replay, index) if cfg.s_update_timing == 'period' and not cfg.freeze_ds else None
+        learn_s = not cfg.freeze_ds and not getattr(cfg,'s_fixed_resource_policy',False)
+        period_updates = PeriodUpdates(cfg, s, replay, index) if cfg.s_update_timing == 'period' and learn_s else None
         d_audit = {} if cfg.d_diagnostics else None
         ledger, credit, transitions = episode(cfg, world_factory(cfg.seed, scene, 'train'), d, s, gate,
                                               scene, 'train', index, simulator_factory=simulator_factory,

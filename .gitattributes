@@ -1,1 +1,5 @@
 * -text whitespace=cr-at-eol
+runs/results/EXP079/**/resume_latest.pt filter=lfs diff=lfs merge=lfs -text
+runs/results/EXP079/**/train.jsonl filter=lfs diff=lfs merge=lfs -text
+runs/results/EXP079/**/fixed.jsonl filter=lfs diff=lfs merge=lfs -text
+runs/results/EXP079/held.*.json filter=lfs diff=lfs merge=lfs -text

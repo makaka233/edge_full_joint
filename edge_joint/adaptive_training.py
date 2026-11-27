@@ -212,13 +212,14 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
     started = time.perf_counter()
     online = split == 'train'
     collect = online and not cfg.freeze_ds and recorded_matrices is None
+    collect_s = collect and not getattr(cfg,'s_fixed_resource_policy',False)
     if timing_policy is not None and (not cfg.freeze_ds or recorded_matrices is not None):
         raise ValueError('External timing decisions require frozen D/S and no recorded matrices')
     if observe_proposal and (timing_policy is None or control.sample_d is not False or control.focal_latent is not None):
         raise ValueError('Proposal-aware timing requires one frozen mean proposal per decision')
     if (opening_proposal is not None or opening_previous is not None) and (continuation is None or not observe_proposal):
         raise ValueError('An opening proposal or demand history requires a proposal-aware frozen continuation')
-    if period_updates is not None and not collect:
+    if period_updates is not None and not collect_s:
         raise ValueError('Incremental DDQN needs a collecting online episode')
     if d_settled_credit and (not collect or not 0.<env.tail<cfg.period_seconds):
         raise ValueError('Settled credit requires online training and at most one open old cohort')
@@ -310,11 +311,12 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
         old = env.old.copy()
         backlog = sim.active_requests if sim is not None else 0
         carried = sum(r.pending is not None for r in sim.requests) if sim is not None else 0
-        epsilon = max(.05, .25 - .20 * (gs - 1) / (cfg.epsilon_steps - 1)) if online and not cfg.freeze_ds else 0.
+        train_scheduler = online and not cfg.freeze_ds and not getattr(cfg,'s_fixed_resource_policy',False)
+        epsilon = max(.05, .25 - .20 * (gs - 1) / (cfg.epsilon_steps - 1)) if train_scheduler else 0.
         log_cold_start = hasattr(cfg, 's_uniform_before_first_update')
         log_work = getattr(cfg, 'log_physical_work', False)
         log_dispatch = log_cold_start or log_work
-        if collect and getattr(cfg, 's_uniform_before_first_update', False) and s.updates == 0:
+        if collect_s and getattr(cfg, 's_uniform_before_first_update', False) and s.updates == 0:
             epsilon = 1.
         intervene = control.focal_period in (None, period)
         if intervene and control.epsilon is not None:
@@ -383,7 +385,7 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
         if profile:
             decode_seconds = time.perf_counter() - decode_tick
         if sim is None:
-            sim = simulator_factory(env, target, scheduler, index, s.version, collect,
+            sim = simulator_factory(env, target, scheduler, index, s.version, collect_s,
                                   track_dispatch=period_updates is not None,
                                   observe_placement=observe)
             sim.trace_enabled = control.trace or control.trace_requests
@@ -484,7 +486,7 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
     sim.end_replay()
     rows[-1].update(drain_decisions=sim.decisions-before_drain, episode_wall_seconds=time.perf_counter()-started,
                     residual_requests=sim.active_requests)
-    if collect and (len(sim.transitions) != sim.decisions or
+    if collect_s and (len(sim.transitions) != sim.decisions or
                     len({(r.request_id, r.stage_index) for r in sim.transitions}) != len(sim.transitions)):
         raise AssertionError('Continuous DDQN transition ledger does not reconcile')
     for row, requests in zip(rows, cohort, strict=True):

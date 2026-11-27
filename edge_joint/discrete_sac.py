@@ -77,6 +77,9 @@ class DiscreteSAC:
     def actor_pair_loss(self,pair):
         return None
 
+    def auxiliary_diagnostics(self,stage,main,auxiliary):
+        return {}
+
     @torch.no_grad()
     def targets(self,batch):
         d = SETTINGS
@@ -114,8 +117,10 @@ class DiscreteSAC:
         critic = sum(nn.functional.smooth_l1_loss(q,goal) for q in predicted)
         auxiliary = critic.new_zeros(())
         pair = self.sample_pairs(min(8,d['batch'])) if self.pairs else []
+        diagnostics = {}
         if pair:
             auxiliary = self.critic_pair_loss(pair)
+            diagnostics.update(self.auxiliary_diagnostics('critic',critic,d['auxiliary_weight']*auxiliary))
         self.q_opt.zero_grad(set_to_none=True)
         (critic+d['auxiliary_weight']*auxiliary).backward()
         nn.utils.clip_grad_norm_(self.q.parameters(),10.,error_if_nonfinite=True)
@@ -124,6 +129,8 @@ class DiscreteSAC:
         q = torch.minimum(*(net(x).detach() for net in self.q))
         actor = (logp.exp()*(d['alpha']*self.value_scale*logp-q)).sum(-1).mean()
         policy_auxiliary = self.actor_pair_loss(pair) if pair else None
+        if policy_auxiliary is not None:
+            diagnostics.update(self.auxiliary_diagnostics('actor',actor,policy_auxiliary))
         self.actor_opt.zero_grad(set_to_none=True)
         (actor if policy_auxiliary is None else actor+policy_auxiliary).backward()
         nn.utils.clip_grad_norm_(self.actor.parameters(),10.,error_if_nonfinite=True)
@@ -132,7 +139,8 @@ class DiscreteSAC:
             for target,online in zip(self.target.parameters(),self.q.parameters(),strict=True):
                 target.lerp_(online,d['tau'])
         self.updates += 1
-        result = dict(actor=float(actor.detach()),critic=float(critic.detach()),auxiliary=float(auxiliary.detach()))
+        result = dict(actor=float(actor.detach()),critic=float(critic.detach()),auxiliary=float(auxiliary.detach()),
+                      **diagnostics)
         if policy_auxiliary is not None:
             result['actor_auxiliary'] = float(policy_auxiliary.detach())
         return result

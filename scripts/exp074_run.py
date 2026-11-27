@@ -252,12 +252,12 @@ def validate_update_logs(plan,run,path,arm):
             raise AssertionError('Maturity or exposure limit exceeded')
 
 
-def train(root,base,plan,seed,arm):
+def train(root,base,plan,seed,arm,*,make_learner=learner,label='EXP074'):
     out=phys.run_files(root,seed,arm)
     file=out/'resume_latest.pt'
     stamp=phys.fingerprint(plan)
     n=plan['train_slots']
-    run=learner(seed,arm)
+    run=make_learner(seed,arm)
     initial=state_digests(run)
     fixed=next(c for c in plan['fixed'] if c['seed']==seed)
     cases=[c for c in plan['train'] if c['seed']==seed]
@@ -308,13 +308,13 @@ def train(root,base,plan,seed,arm):
             phys.write(out/f'episode{i}.json',exp)
             resume.update(episodes=i,learner=run.snapshot())
             publish(file,resume)
-            print(f'EXP074 {seed}/{arm} GS{i*n}: {total} updates, {len(path.pairs)} pairs, '
+            print(f'{label} {seed}/{arm} GS{i*n}: {total} updates, {len(path.pairs)} pairs, '
                   f'{elapsed:.1f}s train + {fixed_row["seconds"]:.1f}s fixed',flush=True)
         if not (out/'last.pt').exists():
             publish(out/'last.pt',dict(resume,updates=run.updates))
 
 
-def held_case(root,base,plan,case):
+def held_case(root,base,plan,case,*,label='EXP074'):
     seed=case['seed']
     path=root/f"held.{seed}.{case['tag']}.json"
     files={a:phys.run_files(root,seed,a)/'last.pt' for a in ARMS}
@@ -334,7 +334,7 @@ def held_case(root,base,plan,case):
             run.restore(state['learner'])
         arms[a]=evaluate(base,plan,case,plan['held_slots'],'holdout',a,run)
         phys.same_flow(arms['2h']['rows'],arms[a]['rows'])
-        print(f"EXP074 holdout {seed}/{case['tag']}/{a}: {arms[a]['seconds']:.1f}s",flush=True)
+        print(f"{label} holdout {seed}/{case['tag']}/{a}: {arms[a]['seconds']:.1f}s",flush=True)
     phys.write(path,dict(case=case,stamp=stamp,arms=arms,source=phys.source()))
 
 

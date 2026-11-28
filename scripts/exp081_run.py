@@ -1,4 +1,4 @@
-"""Retrain the EXP061 A recipe from random initialization for five seeds."""
+"""Retrain the EXP061 structured B recipe from random initialization for five seeds."""
 
 import argparse
 from dataclasses import asdict, replace
@@ -28,10 +28,12 @@ from scripts.exp055_joint import audit_rows, projection_matches
 from scripts.exp060_run import EVAL, initial_proof, settings, weights_digest
 
 
-ROOT = Path('runs/results/EXP081')
+RESULTS = Path('runs/results/EXP081')
+ROOT = RESULTS/'B'
 REVIEW = Path('research/EXP081/AI_RESEARCH_REVIEW.md')
 PARENT = 'd749c1039b1a26776a3e23e4834e171da89ff404'
 MODELS = ('best','last','resume_latest')
+ARM = 'B'
 
 
 def register(root,smoke):
@@ -41,25 +43,26 @@ def register(root,smoke):
             raise ValueError(f'Mismatched physical configuration {name}')
     seeds = sorted(SEEDS)[:1] if smoke else sorted(SEEDS)
     episodes,periods = (2,2) if smoke else (630,8)
-    cfgs = {str(s):asdict(replace(settings(base,s,'A'),periods=periods)) for s in seeds}
-    if any(c['macro_mode']!='redeploy' or c['freeze_ds'] or c['s_update_timing']!='period' for c in cfgs.values()):
-        raise ValueError('EXP061 original joint recipe has changed')
+    cfgs = {str(s):asdict(replace(settings(base,s,ARM),periods=periods)) for s in seeds}
+    if any(c['d_actor']!='structured' or c['macro_mode']!='redeploy' or c['freeze_ds']
+           or c['s_update_timing']!='period' for c in cfgs.values()):
+        raise ValueError('EXP061 structured joint recipe has changed')
     seen = set(seeds)|set(FIXED)
     seen.update(stable_seed('EXP019',s,'train-scene',i) for s in seeds for i in range(1,episodes+1))
     for folder in ('EXP060','EXP061'):
-        history = ROOT.parent/folder/'protocol.json'
+        history = RESULTS.parent/folder/'protocol.json'
         if history.exists():
             old = read(history)['plan']
             seen.update(c[k] for c in old['cases'] for k in ('scene','population'))
     cases = []
     for s,(variant,profile) in product(seeds,EVAL[:1] if smoke else EVAL):
-        label = 'EXP081-smoke' if smoke else 'EXP081-independent-v1'
+        label = 'EXP081-B-smoke' if smoke else 'EXP081-B-independent-v1'
         scene,pop = (stable_seed(label,s,variant,profile,k) for k in ('scene','population'))
         if scene==pop or scene in seen or pop in seen:
             raise ValueError('Independent evaluation random key collision')
         seen.update((scene,pop))
         cases.append(dict(seed=s,variant=variant,profile=profile,scene=scene,population=pop))
-    plan = dict(parent=PARENT,seeds=seeds,episodes=episodes,periods=periods,config=cfgs,cases=cases,
+    plan = dict(parent=PARENT,arm=ARM,action_dim=92,seeds=seeds,episodes=episodes,periods=periods,config=cfgs,cases=cases,
                 original=fingerprint(base),persistent=read(CONFIG)['overrides']['persistent'],
                 protocol=digest(REVIEW.with_name('PROTOCOL.md')))
     path = root/'protocol.json'
@@ -76,7 +79,7 @@ def files(root,s):
 
 
 def config(base,plan,s):
-    cfg = replace(settings(base,s,'A'),periods=plan['periods'])
+    cfg = replace(settings(base,s,ARM),periods=plan['periods'])
     if asdict(cfg)!=plan['config'][str(s)]:
         raise ValueError('Seed training configuration differs from registration')
     return cfg
@@ -90,7 +93,7 @@ def train_seed(root,base,plan,seed,target=None):
     proof_file = out/'proof.json'
     expected_gs = target*cfg.periods
     world_factory = partial(world,profile=workload(base['workload']))
-    origin = initial_proof(base,seed,'A')
+    origin = initial_proof(base,seed,ARM)
     with run_lock(out):
         if proof_file.exists():
             proof = read(proof_file)
@@ -122,8 +125,10 @@ def train_seed(root,base,plan,seed,target=None):
             rows = list(islice(stream,cfg.periods))
             if [r['gs'] for r in rows]!=list(range(i*cfg.periods+1,(i+1)*cfg.periods+1)):
                 raise ValueError('Missing or duplicated GS')
+            if any(len(row['d_latent'])!=plan['action_dim'] for row in rows):
+                raise ValueError('Training action did not use all 92 structured Gaussian controls')
             step = next(updates)
-            if min(step[k] for k in ('d_change','s_change','s_target_change'))<=0:
+            if min(step[k] for k in ('d_change','d_stage_change','s_change','s_target_change'))<=0:
                 raise ValueError('Missing a real D/S parameter update')
             dispatch += sum(map(count_actions,rows))
             error = max(error,audit_rows(world_factory(seed,rows[0]['scene'],'train'),rows))
@@ -183,9 +188,9 @@ def report(root,plan,review):
     documents = [read(p) for p in sorted(root.glob('seed*/held.*.json'))]
     final = plan['episodes']*plan['periods']
     count = sum(p['gs']==final for p in proofs)
-    lines = ['# EXP081 · EXP061 基线五种子重训','',f'源代码起点 `{PARENT}`。报告生成版本 `{source()["commit"]}`。',
+    lines = ['# EXP081 · EXP061 B 组结构化 Actor 五种子重训','',f'源代码起点 `{PARENT}`。报告生成版本 `{source()["commit"]}`。',
              f'完成至 GS{final} 的训练 **{count}/{len(plan["seeds"])}**，独立评价 **{len(documents)}/{len(plan["cases"])}**。',
-             '使用 EXP061 A 组原 8 维 Gaussian Actor、资源先验 DDQN、固定两小时部署与原始 Reward。起点、恢复及评估协议见同目录 `PROTOCOL.md`。','',
+             '使用 EXP061 B 组 92 维结构化 Gaussian Actor、资源先验 DDQN、固定两小时部署与原始 Reward。起点、恢复及评估协议见同目录 `PROTOCOL.md`。','',
              '| 种子 | GS / D / S | 最低原始 R | 严重 / 截尾 / 未完成 | best GS | 训练秒 |',
              '|---|---|---:|---|---:|---:|']
     if proofs:
@@ -233,7 +238,7 @@ def report(root,plan,review):
         lines.extend(['',f'配对平均 ΔReward {mean(x[0] for x in effects):+.5f}，ΔE2E {mean(x[1] for x in effects):+.5f} s，'
                        f'两个指标同时改善 {sum(r>0 and e<0 for r,e in effects)}/{len(effects)}。'])
     if review==REVIEW and (root/'smoke'/'AI_RESEARCH_REVIEW.md').exists():
-        lines += ['', '烟测完成 GS2 保存及 GS4 恢复，实际发生 2 次 D 与 32 次 S 更新，并完成一组同流独立评价。']
+        lines += ['', 'B 组烟测完成 GS2 保存及 GS4 恢复。核对了 92 维动作、结构化阶段分支实际更新、2 次 D 更新、32 次 S 更新及一组同流独立评价。']
     lines += ['',f'原始记录和每种子的 `best.pt`、`last.pt`、`resume_latest.pt` 保存在 `{root.as_posix()}/seed<seed>/`。','']
     atomic(review,lambda f:f.write('\n'.join(lines).encode('utf8')))
 

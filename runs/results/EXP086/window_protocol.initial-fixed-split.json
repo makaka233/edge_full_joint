@@ -1,0 +1,1 @@
+{"cases":{"migration":{"scene":3016268481,"population":86301},"stable":{"scene":2592249236,"population":86301},"high":{"scene":2390890314,"population":86301}},"issue":"Selection used fixed split; physical test uses holdout. Correct selection before physical migration testing; no reward consulted."}

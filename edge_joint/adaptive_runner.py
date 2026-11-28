@@ -83,7 +83,9 @@ def restore_actor_optimizer(opt, saved, configured_lr, override, saved_override)
 
 def train(cfg, out, target, *, resume=False, init=None, world_factory=make_world,
           simulator_factory=PeriodSimulator, environment_id=None, initial_snapshot=None,
-          resume_d_actor_lr=None, resume_d_settled_offset=None):
+          resume_d_actor_lr=None, resume_d_settled_offset=None, frozen_s_path=None):
+    if getattr(cfg, 'freeze_s', False) != (frozen_s_path is not None):
+        raise ValueError('D-only training requires an explicit frozen S checkpoint')
     if resume_d_actor_lr is not None and (not resume or cfg.freeze_ds or
                                          not isfinite(resume_d_actor_lr) or resume_d_actor_lr<=0.):
         raise ValueError('Actor learning-rate override requires positive joint resume training')
@@ -108,12 +110,26 @@ def train(cfg, out, target, *, resume=False, init=None, world_factory=make_world
             cfg.macro_mode != 'redeploy' or cfg.freeze_ds or init is not None):
         raise ValueError('Placement observation trials require random joint fixed-REDEPLOY')
     d, s, opt, replay, gate, gate_opt = components(cfg)
+    frozen_s_origin = None
+    if frozen_s_path is not None:
+        from hashlib import sha256
+        saved_s = read_checkpoint(frozen_s_path)
+        if saved_s['config']['seed'] != cfg.seed:
+            raise ValueError('Frozen scheduler belongs to another training seed')
+        s.online.load_state_dict(saved_s['s_online'])
+        s.target.load_state_dict(saved_s['s_online'])
+        s.online.requires_grad_(False)
+        s.target.requires_grad_(False)
+        frozen_s_origin = dict(kind='random_d_frozen_s', file=str(frozen_s_path),
+                               sha256=sha256(frozen_s_path.read_bytes()).hexdigest())
     d_credit_offset = torch.zeros(cfg.periods) if cfg.d_advantage_calibration else None
     d_load_moments = torch.zeros((3,cfg.periods)) if cfg.d_load_conditioned_credit else None
     d_settled_offset = None
     resume_path = out / 'resume_latest.pt'
     if resume:
         state = read_checkpoint(resume_path)
+        if frozen_s_origin is not None and state['origin'] != frozen_s_origin:
+            raise ValueError('Frozen S source changed on resume')
         if type(cfg)(**state['config']) != cfg or state.get('environment_id') != environment_id:
             raise ValueError('Resume requires the same seed, training configuration and environment')
         saved_override = state.get('d_actor_lr_override')
@@ -163,7 +179,7 @@ def train(cfg, out, target, *, resume=False, init=None, world_factory=make_world
             raise ValueError('Existing run evidence found. Use --resume or choose a fresh prefix.')
         index, d_updates, wall = 0, 0, 0.
         offsets = dict.fromkeys(('train.jsonl', 'updates.jsonl', 'fixed.jsonl'), 0)
-        origin = seed_weights(init, cfg, d, s) if init is not None else dict(kind='random')
+        origin = seed_weights(init, cfg, d, s) if init is not None else (frozen_s_origin or dict(kind='random'))
         best = None
         history = []
     entry = dict(start_episode=index, target_episode=target, **source())
@@ -214,7 +230,7 @@ def train(cfg, out, target, *, resume=False, init=None, world_factory=make_world
     atomic(out/'manifest.json', lambda file: file.write(line(metadata)))
     for index in range(index+1, target+1):
         scene = stable_seed('EXP019', cfg.seed, 'train-scene', index)
-        period_updates = PeriodUpdates(cfg, s, replay, index) if cfg.s_update_timing == 'period' and not cfg.freeze_ds else None
+        period_updates = PeriodUpdates(cfg, s, replay, index) if cfg.s_update_timing == 'period' and not cfg.freeze_ds and not getattr(cfg, 'freeze_s', False) else None
         d_audit = {} if cfg.d_diagnostics else None
         ledger, credit, transitions = episode(cfg, world_factory(cfg.seed, scene, 'train'), d, s, gate,
                                               scene, 'train', index, simulator_factory=simulator_factory,

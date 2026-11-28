@@ -1,0 +1,21 @@
+{
+  "version": "EXP086-long-demand-v1",
+  "macro_seconds": 7200,
+  "micro_seconds": 24,
+  "residence_median_hours": 72,
+  "residence_log_sd": 0.5,
+  "change_components": ["region", "service", "load", "joint"],
+  "change_probabilities": [0.35, 0.35, 0.15, 0.15],
+  "daily_amplitude": [0.1, 0.3],
+  "residual_ar": {"global": 0.85, "region": 0.85, "service": 0.90},
+  "residual_stationary_sd": {"global": 0.08, "region": 0.06, "service": 0.08},
+  "prehistory_slots": [168, 504],
+  "rate_matching": "same-new-macro-process-original-population-reference",
+  "decoder": "fixed-exogenous-field-per-trajectory",
+  "training_seeds": [20261113, 20261117],
+  "episodes": 64,
+  "episode_slots": 8,
+  "validation_episodes": [0, 32, 64],
+  "final_slots": 168,
+  "duration_sensitivity_hours": [48, 120]
+}

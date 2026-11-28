@@ -247,6 +247,8 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
     for i in range(first_period, cfg.periods):
         period_tick = time.perf_counter()
         start, end = i * cfg.period_seconds, (i + 1) * cfg.period_seconds
+        if hasattr(env.w, 'macro_time'):
+            env.w.t = start  # micro event time; never assigned to macro_time
         if d_settled_credit:
             settled = 0. if not cohort else known_cohort_reward(
                 cohort[-1], start, env.cost['delay_weight'], rows[-1]['holding_cost'], rows[-1]['switch_cost'])/cfg.gamma
@@ -298,7 +300,7 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
         old = env.old.copy()
         backlog = sim.active_requests if sim is not None else 0
         carried = sum(r.pending is not None for r in sim.requests) if sim is not None else 0
-        epsilon = max(.05, .25 - .20 * (gs - 1) / (cfg.epsilon_steps - 1)) if online and not cfg.freeze_ds else 0.
+        epsilon = max(.05, .25 - .20 * (gs - 1) / (cfg.epsilon_steps - 1)) if online and not cfg.freeze_ds and not getattr(cfg, 'freeze_s', False) else 0.
         log_cold_start = hasattr(cfg, 's_uniform_before_first_update')
         log_work = getattr(cfg, 'log_physical_work', False)
         log_dispatch = log_cold_start or log_work
@@ -328,6 +330,8 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
 
             scheduler = counted
         decode_key = stable_seed('EXP019', decoder_seed, split, scene, i, 'decode')
+        if getattr(cfg, 'fixed_decoder_field', False):
+            decode_key = stable_seed('EXP086', decoder_seed, split, scene, 'decoder-field')
         if control.fixed_decoder_key is not None:
             if not cfg.freeze_ds:
                 raise ValueError('A fixed decoder field is only enabled for frozen research rollouts')
@@ -370,7 +374,7 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
         if profile:
             decode_seconds = time.perf_counter() - decode_tick
         if sim is None:
-            sim = simulator_factory(env, target, scheduler, index, s.version, collect,
+            sim = simulator_factory(env, target, scheduler, index, s.version, collect and not getattr(cfg, 'freeze_s', False),
                                   track_dispatch=period_updates is not None,
                                   observe_placement=observe)
             sim.trace_enabled = control.trace or control.trace_requests
@@ -436,6 +440,19 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
                          wall_seconds=time.perf_counter()-period_tick, **switch))
         if d_settled_credit:
             rows[-1]['d_known_cohort_credit'] = settled
+        if hasattr(env.w, 'macro_time'):
+            if not np.array_equal(old, sim.deployment) or not hasattr(sim, 'last_layout_macro_time'):
+                sim.last_layout_macro_time = env.w.macro_time
+            rows[-1].update(macro_time=env.w.macro_time, macro_end=env.w.macro_time+env.w.long_config['macro_seconds'],
+                            micro_start=start, micro_end=end,
+                            deployment_age_seconds=env.w.macro_time-sim.last_layout_macro_time,
+                            demand_audit=env.w.audit_state(), decoder_key=int(decode_key), arrival_key=int(arrival_key),
+                            added_replicas=int(np.sum(sim.deployment & ~old)),
+                            removed_replicas=int(np.sum(old & ~sim.deployment)),
+                            changed_bits=int(np.sum(old != sim.deployment)),
+                            ram_ssd_used=(sim.deployment.T @ env.spec).sum(0).tolist(),
+                            added_resources=((sim.deployment & ~old).T @ env.spec).sum(0).tolist(),
+                            removed_resources=((old & ~sim.deployment).T @ env.spec).sum(0).tolist())
         if log_dispatch:
             rows[-1].update(s_updates_at_decision=s.updates, s_dispatch_counts=dispatch_counts.copy())
         if observation is not None:
@@ -471,7 +488,7 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
     sim.end_replay()
     rows[-1].update(drain_decisions=sim.decisions-before_drain, episode_wall_seconds=time.perf_counter()-started,
                     residual_requests=sim.active_requests)
-    if collect and (len(sim.transitions) != sim.decisions or
+    if collect and not getattr(cfg, 'freeze_s', False) and (len(sim.transitions) != sim.decisions or
                     len({(r.request_id, r.stage_index) for r in sim.transitions}) != len(sim.transitions)):
         raise AssertionError('Continuous DDQN transition ledger does not reconcile')
     for row, requests in zip(rows, cohort, strict=True):
@@ -612,7 +629,7 @@ def update(cfg, d, s, opt, replay, gate, gate_opt, ledger, credit, transitions, 
         admitted = period_updates.cursor
         metrics = period_updates.metrics
         extra = dict(s_unfinished_expiry_excluded=len(transitions)-admitted, s_deferred_steps=period_updates.budget)
-    elif transitions:
+    elif transitions and not getattr(cfg, 'freeze_s', False):
         step = ledger[-1]['gs']
         replay.add(transitions)
         replay.prune(step)

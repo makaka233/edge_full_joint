@@ -1,0 +1,13 @@
+﻿{
+    "pid":  34320,
+    "started_beijing":  "2026-11-28T22:21:31.9754624+08:00",
+    "command":  "C:\\tool\\python\\python.exe -u -m scripts.exp088_run all --workers 2",
+    "stdout":  "C:\\Users\\1\\Desktop\\edge_full_joint\\runs\\results\\EXP088\\formal.stdout.log",
+    "stderr":  "C:\\Users\\1\\Desktop\\edge_full_joint\\runs\\results\\EXP088\\formal.stderr.log",
+    "estimated_finish_beijing":  [
+                                     "2026-11-28T23:51:31.9754624+08:00",
+                                     "2026-11-29T02:21:31.9754624+08:00"
+                                 ],
+    "source":  "358d55bf3d2835978d3675aee5587c76a0d6558c",
+    "basis":  "72 main GS smoke 61.16s including checks; first paired step 1.885s; two workers; conditional final evaluation"
+}

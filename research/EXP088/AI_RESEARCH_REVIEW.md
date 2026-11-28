@@ -8,7 +8,7 @@
 
 **相对24h/KEEP：** 尚未证明比性能可行的24h/KEEP有额外价值。
 
-状态：not started。已完成正式训练 0/2。更新于北京时间 2026-11-28T22:20:34+08:00。
+状态：training and fixed validation running。已完成正式训练 0/2。更新于北京时间 2026-11-28T22:21:35+08:00。
 
 
 
@@ -58,4 +58,4 @@
 
 
 
-报告生成时源码：{'commit': 'adf92e9787fb51d71f14440b168b66c2a433e3fb', 'dirty': True, 'tracked_dirty': True, 'python': '3.11.7', 'os': 'Windows-10-10.0.26200-SP0', 'torch': '2.11.0+cpu', 'numpy': '2.4.6'}。模型和实验自身记录其执行版本；后续仅报告修改不等于物理重跑。
+报告生成时源码：{'commit': '358d55bf3d2835978d3675aee5587c76a0d6558c', 'dirty': True, 'tracked_dirty': True, 'python': '3.11.7', 'os': 'Windows-10-10.0.26200-SP0', 'torch': '2.11.0+cpu', 'numpy': '2.4.6'}。模型和实验自身记录其执行版本；后续仅报告修改不等于物理重跑。

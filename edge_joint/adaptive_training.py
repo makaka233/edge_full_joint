@@ -203,11 +203,13 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
             control=RolloutControl(), period_updates=None, d_audit=None,
             simulator_factory=PeriodSimulator, boundary=None, profile=False,
             initial_deployment=None, continuation=None, timing_policy=None, observe_proposal=False,
-            d_settled_credit=False):
+            d_settled_credit=False, finalize=True):
     """Run all business periods on one event queue."""
     started = time.perf_counter()
     online = split == 'train'
     collect = online and not cfg.freeze_ds and recorded_matrices is None
+    if not finalize and (collect or not cfg.freeze_ds):
+        raise ValueError('Nonterminal physical segments require frozen D/S')
     if timing_policy is not None and (not cfg.freeze_ds or recorded_matrices is not None):
         raise ValueError('External timing decisions require frozen D/S and no recorded matrices')
     if observe_proposal and (timing_policy is None or control.sample_d is not False or control.focal_latent is not None):
@@ -474,12 +476,21 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
         if boundary is not None:
             boundary(env, sim, period, 'end')
         credit.append((gate_logp, d_logp, value))
-        if period < cfg.periods:
+        if period < cfg.periods or not finalize:
             if period_updates is not None:
                 rows[-1]['s_boundary'] = period_updates.advance(sim.transitions, gs)
             env.w.advance()
             env.w.t = end
         previous = demand
+    if not finalize:
+        # A sampling boundary is not a physical terminal: keep every live job,
+        # advance demand once, and leave the last cohort unscored until its
+        # original deadline occurs during the next ordinary business window.
+        for row, requests in zip(rows[:-1], cohort[:-1], strict=True):
+            row.update(request_metrics(requests, row['end']+env.tail, env.failure_penalty))
+            raw = -(env.cost['delay_weight']*(row['e2e_penalized'] or 0.)+row['holding_cost']+row['switch_cost'])
+            row.update(reward_raw=raw, reward_net=raw, score_deadline=row['end']+env.tail)
+        return rows, credit, sim.transitions
     before_drain = sim.decisions
     sim.run_until(end + env.tail)
     sim.verify()

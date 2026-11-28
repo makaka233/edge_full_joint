@@ -5,7 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 from time import perf_counter
 import subprocess
-import inspect
+import ast
 from hashlib import sha256
 import numpy as np
 import torch
@@ -24,7 +24,10 @@ BASELINE='d0f18d1c9e3697d9fb233609390f7174d221cdb1'
 
 def physical_signature():
     # Presentation-only edits do not invalidate expensive physical evidence.
-    return sha256(''.join(inspect.getsource(f) for f in (identity,opening_state,pressure,pair,replay_group)).encode()).hexdigest()
+    tree=ast.parse(Path(__file__).read_text(encoding='utf8'))
+    names={'identity','opening_state','pressure','pair','replay_group'}
+    parts=[ast.dump(n,include_attributes=False) for n in tree.body if isinstance(n,ast.FunctionDef) and n.name in names]
+    return sha256(''.join(parts).encode()).hexdigest()
 
 
 def corrected(rows):
@@ -280,6 +283,10 @@ def report(status):
         '本轮不改环境、成本、D/S或学习算法，不训练T。计数修订不是性能改善。',
         'Seed17首坏附近的已见时间线显示：GS58是load中心从0跳到2，区域/服务热点未变；提供CPU负载从GS57的0.351升至0.678。这是强度变化与日内高峰附近的局部承载风险，不应写成区域/服务迁移。GS56介入是回顾性诊断，不能证明在线策略能预知GS58。',
         '诊断标签是固定KEEP续行下4/8GS有限期差，不是策略一致T标签、最优长期Q或独立泛化试验。']
+    key_case=next((r for r in pairs if r['spec']['id']=='20261117.last.change'),None)
+    if key_case:
+        a,b=(key_case['arms'][x]['costs']['8']['metrics'] for x in ('0','1'))
+        lines.insert(2,f'核心结论：找到了当前D可部分修复的失配，但未完全恢复可靠性。Seed17 last在GS56提前执行其唯一候选，8GS校正折扣净收益增加{key_case["delta"]["8"]["aligned"]:.6f}；截尾{a["censored"]}→{b["censored"]}、严重槽{a["severe"]}→{b["severe"]}、P99 {a["p99"]:.3f}→{b["p99"]:.3f}s。候选显著缓解风险，但仍有失败，不能写成完全修复或T已经能在线识别时机。')
     if summaries:
         lines+=['|种子/模型/规则|Reward|任务E2E|periodE2E|P99|严重/截尾/末端|初始化/命令/实际变化|初始化/后续切换成本|','|---|---|---|---|---|---|---|---|']
         for k,m in summaries.items():
@@ -337,6 +344,18 @@ def report(status):
         '建议将EXP081 mature两配对作为同一版本的时机开发候选基线；EXP086 last两配对单独保留为部署学习研究组，不跨种子挑选拼接。成熟KEEP和24h已是强参照，T的额外收益空间仍需证明。',
         '后续只开放T；连续轨迹短批次继承物理状态并正确处理截断；不得读取剩余驻留。需固定2h/24h/KEEP参照、全新最终流、事前非劣界限以及与实际续策一致且绑定D/S版本的信用。不直接使用本轮固定KEEP标签作为最终T价值目标。',
         '命令：`python -m scripts.exp087_run all --workers 2`；所有身份/registry/紧凑时间线/pairs/replays保存在runs/results/EXP087。完整EXP086资产哈希在runs/results/EXP086/archive/manifest.json。阶段一原始训练及验证图仍在research/EXP086/AI_RESEARCH_REVIEW.md，未以3点验证曲线代替原始512GS。']
+    if len(pairs)==8:
+        costs_only=[r['spec']['id'] for r in pairs if r['delta']['8']['latency']<0 and r['delta']['8']['aligned']<0]
+        signs=[r['spec']['id'] for r in pairs if np.sign(r['delta']['4']['aligned'])!=np.sign(r['delta']['8']['aligned'])]
+        replays=[read(f) for f in (ROOT/'replays').glob('*.json')]
+        lines += ['## 机制判断与局限',
+            'Seed13 last GS32候选降低E2E约69.6ms、8GS净回报差+5.1401，支持变化后的旧布局可被当前D改善。Seed17 last GS56候选降低E2E约976.9ms，但仍40截尾/4严重槽，属于部分修复，尚不能区分其承载余量不足与未来负载进一步变化下再次调整的必要性。没有追加分支去强行区分。',
+            'Seed17 mature GS27虽发生结构变化，KEEP仍略优且两臂均无失败；结构变化不是重部署答案。Seed17 last稳定GS4换候选反而增加约14.0ms E2E，支持拒绝较差新布局。其余稳定点的收益很小，不据这些点证明复杂T优于成熟模型固定周期。',
+            f'时延成本下降但不足以抵消成本的KEEP点：{costs_only}。本轮没有补齐此类型案例；不能声称真实切换成本经济权衡已经广泛得到验证。4/8GS收益方向反转点：{signs}；范围有限，不推出更长周期或自适应续策同方向。',
+            '固定24h在GS49调整后GS58开始失效、下一次GS61调整后改善，支持周期相位可能错过变化；但这不是同状态GS58动作因果试验。GS56分叉是相同旧状态的真实反事实，且未把未来负载输给D；选点本身使用已见失败，因此不能证明未来T可以预判。',
+            '两个分支最终尾段残留为零不抵消早期严重槽与截尾。旧队列随瞬时切换继续执行，没有迁移或清空；上一cohort校正幅度已逐点列出，远小于Seed17改善，主差异来自随后请求而非边界漏账。',
+            '下一步若只补D：优先核验Seed17 last在持续高强度中心的单次布局承载及固定验证跨场景稳定性，不机械加GS。本轮未执行该补充。若开展T开发，优先整体冻结EXP081成熟配对、保留24h与KEEP强对照；这是开发入口建议，不是T晋级结论。',
+            f'实际工作量：8对=16条8GS分支，共128分支GS；确定性回放{sum(r["prefix_gs"] for r in replays)}GS；分支事件{sum(a["events"] for r in pairs for a in r["arms"].values())}、回放事件{sum(r["events"] for r in replays)}。累计分支墙钟{sum(r["seconds"] for r in pairs):.2f}s，回放墙钟{sum(r["seconds"] for r in replays):.2f}s（并行工作之和，不等于经过时间）；首对回放2.53s+分支9.26s，余下任务主程序经过89.91s。']
     REVIEW.parent.mkdir(parents=True,exist_ok=True);REVIEW.write_text('\n\n'.join(lines)+'\n',encoding='utf8')
     # Lightweight portable evidence keeps per-period physical curves and identities.
     for r in pairs:
@@ -345,6 +364,16 @@ def report(status):
         write(ROOT/f'compact_pairs/{r["spec"]["id"]}.json',small)
     files=list((ROOT/'pairs').glob('*.json'))+list((ROOT/'replays').glob('*.json'))
     write(ROOT/'result_manifest.json',[dict(path=str(f),bytes=f.stat().st_size,sha256=digest(f)) for f in files])
+    for f in (ROOT/'timelines').glob('*.json'):
+        data=read(f);packed=[]
+        for row in data['rows']:
+            row=dict(row)
+            for resource in ('cpu','wired','wireless'):
+                records=row.pop(resource)
+                row[resource+'_pending']=[v['work_pending'] for v in records]
+                row[resource+'_utilization']=[v['utilization'] for v in records]
+            packed.append(row)
+        write(ROOT/'portable_timelines'/f.name,{**data,'rows':packed})
 
 
 def main():

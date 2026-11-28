@@ -40,6 +40,8 @@ class RolloutControl:
     """Independent random sources and optional interventions for frozen evaluation."""
     environment_seed: int | None = None
     decoder_seed: int | None = None
+    # Optional frozen-evaluation control; None preserves every historical key.
+    fixed_decoder_key: int | None = None
     loads: tuple[float | None, ...] = ()
     sample_d: bool | None = None
     epsilon: float | None = None
@@ -326,6 +328,10 @@ def episode(cfg, env, d, s, gate, scene, split, index, mode=None, *, recorded_ma
 
             scheduler = counted
         decode_key = stable_seed('EXP019', decoder_seed, split, scene, i, 'decode')
+        if control.fixed_decoder_key is not None:
+            if not cfg.freeze_ds:
+                raise ValueError('A fixed decoder field is only enabled for frozen research rollouts')
+            decode_key = control.fixed_decoder_key
         if profile:
             decode_tick = time.perf_counter()
             proposal_decode_seconds = 0.
